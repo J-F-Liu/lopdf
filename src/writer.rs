@@ -8,15 +8,11 @@ use super::Object::*;
 impl Document {
 	pub fn save(&mut self, path: &Path) -> Result<File, io::Error> {
 		let mut file = File::create(path)?;
-		let mut max_id: u32 = 0;
 
 		file.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
 		self.reference_table.clear();
 
 		for (id, object) in &self.objects {
-			if id.0 > max_id {
-				max_id = id.0;
-			}
 			let offset = file.seek(SeekFrom::Current(0)).unwrap();
 			self.reference_table.insert(id.0, (id.1, offset));
 
@@ -26,9 +22,9 @@ impl Document {
 		}
 
 		let xref_start = file.seek(SeekFrom::Current(0)).unwrap();
-		self.write_xref(&mut file, max_id)?;
+		self.write_xref(&mut file)?;
 		self.write_trailer(&mut file)?;
-		file.write_all(format!("startxref\n{}\n%%EOF", xref_start).as_bytes())?;
+		file.write_all(format!("\nstartxref\n{}\n%%EOF", xref_start).as_bytes())?;
 
 		Ok(file)
 	}
@@ -51,7 +47,7 @@ impl Document {
 			Integer(_) => true,
 			Real(_) => true,
 			Name(_) => true,
-			Stream(_) => true,
+			Object::Stream(_) => true,
 			_ => false,
 		}
 	}
@@ -65,8 +61,8 @@ impl Document {
 			Name(ref name) => Document::write_name(file, name),
 			String(ref text, ref format) => Document::write_string(file, text, format),
 			Array(ref array) => Document::write_array(file, array),
-			Dictionary(ref dict) => Document::write_dictionary(file, dict),
-			Stream(ref stream) => Document::write_stream(file, stream),
+			Object::Dictionary(ref dict) => Document::write_dictionary(file, dict),
+			Object::Stream(ref stream) => Document::write_stream(file, stream),
 			Reference(ref id) => file.write_all(format!("{} {} R", id.0, id.1).as_bytes()),
 		}
 	}
@@ -172,9 +168,9 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_xref(&self, file: &mut File, max_id: u32) -> Result<(), io::Error> {
+	fn write_xref(&self, file: &mut File) -> Result<(), io::Error> {
 		file.write_all(b"xref\n")?;
-		file.write_all(format!("0 {}\n", max_id + 1).as_bytes())?;
+		file.write_all(format!("0 {}\n", self.max_id + 1).as_bytes())?;
 
 		let mut write_xref_entry = |offset: u64, generation: u16, kind: char| {
 			file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes())
@@ -182,7 +178,7 @@ impl Document {
 		write_xref_entry(0, 65535, 'f')?;
 
 		let mut obj_id = 1;
-		while obj_id <= max_id {
+		while obj_id <= self.max_id {
 			if let Some(&(generation, offset)) = self.reference_table.get(&obj_id) {
 				write_xref_entry(offset, generation, 'n')?;
 			} else {
@@ -193,10 +189,10 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_trailer(&self, file: &mut File) -> Result<(), io::Error> {
+	fn write_trailer(&mut self, file: &mut File) -> Result<(), io::Error> {
+		self.trailer.set("Size", (self.max_id + 1) as i64);
 		file.write_all(b"trailer\n")?;
 		Document::write_dictionary(file, &self.trailer)?;
-		file.write_all(b"\n")?;
 		Ok(())
 	}
 }
@@ -216,10 +212,10 @@ fn save_document() {
 	doc.objects.insert((9,2), Array(vec![Integer(1), Integer(2), Integer(3)]));
 	doc.objects.insert((11,0), Stream(Stream::new(vec![0x41, 0x42, 0x43])));
 	let mut dict = Dictionary::new();
-	dict.insert("A".to_string(), Null);
-	dict.insert("B".to_string(), Boolean(false));
-	dict.insert("C".to_string(), Name("name".to_string()));
-	// doc.objects.insert((10,0), Dictionary(dict));
-	doc.trailer = dict;
+	dict.set("A", Null);
+	dict.set("B", false);
+	dict.set("C", Name("name".to_string()));
+	doc.objects.insert((12,0), Object::Dictionary(dict));
+	doc.max_id = 12;
 	doc.save(Path::new("test.pdf")).unwrap();
 }

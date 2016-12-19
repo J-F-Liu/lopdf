@@ -3,7 +3,6 @@ use super::{Object, ObjectId, Dictionary};
 
 /// PDF document
 pub struct Document {
-
 	/// The version of the PDF specification to which the file conforms.
 	pub version: String,
 
@@ -15,6 +14,9 @@ pub struct Document {
 
 	/// The objects that make up the document contained in the file.
 	pub objects: BTreeMap<ObjectId, Object>,
+
+	/// maximum object id
+	pub max_id: u32,
 }
 
 impl Document {
@@ -24,6 +26,7 @@ impl Document {
 			trailer: Dictionary::new(),
 			reference_table: BTreeMap::new(),
 			objects: BTreeMap::new(),
+			max_id: 0,
 		}
 	}
 }
