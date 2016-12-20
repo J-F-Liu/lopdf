@@ -71,7 +71,7 @@ impl Document {
 		file.write_all(b"/")?;
 		for &byte in name.as_bytes() {
 			// white-space and delimiter chars are encoded to # sequences
-			if b" \t\x0C\r\n()<>[]{}/%#".contains(&byte) {
+			if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) {
 				file.write_all(format!("#{:02X}", byte).as_bytes())?;
 			} else {
 				file.write_all(&[byte])?;
@@ -217,5 +217,5 @@ fn save_document() {
 	dict.set("C", Name("name".to_string()));
 	doc.objects.insert((12,0), Object::Dictionary(dict));
 	doc.max_id = 12;
-	doc.save(Path::new("test.pdf")).unwrap();
+	doc.save(Path::new("test_0_save.pdf")).unwrap();
 }

@@ -86,12 +86,12 @@ impl Dictionary {
 }
 
 impl<'a> IntoIterator for &'a Dictionary {
-    type Item = (&'a String, &'a Object);
-    type IntoIter = ::std::collections::btree_map::Iter<'a, String, Object>;
+	type Item = (&'a String, &'a Object);
+	type IntoIter = ::std::collections::btree_map::Iter<'a, String, Object>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
+	fn into_iter(self) -> Self::IntoIter {
+		self.0.iter()
+	}
 }
 
 impl Stream {
