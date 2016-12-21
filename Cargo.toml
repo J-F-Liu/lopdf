@@ -9,3 +9,4 @@ readme = "README.md"
 description = "A Rust library for PDF document manipulation."
 
 [dependencies]
+nom = "2.0.1"

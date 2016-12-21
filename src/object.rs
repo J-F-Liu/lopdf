@@ -76,6 +76,15 @@ impl From<Stream> for Object {
 	}
 }
 
+impl Object {
+	pub fn as_i64(&self) -> Option<i64> {
+		match *self {
+			Object::Integer(ref value) => Some(*value),
+			_ => None
+		}
+	}
+}
+
 impl Dictionary {
 	pub fn new() -> Dictionary {
 		Dictionary(BTreeMap::new())
