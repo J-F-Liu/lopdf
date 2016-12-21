@@ -12,7 +12,6 @@ impl Document {
 
 #[test]
 fn create_document() {
-	use std::path::Path;
 	use Object::{Null, Integer, Name, String, Reference};
 	use super::{Dictionary, Stream, StringFormat};
 
@@ -33,5 +32,5 @@ fn create_document() {
 	dict.set("B", false);
 	dict.set("C", Name("name".to_string()));
 	doc.add_object(dict);
-	doc.save(Path::new("test_1_create.pdf")).unwrap();
+	doc.save("test_1_create.pdf").unwrap();
 }

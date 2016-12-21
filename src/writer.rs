@@ -1,12 +1,12 @@
 use std::fs::File;
-use std::io::{self, Seek, Write, SeekFrom};
+use std::io::{Result, Seek, Write, SeekFrom};
 use std::path::Path;
 
 use super::{Document, Object, Dictionary, Stream, StringFormat};
 use super::Object::*;
 
 impl Document {
-	pub fn save(&mut self, path: &Path) -> Result<File, io::Error> {
+	pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
 		let mut file = File::create(path)?;
 
 		file.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
@@ -53,7 +53,7 @@ impl Document {
 		}
 	}
 
-	fn write_object<'a>(file: &mut File, object: &'a Object) -> Result<(), io::Error> {
+	fn write_object<'a>(file: &mut File, object: &'a Object) -> Result<()> {
 		match *object {
 			Null => file.write_all(b"null"),
 			Boolean(ref value) => file.write_all(format!("{}", value).as_bytes()),
@@ -68,7 +68,7 @@ impl Document {
 		}
 	}
 
-	fn write_name<'a>(file: &mut File, name: &'a str) -> Result<(), io::Error> {
+	fn write_name<'a>(file: &mut File, name: &'a str) -> Result<()> {
 		file.write_all(b"/")?;
 		for &byte in name.as_bytes() {
 			// white-space and delimiter chars are encoded to # sequences
@@ -81,7 +81,7 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_string<'a>(file: &mut File, text: &'a [u8], format: &'a StringFormat) -> Result<(), io::Error> {
+	fn write_string<'a>(file: &mut File, text: &'a [u8], format: &'a StringFormat) -> Result<()> {
 		match *format {
 			// Within a Literal string, backslash (\) and unbalanced parentheses should be escaped.
 			// This rule apply to each individual byte in a string object,
@@ -133,7 +133,7 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_array<'a>(file: &mut File, array: &'a Vec<Object>) -> Result<(), io::Error> {
+	fn write_array<'a>(file: &mut File, array: &'a Vec<Object>) -> Result<()> {
 		file.write_all(b"[")?;
 		let mut first = true;
 		for object in array {
@@ -148,7 +148,7 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_dictionary<'a>(file: &mut File, dictionary: &'a Dictionary) -> Result<(), io::Error> {
+	fn write_dictionary<'a>(file: &mut File, dictionary: &'a Dictionary) -> Result<()> {
 		file.write_all(b"<<")?;
 		for (key, value) in dictionary {
 			Document::write_name(file, key)?;
@@ -161,7 +161,7 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_stream<'a>(file: &mut File, stream: &'a Stream) -> Result<(), io::Error> {
+	fn write_stream<'a>(file: &mut File, stream: &'a Stream) -> Result<()> {
 		Document::write_dictionary(file, &stream.dict)?;
 		file.write_all(b"stream\n")?;
 		file.write_all(&stream.content)?;
@@ -169,7 +169,7 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_xref(&self, file: &mut File) -> Result<(), io::Error> {
+	fn write_xref(&self, file: &mut File) -> Result<()> {
 		file.write_all(b"xref\n")?;
 		file.write_all(format!("0 {}\n", self.max_id + 1).as_bytes())?;
 
@@ -190,7 +190,7 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_trailer(&mut self, file: &mut File) -> Result<(), io::Error> {
+	fn write_trailer(&mut self, file: &mut File) -> Result<()> {
 		self.trailer.set("Size", (self.max_id + 1) as i64);
 		file.write_all(b"trailer\n")?;
 		Document::write_dictionary(file, &self.trailer)?;
@@ -218,5 +218,5 @@ fn save_document() {
 	dict.set("C", Name("name".to_string()));
 	doc.objects.insert((12,0), Object::Dictionary(dict));
 	doc.max_id = 12;
-	doc.save(Path::new("test_0_save.pdf")).unwrap();
+	doc.save("test_0_save.pdf").unwrap();
 }
