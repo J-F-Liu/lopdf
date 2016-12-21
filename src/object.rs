@@ -2,15 +2,18 @@ use std::collections::BTreeMap;
 
 pub type ObjectId = (u32, u16);
 
+#[derive(Debug)]
 pub struct Dictionary(BTreeMap<String, Object>);
 
 /// Stream Object
+#[derive(Debug)]
 pub struct Stream {
 	pub dict: Dictionary,
 	pub content: Vec<u8>,
 }
 
 ///  basic types of PDF objects
+#[derive(Debug)]
 pub enum Object {
 	Null,
 	Boolean(bool),
@@ -25,6 +28,7 @@ pub enum Object {
 }
 
 /// String objects can be written in two ways
+#[derive(Debug)]
 pub enum StringFormat {
 	Literal,
 	Hexadecimal,
@@ -77,6 +81,12 @@ impl Dictionary {
 		Dictionary(BTreeMap::new())
 	}
 
+	pub fn get<K>(&self, key: K) -> Option<&Object>
+		where K: Into<String>
+	{
+		self.0.get(&key.into())
+	}
+
 	pub fn set<K, V>(&mut self, key: K, value: V)
 		where K: Into<String>,
 		      V: Into<Object>
@@ -95,8 +105,7 @@ impl<'a> IntoIterator for &'a Dictionary {
 }
 
 impl Stream {
-	pub fn new(content: Vec<u8>) -> Stream {
-		let mut dict = Dictionary::new();
+	pub fn new(mut dict: Dictionary, content: Vec<u8>) -> Stream {
 		dict.set("Length", content.len() as i64);
 		Stream {
 			dict: dict,

@@ -47,6 +47,7 @@ impl Document {
 			Integer(_) => true,
 			Real(_) => true,
 			Name(_) => true,
+			Reference(_) => true,
 			Object::Stream(_) => true,
 			_ => false,
 		}
@@ -210,7 +211,7 @@ fn save_document() {
 	doc.objects.insert((7,0), Name("name \t".to_string()));
 	doc.objects.insert((8,0), Reference((1,0)));
 	doc.objects.insert((9,2), Array(vec![Integer(1), Integer(2), Integer(3)]));
-	doc.objects.insert((11,0), Stream(Stream::new(vec![0x41, 0x42, 0x43])));
+	doc.objects.insert((11,0), Stream(Stream::new(Dictionary::new(), vec![0x41, 0x42, 0x43])));
 	let mut dict = Dictionary::new();
 	dict.set("A", Null);
 	dict.set("B", false);

@@ -27,7 +27,7 @@ fn create_document() {
 	doc.add_object(Name("name \t".to_string()));
 	doc.add_object(Reference((1,0)));
 	doc.add_object(vec![Integer(1), Integer(2), Integer(3)]);
-	doc.add_object(Stream::new(vec![0x41, 0x42, 0x43]));
+	doc.add_object(Stream::new(Dictionary::new(), vec![0x41, 0x42, 0x43]));
 	let mut dict = Dictionary::new();
 	dict.set("A", Null);
 	dict.set("B", false);
