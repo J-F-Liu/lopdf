@@ -77,9 +77,23 @@ impl From<Stream> for Object {
 }
 
 impl Object {
+	pub fn is_null(&self) -> bool {
+		match *self {
+			Object::Null => true,
+			_ => false
+		}
+	}
+
 	pub fn as_i64(&self) -> Option<i64> {
 		match *self {
 			Object::Integer(ref value) => Some(*value),
+			_ => None
+		}
+	}
+
+	pub fn as_reference(&self) -> Option<ObjectId> {
+		match *self {
+			Object::Reference(ref id) => Some(*id),
 			_ => None
 		}
 	}
@@ -101,6 +115,10 @@ impl Dictionary {
 		      V: Into<Object>
 	{
 		self.0.insert(key.into(), value.into());
+	}
+
+	pub fn len(&self) -> usize {
+		self.0.len()
 	}
 }
 

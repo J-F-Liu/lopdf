@@ -213,6 +213,7 @@ named!(dictionary_or_stream<Object>, do_parse!(
 		tag!("stream") >>
 		eol >>
 		data: take!(dict.get("Length").and_then(|value|value.as_i64()).unwrap() as usize) >>
+		opt!(eol) >>
 		tag!("endstream") >>
 		opt!(eol) >>
 		(data.to_vec())
@@ -246,7 +247,7 @@ named!(object<&[u8], Object>, alt!(
 	| dictionary_or_stream => {|dict_or_stream| dict_or_stream }
 ));
 
-named!(indirect_object<&[u8], (ObjectId, Object)>, do_parse!(
+named!(pub indirect_object<&[u8], (ObjectId, Object)>, do_parse!(
 	id: object_id >>
 	tag!("obj") >>
 	opt!(space) >>
@@ -257,7 +258,7 @@ named!(indirect_object<&[u8], (ObjectId, Object)>, do_parse!(
 	(id, object)
 ));
 
-named!(header<&[u8], String>, do_parse!(
+named!(pub header<&[u8], String>, do_parse!(
 	tag!("%PDF-") >>
 	version: map_res!(not_line_ending, str::from_utf8) >>
 	eol >>
@@ -319,26 +320,26 @@ named!(pub xref_start<i64>, do_parse!(
 	(offset)
 ));
 
-named!(pub document<Document>, map!(
-	tuple!(
-		header,
-		many0!(indirect_object),
-		xref,
-		trailer,
-		xref_start
-	),
-	|(version, objects, xref, trailer, xref_start)| {
-		let mut doc = Document::new();
-		doc.version = version;
-		for (id, object) in objects {
-			doc.objects.insert(id, object);
-		}
-		doc.reference_table = xref;
-		doc.trailer = trailer;
-		doc.max_id = doc.trailer.get("Size").and_then(|value|value.as_i64()).unwrap() as u32 - 1;
-		doc
-	}
-));
+// named!(pub document<Document>, map!(
+// 	tuple!(
+// 		header,
+// 		many0!(indirect_object),
+// 		xref,
+// 		trailer,
+// 		xref_start
+// 	),
+// 	|(version, objects, xref, trailer, xref_start)| {
+// 		let mut doc = Document::new();
+// 		doc.version = version;
+// 		for (id, object) in objects {
+// 			doc.objects.insert(id, object);
+// 		}
+// 		doc.reference_table = xref;
+// 		doc.trailer = trailer;
+// 		doc.max_id = doc.trailer.get("Size").and_then(|value|value.as_i64()).unwrap() as u32 - 1;
+// 		doc
+// 	}
+// ));
 
 #[test]
 fn parse_real_number() {

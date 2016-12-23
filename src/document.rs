@@ -29,4 +29,16 @@ impl Document {
 			max_id: 0,
 		}
 	}
+
+	pub fn get_object(&self, id: ObjectId) -> Option<&Object> {
+		if let Some(object) = self.objects.get(&id) {
+			if let Some(id) = object.as_reference() {
+				self.get_object(id)
+			} else {
+				Some(object)
+			}
+		} else {
+			None
+		}
+	}
 }
