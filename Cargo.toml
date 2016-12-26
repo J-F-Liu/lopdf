@@ -1,9 +1,10 @@
 [package]
 name = "lopdf"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
-repository = "https://github.com/J-F-Liu/lopdf.git"
 homepage = "https://github.com/J-F-Liu/lopdf"
+documentation = "https://docs.rs/lopdf/"
+repository = "https://github.com/J-F-Liu/lopdf.git"
 license = "MIT"
 readme = "README.md"
 description = "A Rust library for PDF document manipulation."

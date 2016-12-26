@@ -6,6 +6,7 @@ use super::{Document, Object, Dictionary, Stream, StringFormat};
 use super::Object::*;
 
 impl Document {
+	/// Save PDF document to specified file path.
 	pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
 		let mut file = File::create(path)?;
 

@@ -1,18 +1,20 @@
 use std::collections::BTreeMap;
 
+/// Object identifier consists of two parts: object number and generation number.
 pub type ObjectId = (u32, u16);
 
+/// Dictionary object.
 #[derive(Debug)]
 pub struct Dictionary(BTreeMap<String, Object>);
 
-/// Stream Object
+/// Stream Object.
 #[derive(Debug)]
 pub struct Stream {
 	pub dict: Dictionary,
 	pub content: Vec<u8>,
 }
 
-///  basic types of PDF objects
+/// Basic PDF object types defined in an enum.
 #[derive(Debug)]
 pub enum Object {
 	Null,
@@ -27,7 +29,7 @@ pub enum Object {
 	Reference(ObjectId),
 }
 
-/// String objects can be written in two ways
+/// String objects can be written in two formats.
 #[derive(Debug)]
 pub enum StringFormat {
 	Literal,

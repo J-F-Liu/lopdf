@@ -8,11 +8,14 @@ use super::{Document, Object, ObjectId, Dictionary};
 use super::parser;
 
 impl Document {
+	/// Load PDF document from specified file path.
 	pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
 		let mut file = File::open(path)?;
 		let mut buffer = Vec::with_capacity(file.metadata()?.len() as usize);
 		file.read_to_end(&mut buffer)?;
 
+		// The document structure can be expressed in PEG as:
+		//   document <- header indirect_object* xref trailer xref_start
 		let version = match parser::header(&buffer) {
 				IResult::Done(_, version) => Some(version),
 				_ => None,

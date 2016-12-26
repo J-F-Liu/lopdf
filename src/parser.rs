@@ -212,7 +212,7 @@ named!(dictionary_or_stream<Object>, do_parse!(
 		opt!(space) >>
 		tag!("stream") >>
 		eol >>
-		data: take!(dict.get("Length").and_then(|value|value.as_i64()).unwrap() as usize) >>
+		data: take!(dict.get("Length").and_then(|value|value.as_i64()).expect("Stream Length should be an integer.") as usize) >>
 		opt!(eol) >>
 		tag!("endstream") >>
 		opt!(eol) >>
@@ -319,27 +319,6 @@ named!(pub xref_start<i64>, do_parse!(
 	opt!(space) >>
 	(offset)
 ));
-
-// named!(pub document<Document>, map!(
-// 	tuple!(
-// 		header,
-// 		many0!(indirect_object),
-// 		xref,
-// 		trailer,
-// 		xref_start
-// 	),
-// 	|(version, objects, xref, trailer, xref_start)| {
-// 		let mut doc = Document::new();
-// 		doc.version = version;
-// 		for (id, object) in objects {
-// 			doc.objects.insert(id, object);
-// 		}
-// 		doc.reference_table = xref;
-// 		doc.trailer = trailer;
-// 		doc.max_id = doc.trailer.get("Size").and_then(|value|value.as_i64()).unwrap() as u32 - 1;
-// 		doc
-// 	}
-// ));
 
 #[test]
 fn parse_real_number() {

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use super::{Object, ObjectId, Dictionary};
 
-/// PDF document
+/// PDF document.
 pub struct Document {
 	/// The version of the PDF specification to which the file conforms.
 	pub version: String,
@@ -15,11 +15,12 @@ pub struct Document {
 	/// The objects that make up the document contained in the file.
 	pub objects: BTreeMap<ObjectId, Object>,
 
-	/// maximum object id
+	/// Current maximum object id within the document.
 	pub max_id: u32,
 }
 
 impl Document {
+	/// Create new PDF document.
 	pub fn new() -> Document {
 		Document {
 			version: "1.4".to_string(),
@@ -30,6 +31,7 @@ impl Document {
 		}
 	}
 
+	/// Get object by object id, will recursively dereference a referenced object.
 	pub fn get_object(&self, id: ObjectId) -> Option<&Object> {
 		if let Some(object) = self.objects.get(&id) {
 			if let Some(id) = object.as_reference() {
