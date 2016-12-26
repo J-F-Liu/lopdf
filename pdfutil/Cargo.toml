@@ -1,0 +1,8 @@
+[package]
+name = "pdfutil"
+version = "0.1.0"
+authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
+
+[dependencies]
+lopdf = {path = "../"}
+clap = "2.19.2"
