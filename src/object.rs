@@ -60,6 +60,18 @@ impl From<f64> for Object {
 	}
 }
 
+impl From<String> for Object {
+	fn from(name: String) -> Self {
+		Object::Name(name)
+	}
+}
+
+impl<'a> From<&'a str> for Object {
+	fn from(name: &'a str) -> Self {
+		Object::Name(name.to_owned())
+	}
+}
+
 impl From<Vec<Object>> for Object {
 	fn from(array: Vec<Object>) -> Self {
 		Object::Array(array)
@@ -93,9 +105,23 @@ impl Object {
 		}
 	}
 
+	pub fn as_name(&self) -> Option<&str> {
+		match *self {
+			Object::Name(ref name) => Some(name),
+			_ => None
+		}
+	}
+
 	pub fn as_reference(&self) -> Option<ObjectId> {
 		match *self {
 			Object::Reference(ref id) => Some(*id),
+			_ => None
+		}
+	}
+
+	pub fn as_array(&self) -> Option<&Vec<Object>> {
+		match *self {
+			Object::Array(ref arr) => Some(arr),
 			_ => None
 		}
 	}
@@ -122,6 +148,12 @@ impl Dictionary {
 	pub fn len(&self) -> usize {
 		self.0.len()
 	}
+
+	pub fn remove<K>(&mut self, key: K) -> Option<Object>
+		where K: Into<String>
+	{
+		self.0.remove(&key.into())
+	}
 }
 
 impl<'a> IntoIterator for &'a Dictionary {
@@ -139,6 +171,53 @@ impl Stream {
 		Stream {
 			dict: dict,
 			content: content,
+		}
+	}
+
+	pub fn filter(&self) -> Option<String> {
+		if let Some(filter) = self.dict.get("Filter") {
+			if let Some(filter) = filter.as_name() {
+				return Some(filter.to_owned()); // so as to pass borrow checker
+			}
+		}
+		return None;
+	}
+
+	pub fn compress(&mut self) {
+		use std::io::prelude::*;
+		use flate2::Compression;
+		use flate2::write::ZlibEncoder;
+
+		if self.dict.get("Filter").is_none() {
+			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::Best);
+			encoder.write(self.content.as_slice()).unwrap();
+			let compressed = encoder.finish().unwrap();
+			if compressed.len() + 19 < self.content.len() {
+				self.content = compressed;
+				self.dict.set("Filter", "FlateDecode");
+				self.dict.set("Length", self.content.len() as i64);
+			}
+		}
+	}
+
+	pub fn decompress(&mut self) {
+		use std::io::prelude::*;
+		use flate2::read::ZlibDecoder;
+
+		if let Some(filter) = self.filter() {
+			match filter.as_str() {
+				"FlateDecode" => {
+					let mut data = Vec::new();
+					{
+						let mut decoder = ZlibDecoder::new(self.content.as_slice());
+						decoder.read_to_end(&mut data).unwrap();
+					}
+					self.content = data;
+					self.dict.remove("Filter");
+					self.dict.set("Length", self.content.len() as i64);
+				},
+				_ => ()
+			}
 		}
 	}
 }

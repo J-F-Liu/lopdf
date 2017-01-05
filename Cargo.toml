@@ -1,6 +1,6 @@
 [package]
 name = "lopdf"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
 homepage = "https://github.com/J-F-Liu/lopdf"
 documentation = "https://docs.rs/lopdf/"
@@ -11,3 +11,4 @@ description = "A Rust library for PDF document manipulation."
 
 [dependencies]
 nom = "2.0.1"
+flate2 = "0.2.14"
