@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{Result, Read, Error, ErrorKind};
 use std::path::Path;
 
-use super::{Document, Object, ObjectId, Dictionary};
+use super::{Document, Object, ObjectId};
 use super::parser;
 
 impl Document {
@@ -19,19 +19,19 @@ impl Document {
 		let version = match parser::header(&buffer) {
 				IResult::Done(_, version) => Some(version),
 				_ => None,
-			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file."))?;
+			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (header)."))?;
 
 		let xref_start = Self::get_xref_start(&buffer)?;
 
 		let (input, xref) = match parser::xref(&buffer[xref_start..]) {
 				IResult::Done(input, table) => Some((input, table)),
 				_ => None,
-			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file."))?;
+			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref)."))?;
 
 		let trailer = match parser::trailer(input) {
 				IResult::Done(_, dict) => Some(dict),
 				_ => None,
-			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file."))?;
+			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (trailer)."))?;
 
 		let mut doc = Document::new();
 		doc.version = version;
@@ -50,7 +50,7 @@ impl Document {
 	fn read_object(&mut self, buffer: &[u8], offset: usize) -> Result<(ObjectId, Object)> {
 		match parser::indirect_object(&buffer[offset..]) {
 			IResult::Done(_, (object_id, object)) => Ok((object_id, object)),
-			_ => Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file.")),
+			_ => Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).", offset))),
 		}
 	}
 
@@ -62,7 +62,7 @@ impl Document {
 				IResult::Done(_, startxref) => Some(startxref as usize),
 				_ => None,
 			})
-			.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file."))
+			.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)."))
 	}
 
 	fn search_substring(buffer: &[u8], pattern: &[u8], start_pos: usize) -> Option<usize> {

@@ -182,8 +182,13 @@ named!(hexadecimal_string<&[u8], Vec<u8>>, do_parse!(
 named!(array<Vec<Object>>, do_parse!(
 	tag!("[") >>
 	opt!(space) >>
-	objects: separated_list!(space, object) >>
-	opt!(space) >>
+	objects: many0!(
+		do_parse!(
+			object: object >>
+			opt!(space) >>
+			(object)
+		)
+	) >>
 	tag!("]") >>
 	(objects)
 ));
