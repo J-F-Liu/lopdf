@@ -1,11 +1,11 @@
-use std::collections::BTreeMap;
+use linked_hash_map::{self, LinkedHashMap};
 
 /// Object identifier consists of two parts: object number and generation number.
 pub type ObjectId = (u32, u16);
 
 /// Dictionary object.
 #[derive(Debug)]
-pub struct Dictionary(BTreeMap<String, Object>);
+pub struct Dictionary(LinkedHashMap<String, Object>);
 
 /// Stream Object.
 #[derive(Debug)]
@@ -129,7 +129,7 @@ impl Object {
 
 impl Dictionary {
 	pub fn new() -> Dictionary {
-		Dictionary(BTreeMap::new())
+		Dictionary(LinkedHashMap::new())
 	}
 
 	pub fn get<K>(&self, key: K) -> Option<&Object>
@@ -158,7 +158,7 @@ impl Dictionary {
 
 impl<'a> IntoIterator for &'a Dictionary {
 	type Item = (&'a String, &'a Object);
-	type IntoIter = ::std::collections::btree_map::Iter<'a, String, Object>;
+	type IntoIter = linked_hash_map::Iter<'a, String, Object>;
 
 	fn into_iter(self) -> Self::IntoIter {
 		self.0.iter()
