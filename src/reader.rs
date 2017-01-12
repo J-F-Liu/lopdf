@@ -13,14 +13,32 @@ impl Document {
 		let mut file = File::open(path)?;
 		let mut buffer = Vec::with_capacity(file.metadata()?.len() as usize);
 		file.read_to_end(&mut buffer)?;
-		let mut input = DataInput::new(&buffer);
 
+		let mut reader = Reader {
+			buffer: buffer,
+			document: Document::new(),
+		};
+
+		reader.read()?;
+		Ok(reader.document)
+	}
+}
+
+pub struct Reader {
+	buffer: Vec<u8>,
+	document: Document,
+}
+
+impl Reader {
+	// fn new()
+	fn read(&mut self) -> Result<()> {
+		let mut input = DataInput::new(&self.buffer);
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
 		let version = parser::header().parse(&mut input)
 			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (header)."))?;
 
-		let xref_start = Self::get_xref_start(&buffer, &mut input)?;
+		let xref_start = Self::get_xref_start(&self.buffer, &mut input)?;
 		input.jump_to(xref_start);
 
 		let xref = parser::xref().parse(&mut input)
@@ -29,24 +47,42 @@ impl Document {
 		let trailer = parser::trailer().parse(&mut input)
 			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (trailer)."))?;
 
-		let mut doc = Document::new();
-		doc.version = version;
+		self.document.version = version;
+		self.document.max_id = trailer.get("Size").and_then(|value| value.as_i64()).unwrap() as u32 - 1;
+		self.document.trailer = trailer;
+		self.document.reference_table = xref;
 
-		for (_id, &(_gen, offset)) in &xref {
-			let (object_id, object) = doc.read_object(&mut input, offset as usize)?;
-			doc.objects.insert(object_id, object);
+		for (_id, &(_gen, offset)) in &self.document.reference_table {
+			let (object_id, object) = self.read_object(offset as usize)?;
+			self.document.objects.insert(object_id, object);
 		}
 
-		doc.reference_table = xref;
-		doc.trailer = trailer;
-		doc.max_id = doc.trailer.get("Size").and_then(|value| value.as_i64()).unwrap() as u32 - 1;
-		Ok(doc)
+		Ok(())
 	}
 
-	fn read_object(&mut self, input: &mut Input<u8>, offset: usize) -> Result<(ObjectId, Object)> {
+	/// Get object offset by object id.
+	fn get_offset(&self, id: ObjectId) -> Option<u64> {
+		if let Some(&(gen, offset)) = self.document.reference_table.get(&id.0) {
+			if gen == id.1 { Some(offset) } else { None }
+		} else {
+			None
+		}
+	}
+
+	pub fn get_object(&self, id: ObjectId) -> Option<Object> {
+		if let Some(offset) = self.get_offset(id) {
+			if let Ok((_, obj)) = self.read_object(offset as usize) {
+				return Some(obj);
+			}
+		}
+		return None;
+	}
+
+	fn read_object(&self, offset: usize) -> Result<(ObjectId, Object)> {
+		let mut input = DataInput::new(&self.buffer);
 		input.jump_to(offset);
-		parser::indirect_object().parse(input)
-			.map_err(|_|Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).", offset)))
+		parser::indirect_object(self).parse(&mut input)
+			.map_err(|err|Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).\n{:?}", offset, err)))
 	}
 
 	fn get_xref_start(buffer: &[u8], input: &mut Input<u8>) -> Result<usize> {

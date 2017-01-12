@@ -1,9 +1,9 @@
 use pom::char_class::{hex_digit, oct_digit};
 use pom::parser::*;
-use pom::DataInput;
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use super::{Document, Object, ObjectId, Dictionary, Stream, StringFormat};
+use super::{Object, ObjectId, Dictionary, Stream, StringFormat};
+use reader::Reader;
 
 fn eol() -> Parser<u8, u8> {
 	term(b'\r') * term(b'\n') | term(b'\n') | term(b'\r')
@@ -103,11 +103,11 @@ fn hexadecimal_string() -> Parser<u8, Vec<u8>> {
 }
 
 fn array() -> Parser<u8, Vec<Object>> {
-	term(b'[') * space() * call(object).repeat(0..) - term(b']')
+	term(b'[') * space() * call(direct_object).repeat(0..) - term(b']')
 }
 
 fn dictionary() -> Parser<u8, Dictionary> {
-	let entry = name() - space() + call(object);
+	let entry = name() - space() + call(direct_object);
 	let entries = seq(b"<<") * space() * entry.repeat(0..) - seq(b">>");
 	entries.map(|entries| entries.into_iter().fold(
 		Dictionary::new(),
@@ -115,11 +115,16 @@ fn dictionary() -> Parser<u8, Dictionary> {
 	))
 }
 
-fn stream() -> Parser<u8, Stream> {
+fn stream(reader: &Reader) -> Parser<u8, Stream> {
 	dictionary() - space() - seq(b"stream") - eol() >>
 	|dict: Dictionary| {
-		let length = dict.get("Length").and_then(|value|value.as_i64()).expect("Stream Length should be an integer.");
-		let stream = take(length as usize) - eol().opt() - seq(b"endstream") - eol().opt();
+		let length = dict.get("Length").and_then(|value| {
+			if let Some(id) = value.as_reference() {
+				return reader.get_object(id).and_then(|value|value.as_i64());
+			}
+			return value.as_i64();
+		}).expect("Stream Length should be an integer.");
+		let stream = take(length as usize) - eol().opt() - seq(b"endstream");
 		stream.map(move |data|Stream::new(dict.clone(), data))
 	}
 }
@@ -130,7 +135,7 @@ fn object_id() -> Parser<u8, ObjectId> {
 	id - space() + gen - space()
 }
 
-fn object() -> Parser<u8, Object> {
+fn direct_object() -> Parser<u8, Object> {
 	( seq(b"null").map(|_|Object::Null)
 	| seq(b"true").map(|_|Object::Boolean(true))
 	| seq(b"false").map(|_|Object::Boolean(false))
@@ -141,13 +146,28 @@ fn object() -> Parser<u8, Object> {
 	| literal_string().map(|bytes| Object::String(bytes, StringFormat::Literal))
 	| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 	| array().map(|items|Object::Array(items))
-	| stream().map(|stream|Object::Stream(stream))
 	| dictionary().map(|dict|Object::Dictionary(dict))
 	) - space()
 }
 
-pub fn indirect_object() -> Parser<u8, (ObjectId, Object)> {
-	object_id() - seq(b"obj") - space() + object() - space() - seq(b"endobj") - space()
+fn object(reader: &Reader) -> Parser<u8, Object> {
+	( seq(b"null").map(|_|Object::Null)
+	| seq(b"true").map(|_|Object::Boolean(true))
+	| seq(b"false").map(|_|Object::Boolean(false))
+	| object_id().map(|id|Object::Reference(id)) - term(b'R')
+	| real().map(|num|Object::Real(num))
+	| integer().map(|num|Object::Integer(num))
+	| name().map(|text| Object::Name(text))
+	| literal_string().map(|bytes| Object::String(bytes, StringFormat::Literal))
+	| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
+	| array().map(|items|Object::Array(items))
+	| stream(reader).map(|stream|Object::Stream(stream))
+	| dictionary().map(|dict|Object::Dictionary(dict))
+	) - space()
+}
+
+pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
+	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj") - space()
 }
 
 pub fn header() -> Parser<u8, String> {
@@ -180,34 +200,40 @@ pub fn xref_start() -> Parser<u8, i64> {
 	seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()
 }
 
-#[test]
-fn parse_real_number() {
-	let r0 = real().parse(&mut DataInput::new(b"0.12"));
-	assert_eq!(r0, Ok(0.12));
-	let r1 = real().parse(&mut DataInput::new(b"-.12"));
-	assert_eq!(r1, Ok(-0.12));
-	let r2 = real().parse(&mut DataInput::new(b"10."));
-	assert_eq!(r2, Ok(10.0));
-}
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use pom::DataInput;
 
-#[test]
-fn parse_string() {
-	assert_eq!(
-		literal_string().parse(&mut DataInput::new(b"()")),
-		Ok(b"".to_vec()));
-	assert_eq!(
-		literal_string().parse(&mut DataInput::new(b"(text())")),
-		Ok(b"text()".to_vec()));
-	assert_eq!(
-		literal_string().parse(&mut DataInput::new(b"(text\r\n\\\\(nested\\t\\b\\f))")),
-		Ok(b"text\r\n\\(nested\t\x08\x0C)".to_vec()));
-	assert_eq!(
-		literal_string().parse(&mut DataInput::new(b"(text\\0\\53\\053\\0053)")),
-		Ok(b"text\0++\x053".to_vec()));
-	assert_eq!(
-		literal_string().parse(&mut DataInput::new(b"(text line\\\n())")),
-		Ok(b"text line()".to_vec()));
-	assert_eq!(
-		name().parse(&mut DataInput::new(b"/ABC#5f")),
-		Ok("ABC\x5F".to_string()));
+	#[test]
+	fn parse_real_number() {
+		let r0 = real().parse(&mut DataInput::new(b"0.12"));
+		assert_eq!(r0, Ok(0.12));
+		let r1 = real().parse(&mut DataInput::new(b"-.12"));
+		assert_eq!(r1, Ok(-0.12));
+		let r2 = real().parse(&mut DataInput::new(b"10."));
+		assert_eq!(r2, Ok(10.0));
+	}
+
+	#[test]
+	fn parse_string() {
+		assert_eq!(
+			literal_string().parse(&mut DataInput::new(b"()")),
+			Ok(b"".to_vec()));
+		assert_eq!(
+			literal_string().parse(&mut DataInput::new(b"(text())")),
+			Ok(b"text()".to_vec()));
+		assert_eq!(
+			literal_string().parse(&mut DataInput::new(b"(text\r\n\\\\(nested\\t\\b\\f))")),
+			Ok(b"text\r\n\\(nested\t\x08\x0C)".to_vec()));
+		assert_eq!(
+			literal_string().parse(&mut DataInput::new(b"(text\\0\\53\\053\\0053)")),
+			Ok(b"text\0++\x053".to_vec()));
+		assert_eq!(
+			literal_string().parse(&mut DataInput::new(b"(text line\\\n())")),
+			Ok(b"text line()".to_vec()));
+		assert_eq!(
+			name().parse(&mut DataInput::new(b"/ABC#5f")),
+			Ok("ABC\x5F".to_string()));
+	}
 }
