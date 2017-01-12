@@ -1,356 +1,213 @@
-use nom::{IResult, ErrorKind, Needed, digit, not_line_ending, is_hex_digit, is_oct_digit};
+use pom::char_class::{hex_digit, oct_digit};
+use pom::parser::*;
+use pom::DataInput;
 use std::collections::BTreeMap;
-use std::str::{self, FromStr};
+use std::str::FromStr;
 use super::{Document, Object, ObjectId, Dictionary, Stream, StringFormat};
 
-fn hex_digit(input: &[u8]) -> IResult<&[u8], u8> {
-	if input.is_empty() {
-		IResult::Incomplete(Needed::Size(1))
-	} else if is_hex_digit(input[0]) {
-		IResult::Done(&input[1..], input[0])
-	} else {
-		IResult::Error(error_position!(ErrorKind::Custom(0), input))
-	}
+fn eol() -> Parser<u8, u8> {
+	term(b'\r') * term(b'\n') | term(b'\n') | term(b'\r')
 }
 
-fn oct_digit(input: &[u8]) -> IResult<&[u8], u8> {
-	if input.is_empty() {
-		IResult::Incomplete(Needed::Size(1))
-	} else if is_oct_digit(input[0]) {
-		IResult::Done(&input[1..], input[0])
-	} else {
-		IResult::Error(error_position!(ErrorKind::Custom(0), input))
-	}
+fn comment() -> Parser<u8, ()> {
+	term(b'%') * none_of(b"\r\n").repeat(0..) * eol().discard()
 }
 
-fn regular_name_char(input: &[u8]) -> IResult<&[u8], u8> {
-	if input.is_empty() {
-		IResult::Incomplete(Needed::Size(1))
-	} else if b" \t\n\r\x0C()<>[]{}/%#".contains(&input[0]) {
-		IResult::Error(error_position!(ErrorKind::Custom(0), input))
-	} else {
-		IResult::Done(&input[1..], input[0])
-	}
+fn space() -> Parser<u8, ()> {
+	( one_of(b" \t\n\r\0\x0C").repeat(1..).discard()
+	| comment()
+	).repeat(0..).discard()
 }
 
-named!(eol, alt!(tag!("\r\n") | tag!("\n") | tag!("\r")));
+fn integer() -> Parser<u8, i64> {
+	let number = one_of(b"+-").opt() + one_of(b"0123456789").repeat(1..);
+	number.collect().map(|v|String::from_utf8(v).unwrap()).map(|s|i64::from_str(&s).unwrap())
+}
 
-named!(comment<&[u8], ()>, do_parse!(tag!("%")>>not_line_ending>>eol>>()));
+fn real() -> Parser<u8, f64> {
+	let number = one_of(b"+-").opt() +
+		( one_of(b"0123456789").repeat(1..) * term(b'.') - one_of(b"0123456789").repeat(0..)
+		| term(b'.') - one_of(b"0123456789").repeat(1..)
+		);
+	number.collect().map(|v|String::from_utf8(v).unwrap()).map(|s|f64::from_str(&s).unwrap())
+}
 
-named!(white_space_or_comment<&[u8], ()>, alt!(
-	is_a!(" \t\n\r\0\x0C") => {|_|()}
-	| comment
-));
+fn hex_char() -> Parser<u8, u8> {
+	let number = is_a(hex_digit).repeat(2..3);
+	number.collect().map(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 16).unwrap())
+}
 
-named!(space<&[u8], ()>, do_parse!(
-	many1!(white_space_or_comment) >> ()
-));
+fn oct_char() -> Parser<u8, u8> {
+	let number = is_a(oct_digit).repeat(1..4);
+	number.collect().map(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 8).unwrap())
+}
 
-named!(sign<&[u8], i64>, alt!(
-	tag!("+") => {|_|1}
-	| tag!("-")=> {|_|-1}
-));
+fn name() -> Parser<u8, String> {
+	let name = term(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | term(b'#') * hex_char()).repeat(0..);
+	name.map(|v|String::from_utf8(v).unwrap())
+}
 
-named!(integer<&[u8], i64>, map!(
-	pair!(
-		opt!(sign),
-		map_res!(map_res!(digit, str::from_utf8), i64::from_str)
-	),
-	|(sign, value): (Option<i64>, i64)| { sign.unwrap_or(1) * value }
-));
+fn escape_sequence() -> Parser<u8, Vec<u8>> {
+	term(b'\\') *
+	( term(b'\\').map(|_| vec![b'\\'])
+	| term(b'(').map(|_| vec![b'('])
+	| term(b')').map(|_| vec![b')'])
+	| term(b'n').map(|_| vec![b'\n'])
+	| term(b'r').map(|_| vec![b'\r'])
+	| term(b't').map(|_| vec![b'\t'])
+	| term(b'b').map(|_| vec![b'\x08'])
+	| term(b'f').map(|_| vec![b'\x0C'])
+	| oct_char().map(|c| vec![c])
+	| eol()     .map(|_| vec![])
+	| empty()   .map(|_| vec![])
+	)
+}
 
-named!(real<&[u8], f64>, map!(
-	pair!(
-		opt!(sign),
-		map_res!(map_res!(
-			recognize!(
-				alt!(
-					delimited!(digit, tag!("."), opt!(complete!(digit))) |
-					preceded!(tag!("."), digit)
-				)
-			),
-		str::from_utf8), f64::from_str)
-	),
-	|(sign, value): (Option<i64>, f64)| {
-		(sign.unwrap_or(1) as f64) * value
-	}
-));
-
-named!(hex_char<&[u8], u8>, map_res!(
-	do_parse!(
-		tag!("#") >>
-		b1: hex_digit >>
-		b2: hex_digit >>
-		(b1, b2)
-	), |(b1, b2)| {
-		u8::from_str_radix(&format!("{}{}", b1 as char, b2 as char), 16)
-	}
-));
-
-named!(oct_char<&[u8], u8>, map_res!(
-	many_m_n!(1, 3, oct_digit), |bytes:Vec<u8>| {
-		u8::from_str_radix(&String::from_utf8(bytes).unwrap(), 8)
-	}
-));
-
-named!(name<&[u8], String>, do_parse!(
-	tag!("/") >>
-	bytes: fold_many0!(
-		alt!(
-			regular_name_char
-			| hex_char
-		),
-		vec![],
-		|mut acc: Vec<_>, item| { acc.push(item); acc }
-	) >>
-	(String::from_utf8(bytes).unwrap())
-));
-
-named!(escape_sequence<&[u8], Vec<u8>>, do_parse!(
-	tag!("\\") >>
-	bytes: alt!(
-	  tag!("\\")       => { |_| vec![b'\\'] }
-	| tag!("(")        => { |_| vec![b'('] }
-	| tag!(")")        => { |_| vec![b')'] }
-	| tag!("n")        => { |_| vec![b'\n'] }
-	| tag!("r")        => { |_| vec![b'\r'] }
-	| tag!("t")        => { |_| vec![b'\t'] }
-	| tag!("b")        => { |_| vec![b'\x08'] }
-	| tag!("f")        => { |_| vec![b'\x0C'] }
-	| oct_char         => { |c| vec![c] }
-	| eol              => { |_| vec![] }
-	) >>
-	(bytes)
-));
-
-named!(regular_chars<&[u8], Vec<u8>>, do_parse!(
-	bytes: is_not!("\\()") >>
-	(bytes.to_vec())
-));
-
-named!(nested_literal_string<&[u8], Vec<u8>>, map!(
-	do_parse!(
-		tag!("(") >>
-		bytes: fold_many0!(
-			alt!(
-				regular_chars
-				| escape_sequence
-				| nested_literal_string
-			),
+fn nested_literal_string() -> Parser<u8, Vec<u8>> {
+	term(b'(') *
+	( none_of(b"\\()").repeat(1..)
+	| escape_sequence()
+	| call(nested_literal_string)
+	).repeat(0..).map(|segments| {
+		let mut bytes = segments.into_iter().fold(
 			vec![b'('],
-			|mut acc: Vec<_>, mut item| { acc.append(&mut item); acc }
-		) >>
-		tag!(")") >>
-		(bytes)
-	), |mut bytes: Vec<u8>| {
+			|mut bytes, mut segment| {
+				bytes.append(&mut segment);
+				bytes
+			});
 		bytes.push(b')');
 		bytes
-	}
-));
-
-named!(literal_string<&[u8], Vec<u8>>, do_parse!(
-	tag!("(") >>
-	bytes: fold_many0!(
-		alt!(
-			regular_chars
-			| escape_sequence
-			| nested_literal_string
-		),
-		Vec::new(),
-		|mut acc: Vec<_>, mut item| { acc.append(&mut item); acc }
-	) >>
-	tag!(")") >>
-	(bytes)
-));
-
-named!(hexadecimal_string<&[u8], Vec<u8>>, do_parse!(
-	tag!("<") >>
-	bytes: fold_many0!(
-		map_res!(pair!(
-			hex_digit,
-			hex_digit
-		), |(b1, b2)| {
-			u8::from_str_radix(&format!("{}{}", b1 as char, b2 as char), 16)
-		}),
-		Vec::new(),
-		|mut acc: Vec<_>, item| { acc.push(item); acc }
-	) >>
-	tag!(">") >>
-	(bytes)
-));
-
-named!(array<Vec<Object>>, do_parse!(
-	tag!("[") >>
-	opt!(space) >>
-	objects: many0!(
-		do_parse!(
-			object: object >>
-			opt!(space) >>
-			(object)
-		)
-	) >>
-	tag!("]") >>
-	(objects)
-));
-
-named!(dictionary<Dictionary>, do_parse!(
-	tag!("<<") >>
-	opt!(space) >>
-	dict: fold_many0!(
-		do_parse!(
-			key: name >>
-			opt!(space) >>
-			value: object >>
-			opt!(space) >>
-			(key, value)
-		),
-		Dictionary::new(),
-		|mut acc: Dictionary, (key, value)| { acc.set(key, value); acc }
-	) >>
-	tag!(">>") >>
-	(dict)
-));
-
-named!(dictionary_or_stream<Object>, do_parse!(
-	dict: dictionary >>
-	stream: opt!(do_parse!(
-		opt!(space) >>
-		tag!("stream") >>
-		eol >>
-		data: take!(dict.get("Length").and_then(|value|value.as_i64()).expect("Stream Length should be an integer.") as usize) >>
-		opt!(eol) >>
-		tag!("endstream") >>
-		opt!(eol) >>
-		(data.to_vec())
-	)) >>
-	// (stream.map_or(Object::Dictionary(dict), |data|Object::Stream(Stream::new(dict, data))))
-	(match stream {
-		None => Object::Dictionary(dict),
-		Some(data) => Object::Stream(Stream::new(dict, data))
 	})
-));
+	- term(b')')
+}
 
-named!(object_id<&[u8], ObjectId>, do_parse!(
-	id: map_res!(map_res!(digit, str::from_utf8), u32::from_str) >>
-	space >>
-	gen: map_res!(map_res!(digit, str::from_utf8), u16::from_str) >>
-	space >>
-	(id, gen)
-));
+fn literal_string() -> Parser<u8, Vec<u8>> {
+	term(b'(') *
+	( none_of(b"\\()").repeat(1..)
+	| escape_sequence()
+	| nested_literal_string()
+	).repeat(0..).map(|segments|
+		segments.into_iter().fold(
+			vec![],
+			|mut bytes, mut segment| {
+				bytes.append(&mut segment);
+				bytes
+			}
+		)
+	)
+	- term(b')')
+}
 
-named!(object<&[u8], Object>, alt!(
-	tag!("null") => {|_| Object::Null }
-	| tag!("false") => {|_| Object::Boolean(false) }
-	| tag!("true") => {|_| Object::Boolean(true) }
-	| do_parse!(id: object_id >> tag!("R") >> (id)) => {|id| Object::Reference(id) }
-	| real => {|num| Object::Real(num) }
-	| integer => {|num| Object::Integer(num) }
-	| literal_string => {|bytes| Object::String(bytes, StringFormat::Literal) }
-	| hexadecimal_string => {|bytes| Object::String(bytes, StringFormat::Hexadecimal) }
-	| name => {|text| Object::Name(text) }
-	| array => {|items| Object::Array(items) }
-	| dictionary_or_stream => {|dict_or_stream| dict_or_stream }
-));
+fn hexadecimal_string() -> Parser<u8, Vec<u8>> {
+	term(b'<') * hex_char().repeat(0..) - term(b'>')
+}
 
-named!(pub indirect_object<&[u8], (ObjectId, Object)>, do_parse!(
-	id: object_id >>
-	tag!("obj") >>
-	opt!(space) >>
-	object: object >>
-	opt!(space) >>
-	tag!("endobj") >>
-	space >>
-	(id, object)
-));
+fn array() -> Parser<u8, Vec<Object>> {
+	term(b'[') * space() * call(object).repeat(0..) - term(b']')
+}
 
-named!(pub header<&[u8], String>, do_parse!(
-	tag!("%PDF-") >>
-	version: map_res!(not_line_ending, str::from_utf8) >>
-	eol >>
-	many0!(comment) >>
-	(version.to_string())
-));
+fn dictionary() -> Parser<u8, Dictionary> {
+	let entry = name() - space() + call(object);
+	let entries = seq(b"<<") * space() * entry.repeat(0..) - seq(b">>");
+	entries.map(|entries| entries.into_iter().fold(
+		Dictionary::new(),
+		|mut dict: Dictionary, (key, value)| { dict.set(key, value); dict }
+	))
+}
 
-named!(xref_entry<&[u8], (u64, u16, bool)>, do_parse!(
-	offset: integer >>
-	tag!(" ") >>
-	generation: integer >>
-	tag!(" ") >>
-	kind: alt!(tag!("n") | tag!("f")) >>
-	alt!(tag!("\r\n") | tag!(" \n") | tag!(" \r")) >>
-	(offset as u64, generation as u16, kind[0] == b'n')
-));
+fn stream() -> Parser<u8, Stream> {
+	dictionary() - space() - seq(b"stream") - eol() >>
+	|dict: Dictionary| {
+		let length = dict.get("Length").and_then(|value|value.as_i64()).expect("Stream Length should be an integer.");
+		let stream = take(length as usize) - eol().opt() - seq(b"endstream") - eol().opt();
+		stream.map(move |data|Stream::new(dict.clone(), data))
+	}
+}
 
-named!(pub xref<&[u8], BTreeMap<u32, (u16, u64)>>, do_parse!(
-	tag!("xref") >>
-	eol >>
-	table: fold_many1!(
-		do_parse!(
-			start: integer >>
-			tag!(" ") >>
-			count: integer >>
-			eol >>
-			entries: many1!(xref_entry) >>
-			(start as usize, count, entries)
-		),
+fn object_id() -> Parser<u8, ObjectId> {
+	let id = one_of(b"0123456789").repeat(1..).map(|v|u32::from_str(&String::from_utf8(v).unwrap()).unwrap());
+	let gen = one_of(b"0123456789").repeat(1..).map(|v|u16::from_str(&String::from_utf8(v).unwrap()).unwrap());
+	id - space() + gen - space()
+}
+
+fn object() -> Parser<u8, Object> {
+	( seq(b"null").map(|_|Object::Null)
+	| seq(b"true").map(|_|Object::Boolean(true))
+	| seq(b"false").map(|_|Object::Boolean(false))
+	| object_id().map(|id|Object::Reference(id)) - term(b'R')
+	| real().map(|num|Object::Real(num))
+	| integer().map(|num|Object::Integer(num))
+	| name().map(|text| Object::Name(text))
+	| literal_string().map(|bytes| Object::String(bytes, StringFormat::Literal))
+	| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
+	| array().map(|items|Object::Array(items))
+	| stream().map(|stream|Object::Stream(stream))
+	| dictionary().map(|dict|Object::Dictionary(dict))
+	) - space()
+}
+
+pub fn indirect_object() -> Parser<u8, (ObjectId, Object)> {
+	object_id() - seq(b"obj") - space() + object() - space() - seq(b"endobj") - space()
+}
+
+pub fn header() -> Parser<u8, String> {
+	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).map(|v|String::from_utf8(v).unwrap()) - eol() - comment().repeat(0..)
+}
+
+pub fn xref() -> Parser<u8, BTreeMap<u32, (u16, u64)>> {
+	let xref_entry = integer().map(|i|i as u64) - term(b' ') + integer().map(|i|i as u16) - term(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
+	let xref_section = integer().map(|i|i as usize) - term(b' ') + integer() - eol() + xref_entry.repeat(1..);
+	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
+	xref.map(|sections| {
+		sections.into_iter().fold(
 		BTreeMap::new(),
-		|mut acc: BTreeMap<_, _>, (start, count, entries): (usize, i64, Vec<(u64, u16, bool)>)| {
-			for (index, (offset, generation, is_normal)) in entries.into_iter().enumerate() {
+		|mut acc: BTreeMap<_, _>, ((start, _count), entries): ((usize, i64), Vec<((u64, u16), bool)>)| {
+			for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
 				if is_normal {
 					acc.insert((start + index) as u32, (generation, offset));
 				}
 			}
 			acc
-		}
-	) >>
-	opt!(space) >>
-	(table)
-));
+		})
+	})
+}
 
-named!(pub trailer<Dictionary>, do_parse!(
-	tag!("trailer") >>
-	opt!(space) >>
-	dict: dictionary >>
-	opt!(space) >>
-	(dict)
-));
+pub fn trailer() -> Parser<u8, Dictionary> {
+	seq(b"trailer") * space() * dictionary() - space()
+}
 
-named!(pub xref_start<i64>, do_parse!(
-	tag!("startxref") >>
-	eol >>
-	offset: integer >>
-	eol >>
-	tag!("%%EOF") >>
-	opt!(space) >>
-	(offset)
-));
+pub fn xref_start() -> Parser<u8, i64> {
+	seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()
+}
 
 #[test]
 fn parse_real_number() {
-	let r0 = real(&b"0.12"[..]);
-	assert_eq!(r0, IResult::Done(&b""[..], 0.12));
-	let r1 = real(&b"-.12"[..]);
-	assert_eq!(r1, IResult::Done(&b""[..], -0.12));
-	let r2 = real(&b"10."[..]);
-	assert_eq!(r2, IResult::Done(&b""[..], f64::from_str("10.").unwrap()));
+	let r0 = real().parse(&mut DataInput::new(b"0.12"));
+	assert_eq!(r0, Ok(0.12));
+	let r1 = real().parse(&mut DataInput::new(b"-.12"));
+	assert_eq!(r1, Ok(-0.12));
+	let r2 = real().parse(&mut DataInput::new(b"10."));
+	assert_eq!(r2, Ok(10.0));
 }
 
 #[test]
 fn parse_string() {
 	assert_eq!(
-		literal_string(&b"()"[..]),
-		IResult::Done(&b""[..], b"".to_vec()));
-	assert_eq!(literal_string(
-		&b"(text())"[..]),
-		IResult::Done(&b""[..], b"text()".to_vec()));
-	assert_eq!(literal_string(
-		&b"(text\r\n\\\\(nested\\t\\b\\f))"[..]),
-		IResult::Done(&b""[..], b"text\r\n\\(nested\t\x08\x0C)".to_vec()));
-	assert_eq!(literal_string(
-		&b"(text\\0\\53\\053\\0053)"[..]),
-		IResult::Done(&b""[..], b"text\0++\x053".to_vec()));
-	assert_eq!(literal_string(
-		&b"(text line\\\n())"[..]),
-		IResult::Done(&b""[..], b"text line()".to_vec()));
-	assert_eq!(name(&b"/ABC#5f"[..]), IResult::Done(&b""[..], "ABC\x5F".to_string()));
+		literal_string().parse(&mut DataInput::new(b"()")),
+		Ok(b"".to_vec()));
+	assert_eq!(
+		literal_string().parse(&mut DataInput::new(b"(text())")),
+		Ok(b"text()".to_vec()));
+	assert_eq!(
+		literal_string().parse(&mut DataInput::new(b"(text\r\n\\\\(nested\\t\\b\\f))")),
+		Ok(b"text\r\n\\(nested\t\x08\x0C)".to_vec()));
+	assert_eq!(
+		literal_string().parse(&mut DataInput::new(b"(text\\0\\53\\053\\0053)")),
+		Ok(b"text\0++\x053".to_vec()));
+	assert_eq!(
+		literal_string().parse(&mut DataInput::new(b"(text line\\\n())")),
+		Ok(b"text line()".to_vec()));
+	assert_eq!(
+		name().parse(&mut DataInput::new(b"/ABC#5f")),
+		Ok("ABC\x5F".to_string()));
 }

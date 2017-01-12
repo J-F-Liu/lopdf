@@ -1,5 +1,4 @@
-#[macro_use]
-extern crate nom;
+extern crate pom;
 extern crate flate2;
 extern crate linked_hash_map;
 

@@ -4,18 +4,18 @@ use linked_hash_map::{self, LinkedHashMap};
 pub type ObjectId = (u32, u16);
 
 /// Dictionary object.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Dictionary(LinkedHashMap<String, Object>);
 
 /// Stream Object.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Stream {
 	pub dict: Dictionary,
 	pub content: Vec<u8>,
 }
 
 /// Basic PDF object types defined in an enum.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Object {
 	Null,
 	Boolean(bool),
@@ -30,7 +30,7 @@ pub enum Object {
 }
 
 /// String objects can be written in two formats.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StringFormat {
 	Literal,
 	Hexadecimal,

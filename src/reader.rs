@@ -1,4 +1,4 @@
-use nom::IResult;
+use pom::{Input, DataInput};
 use std::cmp;
 use std::fs::File;
 use std::io::{Result, Read, Error, ErrorKind};
@@ -13,31 +13,27 @@ impl Document {
 		let mut file = File::open(path)?;
 		let mut buffer = Vec::with_capacity(file.metadata()?.len() as usize);
 		file.read_to_end(&mut buffer)?;
+		let mut input = DataInput::new(&buffer);
 
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
-		let version = match parser::header(&buffer) {
-				IResult::Done(_, version) => Some(version),
-				_ => None,
-			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (header)."))?;
+		let version = parser::header().parse(&mut input)
+			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (header)."))?;
 
-		let xref_start = Self::get_xref_start(&buffer)?;
+		let xref_start = Self::get_xref_start(&buffer, &mut input)?;
+		input.jump_to(xref_start);
 
-		let (input, xref) = match parser::xref(&buffer[xref_start..]) {
-				IResult::Done(input, table) => Some((input, table)),
-				_ => None,
-			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref)."))?;
+		let xref = parser::xref().parse(&mut input)
+			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref)."))?;
 
-		let trailer = match parser::trailer(input) {
-				IResult::Done(_, dict) => Some(dict),
-				_ => None,
-			}.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (trailer)."))?;
+		let trailer = parser::trailer().parse(&mut input)
+			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (trailer)."))?;
 
 		let mut doc = Document::new();
 		doc.version = version;
 
 		for (_id, &(_gen, offset)) in &xref {
-			let (object_id, object) = doc.read_object(&buffer, offset as usize)?;
+			let (object_id, object) = doc.read_object(&mut input, offset as usize)?;
 			doc.objects.insert(object_id, object);
 		}
 
@@ -47,20 +43,22 @@ impl Document {
 		Ok(doc)
 	}
 
-	fn read_object(&mut self, buffer: &[u8], offset: usize) -> Result<(ObjectId, Object)> {
-		match parser::indirect_object(&buffer[offset..]) {
-			IResult::Done(_, (object_id, object)) => Ok((object_id, object)),
-			_ => Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).", offset))),
-		}
+	fn read_object(&mut self, input: &mut Input<u8>, offset: usize) -> Result<(ObjectId, Object)> {
+		input.jump_to(offset);
+		parser::indirect_object().parse(input)
+			.map_err(|_|Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).", offset)))
 	}
 
-	fn get_xref_start(buffer: &[u8]) -> Result<usize> {
+	fn get_xref_start(buffer: &[u8], input: &mut Input<u8>) -> Result<usize> {
 		let seek_pos = buffer.len() - cmp::min(buffer.len(), 512);
 		Self::search_substring(buffer, b"%%EOF", seek_pos)
 			.and_then(|eof_pos| Self::search_substring(buffer, b"startxref", eof_pos - 25))
-			.and_then(|xref_pos| match parser::xref_start(&buffer[xref_pos..]) {
-				IResult::Done(_, startxref) => Some(startxref as usize),
-				_ => None,
+			.and_then(|xref_pos| {
+				input.jump_to(xref_pos);
+				match parser::xref_start().parse(input) {
+					Ok(startxref) => Some(startxref as usize),
+					_ => None,
+				}
 			})
 			.ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)."))
 	}
