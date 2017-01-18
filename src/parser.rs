@@ -6,11 +6,11 @@ use super::{Object, ObjectId, Dictionary, Stream, StringFormat};
 use reader::Reader;
 
 fn eol() -> Parser<u8, u8> {
-	term(b'\r') * term(b'\n') | term(b'\n') | term(b'\r')
+	sym(b'\r') * sym(b'\n') | sym(b'\n') | sym(b'\r')
 }
 
 fn comment() -> Parser<u8, ()> {
-	term(b'%') * none_of(b"\r\n").repeat(0..) * eol().discard()
+	sym(b'%') * none_of(b"\r\n").repeat(0..) * eol().discard()
 }
 
 fn space() -> Parser<u8, ()> {
@@ -26,8 +26,8 @@ fn integer() -> Parser<u8, i64> {
 
 fn real() -> Parser<u8, f64> {
 	let number = one_of(b"+-").opt() +
-		( one_of(b"0123456789").repeat(1..) * term(b'.') - one_of(b"0123456789").repeat(0..)
-		| term(b'.') - one_of(b"0123456789").repeat(1..)
+		( one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..)
+		| sym(b'.') - one_of(b"0123456789").repeat(1..)
 		);
 	number.collect().map(|v|String::from_utf8(v).unwrap()).map(|s|f64::from_str(&s).unwrap())
 }
@@ -43,20 +43,20 @@ fn oct_char() -> Parser<u8, u8> {
 }
 
 fn name() -> Parser<u8, String> {
-	let name = term(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | term(b'#') * hex_char()).repeat(0..);
+	let name = sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | sym(b'#') * hex_char()).repeat(0..);
 	name.map(|v|String::from_utf8(v).unwrap())
 }
 
 fn escape_sequence() -> Parser<u8, Vec<u8>> {
-	term(b'\\') *
-	( term(b'\\').map(|_| vec![b'\\'])
-	| term(b'(').map(|_| vec![b'('])
-	| term(b')').map(|_| vec![b')'])
-	| term(b'n').map(|_| vec![b'\n'])
-	| term(b'r').map(|_| vec![b'\r'])
-	| term(b't').map(|_| vec![b'\t'])
-	| term(b'b').map(|_| vec![b'\x08'])
-	| term(b'f').map(|_| vec![b'\x0C'])
+	sym(b'\\') *
+	( sym(b'\\').map(|_| vec![b'\\'])
+	| sym(b'(').map(|_| vec![b'('])
+	| sym(b')').map(|_| vec![b')'])
+	| sym(b'n').map(|_| vec![b'\n'])
+	| sym(b'r').map(|_| vec![b'\r'])
+	| sym(b't').map(|_| vec![b'\t'])
+	| sym(b'b').map(|_| vec![b'\x08'])
+	| sym(b'f').map(|_| vec![b'\x0C'])
 	| oct_char().map(|c| vec![c])
 	| eol()     .map(|_| vec![])
 	| empty()   .map(|_| vec![])
@@ -64,7 +64,7 @@ fn escape_sequence() -> Parser<u8, Vec<u8>> {
 }
 
 fn nested_literal_string() -> Parser<u8, Vec<u8>> {
-	term(b'(') *
+	sym(b'(') *
 	( none_of(b"\\()").repeat(1..)
 	| escape_sequence()
 	| call(nested_literal_string)
@@ -78,11 +78,11 @@ fn nested_literal_string() -> Parser<u8, Vec<u8>> {
 		bytes.push(b')');
 		bytes
 	})
-	- term(b')')
+	- sym(b')')
 }
 
 fn literal_string() -> Parser<u8, Vec<u8>> {
-	term(b'(') *
+	sym(b'(') *
 	( none_of(b"\\()").repeat(1..)
 	| escape_sequence()
 	| nested_literal_string()
@@ -95,15 +95,15 @@ fn literal_string() -> Parser<u8, Vec<u8>> {
 			}
 		)
 	)
-	- term(b')')
+	- sym(b')')
 }
 
 fn hexadecimal_string() -> Parser<u8, Vec<u8>> {
-	term(b'<') * hex_char().repeat(0..) - term(b'>')
+	sym(b'<') * hex_char().repeat(0..) - sym(b'>')
 }
 
 fn array() -> Parser<u8, Vec<Object>> {
-	term(b'[') * space() * call(direct_object).repeat(0..) - term(b']')
+	sym(b'[') * space() * call(direct_object).repeat(0..) - sym(b']')
 }
 
 fn dictionary() -> Parser<u8, Dictionary> {
@@ -139,7 +139,7 @@ fn direct_object() -> Parser<u8, Object> {
 	( seq(b"null").map(|_|Object::Null)
 	| seq(b"true").map(|_|Object::Boolean(true))
 	| seq(b"false").map(|_|Object::Boolean(false))
-	| object_id().map(|id|Object::Reference(id)) - term(b'R')
+	| object_id().map(|id|Object::Reference(id)) - sym(b'R')
 	| real().map(|num|Object::Real(num))
 	| integer().map(|num|Object::Integer(num))
 	| name().map(|text| Object::Name(text))
@@ -154,7 +154,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 	( seq(b"null").map(|_|Object::Null)
 	| seq(b"true").map(|_|Object::Boolean(true))
 	| seq(b"false").map(|_|Object::Boolean(false))
-	| object_id().map(|id|Object::Reference(id)) - term(b'R')
+	| object_id().map(|id|Object::Reference(id)) - sym(b'R')
 	| real().map(|num|Object::Real(num))
 	| integer().map(|num|Object::Integer(num))
 	| name().map(|text| Object::Name(text))
@@ -175,8 +175,8 @@ pub fn header() -> Parser<u8, String> {
 }
 
 pub fn xref() -> Parser<u8, BTreeMap<u32, (u16, u64)>> {
-	let xref_entry = integer().map(|i|i as u64) - term(b' ') + integer().map(|i|i as u16) - term(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
-	let xref_section = integer().map(|i|i as usize) - term(b' ') + integer() - eol() + xref_entry.repeat(1..);
+	let xref_entry = integer().map(|i|i as u64) - sym(b' ') + integer().map(|i|i as u16) - sym(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
+	let xref_section = integer().map(|i|i as usize) - sym(b' ') + integer() - eol() + xref_entry.repeat(1..);
 	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
 	xref.map(|sections| {
 		sections.into_iter().fold(
