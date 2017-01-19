@@ -118,6 +118,7 @@ fn dictionary() -> Parser<u8, Dictionary> {
 fn stream(reader: &Reader) -> Parser<u8, Stream> {
 	dictionary() - space() - seq(b"stream") - eol() >>
 	|dict: Dictionary| {
+		reader.print_xref_size();
 		let length = dict.get("Length").and_then(|value| {
 			if let Some(id) = value.as_reference() {
 				return reader.get_object(id).and_then(|value|value.as_i64());
@@ -167,6 +168,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 }
 
 pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
+	reader.print_xref_size();
 	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj") - space()
 }
 
