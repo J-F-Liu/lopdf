@@ -78,10 +78,6 @@ impl Reader {
 		return None;
 	}
 
-	pub fn print_xref_size(&self) {
-		println!("xref has {} entires", self.document.reference_table.len());
-	}
-
 	fn read_object(&self, offset: usize) -> Result<(ObjectId, Object)> {
 		let mut input = DataInput::new(&self.buffer);
 		input.jump_to(offset);
