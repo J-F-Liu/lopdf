@@ -1,6 +1,7 @@
 # lopdf
 
 [![Crates.io](https://img.shields.io/crates/v/lopdf.svg)](https://crates.io/crates/lopdf)
+[![Build Status](https://travis-ci.org/J-F-Liu/lopdf.png)](https://travis-ci.org/J-F-Liu/lopdf)
 
 A Rust library for PDF document manipulation.
 
