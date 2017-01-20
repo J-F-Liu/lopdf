@@ -1,12 +1,13 @@
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Debug",
-      "type": "lldb-mi",
-      "request": "launch",
-      "target": "./pdfutil/target/debug/pdfutil",
-      "cwd": "${workspaceRoot}"
-    }
-  ]
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "lldb-mi",
+			"request": "launch",
+			"name": "pdfutil",
+			"target": "./pdfutil/target/debug/pdfutil",
+			"arguments": "decompress -i /home/junfeng/Downloads/rfc7159.pdf",
+			"cwd": "${workspaceRoot}"
+		}
+	]
 }
