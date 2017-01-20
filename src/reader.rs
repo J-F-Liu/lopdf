@@ -30,7 +30,7 @@ pub struct Reader {
 }
 
 impl Reader {
-	// fn new()
+	/// Read whole document.
 	fn read(&mut self) -> Result<()> {
 		let mut input = DataInput::new(&self.buffer);
 		// The document structure can be expressed in PEG as:

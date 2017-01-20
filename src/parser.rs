@@ -1,4 +1,5 @@
 use pom::char_class::{hex_digit, oct_digit};
+use pom::{parser, Parser};
 use pom::parser::*;
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -115,9 +116,9 @@ fn dictionary() -> Parser<u8, Dictionary> {
 	))
 }
 
-fn stream(reader: &Reader) -> Parser<u8, Stream> {
+fn stream<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Stream> {
 	dictionary() - space() - seq(b"stream") - eol() >>
-	|dict: Dictionary| {
+	move |dict: Dictionary| {
 		let length = dict.get("Length").and_then(|value| {
 			if let Some(id) = value.as_reference() {
 				return reader.get_object(id).and_then(|value|value.as_i64());
@@ -150,7 +151,7 @@ fn direct_object() -> Parser<u8, Object> {
 	) - space()
 }
 
-fn object(reader: &Reader) -> Parser<u8, Object> {
+fn object<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Object> {
 	( seq(b"null").map(|_|Object::Null)
 	| seq(b"true").map(|_|Object::Boolean(true))
 	| seq(b"false").map(|_|Object::Boolean(false))
@@ -166,7 +167,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 	) - space()
 }
 
-pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
+pub fn indirect_object<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, (ObjectId, Object)> {
 	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj") - space()
 }
 
