@@ -123,7 +123,7 @@ impl Reader {
 
 #[test]
 fn load_document() {
-	let mut doc = Document::load("test.pdf").unwrap();
+	let mut doc = Document::load("assets/example.pdf").unwrap();
 	assert_eq!(doc.version, "1.5");
 	doc.save("test_2_load.pdf").unwrap();
 }
