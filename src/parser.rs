@@ -23,7 +23,7 @@ fn space() -> Parser<u8, ()> {
 
 fn integer() -> Parser<u8, i64> {
 	let number = one_of(b"+-").opt() + one_of(b"0123456789").repeat(1..);
-	number.collect().map(|v|String::from_utf8(v).unwrap()).map(|s|i64::from_str(&s).unwrap())
+	number.collect().convert(|v|String::from_utf8(v)).convert(|s|i64::from_str(&s))
 }
 
 fn real() -> Parser<u8, f64> {
@@ -31,22 +31,22 @@ fn real() -> Parser<u8, f64> {
 		( one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..)
 		| sym(b'.') - one_of(b"0123456789").repeat(1..)
 		);
-	number.collect().map(|v|String::from_utf8(v).unwrap()).map(|s|f64::from_str(&s).unwrap())
+	number.collect().convert(|v|String::from_utf8(v)).convert(|s|f64::from_str(&s))
 }
 
 fn hex_char() -> Parser<u8, u8> {
 	let number = is_a(hex_digit).repeat(2..3);
-	number.collect().map(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 16).unwrap())
+	number.collect().convert(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 16))
 }
 
 fn oct_char() -> Parser<u8, u8> {
 	let number = is_a(oct_digit).repeat(1..4);
-	number.collect().map(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 8).unwrap())
+	number.collect().convert(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 8))
 }
 
 fn name() -> Parser<u8, String> {
 	let name = sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | sym(b'#') * hex_char()).repeat(0..);
-	name.map(|v|String::from_utf8(v).unwrap())
+	name.convert(|v|String::from_utf8(v))
 }
 
 fn escape_sequence() -> Parser<u8, Vec<u8>> {
@@ -88,15 +88,7 @@ fn literal_string() -> Parser<u8, Vec<u8>> {
 	( none_of(b"\\()").repeat(1..)
 	| escape_sequence()
 	| nested_literal_string()
-	).repeat(0..).map(|segments|
-		segments.into_iter().fold(
-			vec![],
-			|mut bytes, mut segment| {
-				bytes.append(&mut segment);
-				bytes
-			}
-		)
-	)
+	).repeat(0..).map(|segments|segments.concat())
 	- sym(b')')
 }
 
@@ -132,8 +124,8 @@ fn stream<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Stream> {
 }
 
 fn object_id() -> Parser<u8, ObjectId> {
-	let id = one_of(b"0123456789").repeat(1..).map(|v|u32::from_str(&String::from_utf8(v).unwrap()).unwrap());
-	let gen = one_of(b"0123456789").repeat(1..).map(|v|u16::from_str(&String::from_utf8(v).unwrap()).unwrap());
+	let id = one_of(b"0123456789").repeat(1..).convert(|v|u32::from_str(&String::from_utf8(v).unwrap()));
+	let gen = one_of(b"0123456789").repeat(1..).convert(|v|u16::from_str(&String::from_utf8(v).unwrap()));
 	id - space() + gen - space()
 }
 
@@ -173,7 +165,7 @@ pub fn indirect_object<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, (Object
 }
 
 pub fn header() -> Parser<u8, String> {
-	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).map(|v|String::from_utf8(v).unwrap()) - eol() - comment().repeat(0..)
+	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(|v|String::from_utf8(v)) - eol() - comment().repeat(0..)
 }
 
 pub fn xref() -> Parser<u8, BTreeMap<u32, (u16, u64)>> {
