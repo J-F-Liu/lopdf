@@ -1,10 +1,11 @@
-use pom::char_class::{hex_digit, oct_digit};
+use pom::char_class::{alpha, hex_digit, oct_digit};
 use pom::{parser, Parser};
 use pom::parser::*;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 use super::{Object, ObjectId, Dictionary, Stream, StringFormat};
 use reader::Reader;
+use content::*;
 
 fn eol() -> Parser<u8, u8> {
 	sym(b'\r') * sym(b'\n') | sym(b'\n') | sym(b'\r')
@@ -201,6 +202,38 @@ pub fn xref_start() -> Parser<u8, i64> {
 	seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()
 }
 
+fn operator() -> Parser<u8, String> {
+	(is_a(alpha) | one_of(b"*'\"")).repeat(1..).convert(|v|String::from_utf8(v))
+}
+
+fn operand() -> Parser<u8, Object> {
+	( seq(b"null").map(|_|Object::Null)
+	| seq(b"true").map(|_|Object::Boolean(true))
+	| seq(b"false").map(|_|Object::Boolean(false))
+	| real().map(|num|Object::Real(num))
+	| integer().map(|num|Object::Integer(num))
+	| name().map(|text| Object::Name(text))
+	| literal_string().map(|bytes| Object::String(bytes, StringFormat::Literal))
+	| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
+	| array().map(|items|Object::Array(items))
+	| dictionary().map(|dict|Object::Dictionary(dict))
+	) - space()
+}
+
+fn operation() -> Parser<u8, Operation> {
+	let operation = operand().repeat(0..) + operator() - space();
+	operation.map(|(operands, operator)| {
+		Operation {
+			operator: operator,
+			operands: operands,
+		}
+	})
+}
+
+pub fn content() -> Parser<u8, Content> {
+	space() * operation().repeat(0..).map(|operations| Content{operations: operations})
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -236,5 +269,25 @@ mod tests {
 		assert_eq!(
 			name().parse(&mut DataInput::new(b"/ABC#5f")),
 			Ok("ABC\x5F".to_string()));
+	}
+
+	#[test]
+	/// Run `cargo test -- --nocapture` to see output
+	fn parse_content() {
+		let stream = b"
+2 J
+BT
+/F1 12 Tf
+0 Tc
+0 Tw
+72.5 712 TD
+[(Unencoded streams can be read easily) 65 (,) ] TJ
+0 -14 TD
+[(b) 20 (ut generally tak) 10 (e more space than \\311)] TJ
+T* (encoded streams.) Tj
+		";
+		let content = content().parse(&mut DataInput::new(stream));
+		println!("{:?}", content);
+		assert_eq!(content.is_ok(), true);
 	}
 }
