@@ -1,4 +1,4 @@
-use pom::char_class::{alpha, hex_digit, oct_digit};
+use pom::char_class::{alpha, hex_digit, oct_digit, multispace};
 use pom::{parser, Parser};
 use pom::parser::*;
 use std::collections::BTreeMap;
@@ -194,6 +194,10 @@ pub fn xref_start() -> Parser<u8, i64> {
 	seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()
 }
 
+fn content_space() -> Parser<u8, ()> {
+	is_a(multispace).repeat(0..).discard()
+}
+
 fn operator() -> Parser<u8, String> {
 	(is_a(alpha) | one_of(b"*'\"")).repeat(1..).convert(|v|String::from_utf8(v))
 }
@@ -209,11 +213,11 @@ fn operand() -> Parser<u8, Object> {
 	| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 	| array().map(|items|Object::Array(items))
 	| dictionary().map(|dict|Object::Dictionary(dict))
-	) - space()
+	) - content_space()
 }
 
 fn operation() -> Parser<u8, Operation> {
-	let operation = operand().repeat(0..) + operator() - space();
+	let operation = operand().repeat(0..) + operator() - content_space();
 	operation.map(|(operands, operator)| {
 		Operation {
 			operator: operator,
@@ -223,7 +227,7 @@ fn operation() -> Parser<u8, Operation> {
 }
 
 pub fn content() -> Parser<u8, Content> {
-	space() * operation().repeat(0..).map(|operations| Content{operations: operations})
+	content_space() * operation().repeat(0..).map(|operations| Content{operations: operations})
 }
 
 #[cfg(test)]

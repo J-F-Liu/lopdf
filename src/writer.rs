@@ -17,9 +17,9 @@ impl Document {
 			let offset = file.seek(SeekFrom::Current(0)).unwrap();
 			self.reference_table.insert(id.0, (id.1, offset));
 
-			file.write_all(format!("{} {} obj{}", id.0, id.1, if Document::need_separator(object) {" "} else {""}).as_bytes())?;
-			Document::write_object(&mut file, object)?;
-			file.write_all(format!("{}endobj\n", if Document::need_end_separator(object) {" "} else {""}).as_bytes())?;
+			file.write_all(format!("{} {} obj{}", id.0, id.1, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
+			Writer::write_object(&mut file, object)?;
+			file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) {" "} else {""}).as_bytes())?;
 		}
 
 		let xref_start = file.seek(SeekFrom::Current(0)).unwrap();
@@ -30,6 +30,38 @@ impl Document {
 		Ok(file)
 	}
 
+	fn write_xref(&self, file: &mut Write) -> Result<()> {
+		file.write_all(b"xref\n")?;
+		file.write_all(format!("0 {}\n", self.max_id + 1).as_bytes())?;
+
+		let mut write_xref_entry = |offset: u64, generation: u16, kind: char| {
+			file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes())
+		};
+		write_xref_entry(0, 65535, 'f')?;
+
+		let mut obj_id = 1;
+		while obj_id <= self.max_id {
+			if let Some(&(generation, offset)) = self.reference_table.get(&obj_id) {
+				write_xref_entry(offset, generation, 'n')?;
+			} else {
+				write_xref_entry(0, 65535, 'f')?;
+			}
+			obj_id += 1;
+		}
+		Ok(())
+	}
+
+	fn write_trailer(&mut self, file: &mut Write) -> Result<()> {
+		self.trailer.set("Size", (self.max_id + 1) as i64);
+		file.write_all(b"trailer\n")?;
+		Writer::write_dictionary(file, &self.trailer)?;
+		Ok(())
+	}
+}
+
+pub struct Writer;
+
+impl Writer {
 	fn need_separator(object: &Object) -> bool {
 		match *object {
 			Null => true,
@@ -54,22 +86,22 @@ impl Document {
 		}
 	}
 
-	fn write_object<'a>(file: &mut File, object: &'a Object) -> Result<()> {
+	pub fn write_object<'a>(file: &mut Write, object: &'a Object) -> Result<()> {
 		match *object {
 			Null => file.write_all(b"null"),
 			Boolean(ref value) => file.write_all(format!("{}", value).as_bytes()),
 			Integer(ref value) => file.write_all(format!("{}", value).as_bytes()),
 			Real(ref value) => file.write_all(format!("{}", value).as_bytes()),
-			Name(ref name) => Document::write_name(file, name),
-			String(ref text, ref format) => Document::write_string(file, text, format),
-			Array(ref array) => Document::write_array(file, array),
-			Object::Dictionary(ref dict) => Document::write_dictionary(file, dict),
-			Object::Stream(ref stream) => Document::write_stream(file, stream),
+			Name(ref name) => Writer::write_name(file, name),
+			String(ref text, ref format) => Writer::write_string(file, text, format),
+			Array(ref array) => Writer::write_array(file, array),
+			Object::Dictionary(ref dict) => Writer::write_dictionary(file, dict),
+			Object::Stream(ref stream) => Writer::write_stream(file, stream),
 			Reference(ref id) => file.write_all(format!("{} {} R", id.0, id.1).as_bytes()),
 		}
 	}
 
-	fn write_name<'a>(file: &mut File, name: &'a str) -> Result<()> {
+	fn write_name<'a>(file: &mut Write, name: &'a str) -> Result<()> {
 		file.write_all(b"/")?;
 		for &byte in name.as_bytes() {
 			// white-space and delimiter chars are encoded to # sequences
@@ -82,7 +114,7 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_string<'a>(file: &mut File, text: &'a [u8], format: &'a StringFormat) -> Result<()> {
+	fn write_string<'a>(file: &mut Write, text: &'a [u8], format: &'a StringFormat) -> Result<()> {
 		match *format {
 			// Within a Literal string, backslash (\) and unbalanced parentheses should be escaped.
 			// This rule apply to each individual byte in a string object,
@@ -134,67 +166,39 @@ impl Document {
 		Ok(())
 	}
 
-	fn write_array<'a>(file: &mut File, array: &'a Vec<Object>) -> Result<()> {
+	fn write_array<'a>(file: &mut Write, array: &'a Vec<Object>) -> Result<()> {
 		file.write_all(b"[")?;
 		let mut first = true;
 		for object in array {
 			if first {
 				first = false;
-			} else if Document::need_separator(object) {
+			} else if Writer::need_separator(object) {
 				file.write_all(b" ")?;
 			}
-			Document::write_object(file, object)?;
+			Writer::write_object(file, object)?;
 		}
 		file.write_all(b"]")?;
 		Ok(())
 	}
 
-	fn write_dictionary<'a>(file: &mut File, dictionary: &'a Dictionary) -> Result<()> {
+	fn write_dictionary<'a>(file: &mut Write, dictionary: &'a Dictionary) -> Result<()> {
 		file.write_all(b"<<")?;
 		for (key, value) in dictionary {
-			Document::write_name(file, key)?;
-			if Document::need_separator(value) {
+			Writer::write_name(file, key)?;
+			if Writer::need_separator(value) {
 				file.write_all(b" ")?;
 			}
-			Document::write_object(file, value)?;
+			Writer::write_object(file, value)?;
 		}
 		file.write_all(b">>")?;
 		Ok(())
 	}
 
-	fn write_stream<'a>(file: &mut File, stream: &'a Stream) -> Result<()> {
-		Document::write_dictionary(file, &stream.dict)?;
+	fn write_stream<'a>(file: &mut Write, stream: &'a Stream) -> Result<()> {
+		Writer::write_dictionary(file, &stream.dict)?;
 		file.write_all(b"stream\n")?;
 		file.write_all(&stream.content)?;
 		file.write_all(b"endstream")?;
-		Ok(())
-	}
-
-	fn write_xref(&self, file: &mut File) -> Result<()> {
-		file.write_all(b"xref\n")?;
-		file.write_all(format!("0 {}\n", self.max_id + 1).as_bytes())?;
-
-		let mut write_xref_entry = |offset: u64, generation: u16, kind: char| {
-			file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes())
-		};
-		write_xref_entry(0, 65535, 'f')?;
-
-		let mut obj_id = 1;
-		while obj_id <= self.max_id {
-			if let Some(&(generation, offset)) = self.reference_table.get(&obj_id) {
-				write_xref_entry(offset, generation, 'n')?;
-			} else {
-				write_xref_entry(0, 65535, 'f')?;
-			}
-			obj_id += 1;
-		}
-		Ok(())
-	}
-
-	fn write_trailer(&mut self, file: &mut File) -> Result<()> {
-		self.trailer.set("Size", (self.max_id + 1) as i64);
-		file.write_all(b"trailer\n")?;
-		Document::write_dictionary(file, &self.trailer)?;
 		Ok(())
 	}
 }
