@@ -1,33 +1,25 @@
 %PDF-1.5
-1 0 obj null endobj
-2 0 obj true endobj
-3 0 obj 3 endobj
-4 0 obj 0.5 endobj
-5 0 obj(text\((\r))endobj
-6 0 obj<7465787428280D29>endobj
-7 0 obj/name#20#09 endobj
-8 0 obj 1 0 R endobj
-9 2 obj[1 2 3]endobj
-11 0 obj<</Length 3>>stream
-ABCendstream endobj
-12 0 obj<</A null/B false/C/name>>endobj
+1 0 obj<</Type/Font/Subtype/Type1/BaseFont/Courier>>endobj
+2 0 obj<</Font<</F1 1 0 R>>>>endobj
+3 0 obj<</Length 45>>stream
+BT
+/F1 48 Tf
+100 600 Td
+(Hello World!) Tj
+ET
+endstream endobj
+4 0 obj<</Type/Page/Parent 5 0 R/Contents[3 0 R]>>endobj
+5 0 obj<</Type/Pages/Kids[4 0 R]/Count 1/Resources 2 0 R/MediaBox[0 0 595 842]>>endobj
 xref
-0 13
+0 6
 0000000000 65535 f 
 0000000009 00000 n 
-0000000029 00000 n 
-0000000049 00000 n 
-0000000066 00000 n 
-0000000085 00000 n 
-0000000111 00000 n 
-0000000143 00000 n 
-0000000169 00000 n 
-0000000190 00002 n 
-0000000000 65535 f 
-0000000211 00000 n 
-0000000259 00000 n 
+0000000068 00000 n 
+0000000104 00000 n 
+0000000194 00000 n 
+0000000251 00000 n 
 trailer
-<</Size 13>>
+<</Root<</Type/Catalog/Pages 5 0 R>>/Size 6>>
 startxref
-300
+338
 %%EOF

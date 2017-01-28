@@ -125,6 +125,13 @@ impl Object {
 			_ => None
 		}
 	}
+
+	pub fn as_dict(&self) -> Option<&Dictionary> {
+		match *self {
+			Object::Dictionary(ref dict) => Some(dict),
+			_ => None
+		}
+	}
 }
 
 impl Dictionary {
@@ -162,6 +169,17 @@ impl<'a> IntoIterator for &'a Dictionary {
 
 	fn into_iter(self) -> Self::IntoIter {
 		self.0.iter()
+	}
+}
+
+use std::iter::FromIterator;
+impl<K: Into<String>> FromIterator<(K, Object)> for Dictionary {
+	fn from_iter<I: IntoIterator<Item=(K, Object)>>(iter: I) -> Self {
+		let mut dict = Dictionary::new();
+		for (k, v) in iter.into_iter() {
+			dict.set(k, v);
+		}
+		dict
 	}
 }
 
