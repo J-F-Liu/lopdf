@@ -10,6 +10,15 @@ pub struct Operation {
 	pub operands: Vec<Object>,
 }
 
+impl Operation {
+	pub fn new(operator: &str, operands: Vec<Object>) -> Operation {
+		Operation{
+			operator: operator.to_string(),
+			operands: operands,
+		}
+	}
+}
+
 #[derive(Debug, Clone)]
 pub struct Content {
 	pub operations: Vec<Operation>,

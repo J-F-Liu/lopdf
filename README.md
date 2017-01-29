@@ -32,11 +32,11 @@ let resources_id = doc.add_object(
 	])
 );
 let content = Content{operations: vec![
-	Operation{operator: "BT".into(), operands: vec![]},
-	Operation{operator: "Tf".into(), operands: vec!["F1".into(), 48.into()]},
-	Operation{operator: "Td".into(), operands: vec![100.into(), 600.into()]},
-	Operation{operator: "Tj".into(), operands: vec![String("Hello World!".as_bytes().to_vec(), StringFormat::Literal)]},
-	Operation{operator: "ET".into(), operands: vec![]},
+	Operation::new("BT", vec![]),
+	Operation::new("Tf", vec!["F1".into(), 48.into()]),
+	Operation::new("Td", vec![100.into(), 600.into()]),
+	Operation::new("Tj", vec![String("Hello World!".as_bytes().to_vec(), StringFormat::Literal)]),
+	Operation::new("ET", vec![]),
 ]};
 let content_id = doc.add_object(Stream::new(Dictionary::new(), content.encode().unwrap()));
 let page_id = doc.add_object(
