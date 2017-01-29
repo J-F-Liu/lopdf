@@ -132,6 +132,13 @@ impl Object {
 			_ => None
 		}
 	}
+
+	pub fn as_stream(&self) -> Option<&Stream> {
+		match *self {
+			Object::Stream(ref stream) => Some(stream),
+			_ => None
+		}
+	}
 }
 
 impl Dictionary {
@@ -201,6 +208,11 @@ impl Stream {
 		return None;
 	}
 
+	pub fn set_content(&mut self, content: Vec<u8>) {
+		self.content = content;
+		self.dict.set("Length", self.content.len() as i64);
+	}
+
 	pub fn compress(&mut self) {
 		use std::io::prelude::*;
 		use flate2::Compression;
@@ -211,9 +223,8 @@ impl Stream {
 			encoder.write(self.content.as_slice()).unwrap();
 			let compressed = encoder.finish().unwrap();
 			if compressed.len() + 19 < self.content.len() {
-				self.content = compressed;
 				self.dict.set("Filter", "FlateDecode");
-				self.dict.set("Length", self.content.len() as i64);
+				self.set_content(compressed);
 			}
 		}
 	}
@@ -230,9 +241,8 @@ impl Stream {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
 						decoder.read_to_end(&mut data).unwrap();
 					}
-					self.content = data;
 					self.dict.remove("Filter");
-					self.dict.set("Length", self.content.len() as i64);
+					self.set_content(data);
 				},
 				_ => ()
 			}
