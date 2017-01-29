@@ -1,6 +1,12 @@
 use super::{Document, Object, ObjectId};
 
 impl Document {
+	/// Create an object ID.
+	pub fn new_object_id(&mut self) -> ObjectId {
+		self.max_id += 1;
+		(self.max_id, 0)
+	}
+
 	/// Add PDF object into document's object list.
 	pub fn add_object<T: Into<Object>>(&mut self, object: T) -> ObjectId {
 		self.max_id += 1;
@@ -19,6 +25,7 @@ fn create_document() {
 
 	let mut doc = Document::new();
 	doc.version = "1.5".to_string();
+	let pages_id = doc.new_object_id();
 	let font_id = doc.add_object(
 		Dictionary::from_iter(vec![
 			("Type", "Font".into()),
@@ -44,7 +51,7 @@ fn create_document() {
 	let page_id = doc.add_object(
 		Dictionary::from_iter(vec![
 			("Type", "Page".into()),
-			("Parent", Reference((5,0))),
+			("Parent", Reference(pages_id)),
 			("Contents", vec![Reference(content_id)].into()),
 		])
 	);
@@ -55,7 +62,7 @@ fn create_document() {
 		("Resources", Reference(resources_id)),
 		("MediaBox", vec![0.into(), 0.into(), 595.into(), 842.into()].into()),
 	]);
-	let pages_id = doc.add_object(pages);
+	doc.objects.insert(pages_id, Object::Dictionary(pages));
 	doc.trailer.set("Root", Dictionary::from_iter(vec![
 		("Type", "Catalog".into()),
 		("Pages", Reference(pages_id)),
