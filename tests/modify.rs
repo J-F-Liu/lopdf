@@ -5,6 +5,7 @@ use std::io::Result;
 
 fn modify_text() -> Result<Document> {
 	let mut doc = Document::load("assets/example.pdf")?;
+	doc.version = "1.4".to_string();
 	if let Some(content_stream) = doc.objects.get_mut(&(3, 0)) {
 		match *content_stream {
 			Object::Stream(ref mut stream) => {

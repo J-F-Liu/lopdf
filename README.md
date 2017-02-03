@@ -12,7 +12,9 @@ A Rust library for PDF document manipulation.
 ```rust
 extern crate lopdf;
 use lopdf::{Document, Object, Dictionary, Stream, StringFormat};
-use Object::{Null, Integer, Name, String, Reference};
+use lopdf::content::{Content, Operation};
+use Object::Reference;
+use std::iter::FromIterator;
 
 let mut doc = Document::new();
 doc.version = "1.5".to_string();
@@ -35,7 +37,7 @@ let content = Content{operations: vec![
 	Operation::new("BT", vec![]),
 	Operation::new("Tf", vec!["F1".into(), 48.into()]),
 	Operation::new("Td", vec![100.into(), 600.into()]),
-	Operation::new("Tj", vec![String("Hello World!".as_bytes().to_vec(), StringFormat::Literal)]),
+	Operation::new("Tj", vec![Object::String("Hello World!".as_bytes().to_vec(), StringFormat::Literal)]),
 	Operation::new("ET", vec![]),
 ]};
 let content_id = doc.add_object(Stream::new(Dictionary::new(), content.encode().unwrap()));
@@ -59,13 +61,27 @@ doc.trailer.set("Root", Dictionary::from_iter(vec![
 	("Pages", Reference(pages_id)),
 ]));
 doc.compress();
-doc.save("test.pdf").unwrap();
+doc.save("example.pdf").unwrap();
 ```
 
-- Read PDF document
+- Modify PDF document
 
 ```rust
-let mut doc = Document::load("test.pdf").unwrap();
+let mut doc = Document::load("example.pdf")?;
+doc.version = "1.4".to_string();
+if let Some(content_stream) = doc.objects.get_mut(&(3, 0)) {
+	match *content_stream {
+		Object::Stream(ref mut stream) => {
+			let mut content = stream.decode_content().unwrap();
+			content.operations[3].operands[0] = Object::String(
+				"Modified text!".as_bytes().to_vec(),
+				StringFormat::Literal);
+			stream.set_content(content.encode().unwrap());
+		},
+		_ => ()
+	}
+}
+doc.save("modified.pdf")?;
 ```
 
 ## FAQ
