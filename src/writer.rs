@@ -4,6 +4,7 @@ use std::path::Path;
 
 use super::{Document, Object, Dictionary, Stream, StringFormat};
 use super::Object::*;
+use xref::*;
 
 impl Document {
 	/// Save PDF document to specified file path.
@@ -15,7 +16,7 @@ impl Document {
 
 		for (id, object) in &self.objects {
 			let offset = file.seek(SeekFrom::Current(0)).unwrap();
-			self.reference_table.insert(id.0, (id.1, offset));
+			self.reference_table.insert(id.0, XrefEntry(EntryType::Normal, offset, id.1));
 
 			file.write_all(format!("{} {} obj{}", id.0, id.1, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
 			Writer::write_object(&mut file, object)?;
@@ -41,8 +42,8 @@ impl Document {
 
 		let mut obj_id = 1;
 		while obj_id <= self.max_id {
-			if let Some(&(generation, offset)) = self.reference_table.get(&obj_id) {
-				write_xref_entry(offset, generation, 'n')?;
+			if let Some(entry) = self.reference_table.get(obj_id) {
+				write_xref_entry(entry.1, entry.2, 'n')?;
 			} else {
 				write_xref_entry(0, 65535, 'f')?;
 			}

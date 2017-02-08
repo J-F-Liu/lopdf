@@ -105,6 +105,13 @@ impl Object {
 		}
 	}
 
+	pub fn as_f64(&self) -> Option<f64> {
+		match *self {
+			Object::Real(ref value) => Some(*value),
+			_ => None
+		}
+	}
+
 	pub fn as_name(&self) -> Option<&str> {
 		match *self {
 			Object::Name(ref name) => Some(name),

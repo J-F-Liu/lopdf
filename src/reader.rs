@@ -52,8 +52,8 @@ impl Reader {
 		self.document.trailer = trailer;
 		self.document.reference_table = xref;
 
-		for (_id, &(_gen, offset)) in &self.document.reference_table {
-			let (object_id, object) = self.read_object(offset as usize)?;
+		for (_id, entry) in &self.document.reference_table.entries {
+			let (object_id, object) = self.read_object(entry.1 as usize)?;
 			self.document.objects.insert(object_id, object);
 		}
 
@@ -62,8 +62,8 @@ impl Reader {
 
 	/// Get object offset by object id.
 	fn get_offset(&self, id: ObjectId) -> Option<u64> {
-		if let Some(&(gen, offset)) = self.document.reference_table.get(&id.0) {
-			if gen == id.1 { Some(offset) } else { None }
+		if let Some(entry) = self.document.reference_table.get(id.0) {
+			if entry.2 == id.1 { Some(entry.1) } else { None }
 		} else {
 			None
 		}

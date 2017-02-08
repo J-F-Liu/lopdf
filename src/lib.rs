@@ -5,6 +5,7 @@ extern crate linked_hash_map;
 mod object;
 pub use object::{Object, ObjectId, Dictionary, Stream, StringFormat};
 
+mod xref;
 mod document;
 pub use document::Document;
 

@@ -1,8 +1,8 @@
 use pom::char_class::{alpha, hex_digit, oct_digit, multispace};
 use pom::{parser, Parser};
 use pom::parser::*;
-use std::collections::BTreeMap;
 use std::str::FromStr;
+use xref::*;
 use super::{Object, ObjectId, Dictionary, Stream, StringFormat};
 use reader::Reader;
 use content::*;
@@ -168,20 +168,20 @@ pub fn header() -> Parser<u8, String> {
 	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(|v|String::from_utf8(v)) - eol() - comment().repeat(0..)
 }
 
-pub fn xref() -> Parser<u8, BTreeMap<u32, (u16, u64)>> {
+pub fn xref() -> Parser<u8, Xref> {
 	let xref_entry = integer().map(|i|i as u64) - sym(b' ') + integer().map(|i|i as u16) - sym(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
 	let xref_section = integer().map(|i|i as usize) - sym(b' ') + integer() - eol() + xref_entry.repeat(1..);
 	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
 	xref.map(|sections| {
 		sections.into_iter().fold(
-		BTreeMap::new(),
-		|mut acc: BTreeMap<_, _>, ((start, _count), entries): ((usize, i64), Vec<((u64, u16), bool)>)| {
+		Xref::new(),
+		|mut xref: Xref, ((start, _count), entries): ((usize, i64), Vec<((u64, u16), bool)>)| {
 			for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
 				if is_normal {
-					acc.insert((start + index) as u32, (generation, offset));
+					xref.insert((start + index) as u32, XrefEntry(EntryType::Normal, offset, generation));
 				}
 			}
-			acc
+			xref
 		})
 	})
 }
@@ -193,6 +193,8 @@ pub fn trailer() -> Parser<u8, Dictionary> {
 pub fn xref_start() -> Parser<u8, i64> {
 	seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()
 }
+
+// The following code create parser to parse content stream.
 
 fn content_space() -> Parser<u8, ()> {
 	is_a(multispace).repeat(0..).discard()
