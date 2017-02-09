@@ -12,6 +12,7 @@ mod document;
 pub use document::Document;
 
 pub mod content;
+mod filters;
 mod parser;
 mod reader;
 mod writer;

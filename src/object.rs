@@ -239,6 +239,7 @@ impl Stream {
 	pub fn decompress(&mut self) {
 		use std::io::prelude::*;
 		use flate2::read::ZlibDecoder;
+		use filters::png;
 
 		if let Some(filter) = self.filter() {
 			match filter.as_str() {
@@ -248,10 +249,21 @@ impl Stream {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
 						decoder.read_to_end(&mut data).unwrap();
 					}
+					if let Some(params) = self.dict.get("DecodeParms").and_then(|obj|obj.as_dict()) {
+						let predictor = params.get("Predictor").and_then(|obj|obj.as_i64()).unwrap_or(1);
+						if predictor >= 10 && predictor <= 15 {
+							let pixels_per_row = params.get("Columns").and_then(|obj|obj.as_i64()).unwrap_or(1) as usize;
+							let colors = params.get("Colors").and_then(|obj|obj.as_i64()).unwrap_or(1) as usize;
+							let bits = params.get("BitsPerComponent").and_then(|obj|obj.as_i64()).unwrap_or(8) as usize;
+         					let bytes_per_pixel = colors * bits / 8;
+							data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
+						}
+					}
+					self.dict.remove("DecodeParms");
 					self.dict.remove("Filter");
 					self.set_content(data);
 				},
-				_ => ()
+				_ => {}
 			}
 		}
 	}
