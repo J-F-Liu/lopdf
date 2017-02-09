@@ -15,12 +15,19 @@ impl Document {
 		self.reference_table.clear();
 
 		for (&(id, generation), object) in &self.objects {
-			let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
-			self.reference_table.insert(id, XrefEntry::Normal{offset, generation});
+			if object.as_dict().map(|dict| dict.type_is("ObjStm")) != Some(true) {
+				let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
+				self.reference_table.insert(id, XrefEntry::Normal{offset, generation});
+				Writer::write_indirect_object(&mut file, id, generation, object)?;
+			}
+		}
 
-			file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
-			Writer::write_object(&mut file, object)?;
-			file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) {" "} else {""}).as_bytes())?;
+		for stream in (&self.streams).values() {
+			for &((id, generation), ref object) in &stream.objects {
+				let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
+				self.reference_table.insert(id, XrefEntry::Normal{offset, generation});
+				Writer::write_indirect_object(&mut file, id, generation, object)?;
+			}
 		}
 
 		let xref_start = file.seek(SeekFrom::Current(0)).unwrap();
@@ -90,6 +97,13 @@ impl Writer {
 			Object::Stream(_) => true,
 			_ => false,
 		}
+	}
+
+	fn write_indirect_object<'a>(file: &mut Write, id: u32, generation: u16, object: &'a Object) -> Result<()> {
+		file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
+		Writer::write_object(file, object)?;
+		file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) {" "} else {""}).as_bytes())?;
+		Ok(())
 	}
 
 	pub fn write_object<'a>(file: &mut Write, object: &'a Object) -> Result<()> {

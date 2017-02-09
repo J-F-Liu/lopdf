@@ -7,6 +7,7 @@ use std::path::Path;
 use super::{Document, Object, ObjectId};
 use super::parser;
 use xref::XrefEntry;
+use object_stream::ObjectStream;
 
 impl Document {
 	/// Load PDF document from specified file path.
@@ -50,10 +51,18 @@ impl Reader {
 		self.document.trailer = trailer;
 		self.document.reference_table = xref;
 
-		for (_id, entry) in &self.document.reference_table.entries {
+		for entry in self.document.reference_table.entries.values().filter(|entry|entry.is_normal()) {
 			match *entry {
 				XrefEntry::Normal{offset, ..} => {
-					let (object_id, object) = self.read_object(offset as usize)?;
+					let (object_id, mut object) = self.read_object(offset as usize)?;
+
+					match object {
+						Object::Stream(ref mut stream) => if stream.dict.type_is("ObjStm") {
+							self.document.streams.insert(object_id.0, ObjectStream::new(stream));
+						},
+						_ => {}
+					}
+
 					self.document.objects.insert(object_id, object);
 				},
 				_ => {},

@@ -129,7 +129,7 @@ fn object_id() -> Parser<u8, ObjectId> {
 	id - space() + gen - space()
 }
 
-fn direct_object() -> Parser<u8, Object> {
+pub fn direct_object() -> Parser<u8, Object> {
 	( seq(b"null").map(|_|Object::Null)
 	| seq(b"true").map(|_|Object::Boolean(true))
 	| seq(b"false").map(|_|Object::Boolean(false))

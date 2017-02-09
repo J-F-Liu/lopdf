@@ -31,9 +31,26 @@ impl Xref {
 	}
 }
 
+use self::XrefEntry::*;
+impl XrefEntry {
+	pub fn is_normal(&self) -> bool {
+		match *self {
+			Normal{..} => true,
+			_ => false
+		}
+	}
+
+	pub fn is_compressed(&self) -> bool {
+		match *self {
+			Compressed{..} => true,
+			_ => false
+		}
+	}
+}
+
 pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 	stream.decompress();
-	let dict = stream.dict;
+	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
 	let size = dict.get("Size").and_then(|size| size.as_i64()).expect("Size is required in trailer.");
 	let mut xref = Xref::new();
@@ -61,14 +78,11 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 					1
 				};
 				match entry_type {
-					//free object
-					0 => {
+					0 => { //free object
 						read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
 						read_big_endian_interger(&mut reader, bytes3.as_mut_slice());
 					},
-
-					//normal object
-					1 => {
+					1 => { //normal object
 						let offset = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
 						let generation = if bytes3.len() > 0 {
 							read_big_endian_interger(&mut reader, bytes3.as_mut_slice())
@@ -76,20 +90,18 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 							0
 						} as u16;
 						xref.insert((start + j) as u32, XrefEntry::Normal { offset: offset, generation: generation });
-					}
-
-					//compressed object
-					2 => {
+					},
+					2 => { //compressed object
 						let container = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
 						let index = read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) as u16;
 						xref.insert((start + j) as u32, XrefEntry::Compressed { container: container, index: index });
-					}
-
-					_ => {},
+					},
+					_ => {}
 				}
 			}
 		}
 	}
+	dict.remove("Length");
 	(xref, dict)
 }
 

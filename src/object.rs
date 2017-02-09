@@ -175,6 +175,10 @@ impl Dictionary {
 	{
 		self.0.remove(&key.into())
 	}
+
+	pub fn type_is(&self, type_name: &str) -> bool {
+		self.0.get("Type").and_then(|obj|obj.as_name()) == Some(type_name)
+	}
 }
 
 impl<'a> IntoIterator for &'a Dictionary {
