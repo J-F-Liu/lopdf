@@ -6,6 +6,7 @@ use std::path::Path;
 
 use super::{Document, Object, ObjectId};
 use super::parser;
+use xref::XrefEntry;
 
 impl Document {
 	/// Load PDF document from specified file path.
@@ -53,17 +54,27 @@ impl Reader {
 		self.document.reference_table = xref;
 
 		for (_id, entry) in &self.document.reference_table.entries {
-			let (object_id, object) = self.read_object(entry.1 as usize)?;
-			self.document.objects.insert(object_id, object);
+			match *entry {
+				XrefEntry::Normal{offset, ..} => {
+					let (object_id, object) = self.read_object(offset as usize)?;
+					self.document.objects.insert(object_id, object);
+				},
+				_ => {},
+			};
 		}
 
 		Ok(())
 	}
 
 	/// Get object offset by object id.
-	fn get_offset(&self, id: ObjectId) -> Option<u64> {
+	fn get_offset(&self, id: ObjectId) -> Option<u32> {
 		if let Some(entry) = self.document.reference_table.get(id.0) {
-			if entry.2 == id.1 { Some(entry.1) } else { None }
+			match *entry {
+				XrefEntry::Normal{offset, generation} => {
+					if id.1 == generation { Some(offset) } else { None }
+				},
+				_ => None,
+			}
 		} else {
 			None
 		}

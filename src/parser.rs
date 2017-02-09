@@ -169,16 +169,16 @@ pub fn header() -> Parser<u8, String> {
 }
 
 pub fn xref() -> Parser<u8, Xref> {
-	let xref_entry = integer().map(|i|i as u64) - sym(b' ') + integer().map(|i|i as u16) - sym(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
+	let xref_entry = integer().map(|i|i as u32) - sym(b' ') + integer().map(|i|i as u16) - sym(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
 	let xref_section = integer().map(|i|i as usize) - sym(b' ') + integer() - eol() + xref_entry.repeat(1..);
 	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
 	xref.map(|sections| {
 		sections.into_iter().fold(
 		Xref::new(),
-		|mut xref: Xref, ((start, _count), entries): ((usize, i64), Vec<((u64, u16), bool)>)| {
+		|mut xref: Xref, ((start, _count), entries): ((usize, i64), Vec<((u32, u16), bool)>)| {
 			for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
 				if is_normal {
-					xref.insert((start + index) as u32, XrefEntry(EntryType::Normal, offset, generation));
+					xref.insert((start + index) as u32, XrefEntry::Normal{offset, generation});
 				}
 			}
 			xref

@@ -14,11 +14,11 @@ impl Document {
 		file.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
 		self.reference_table.clear();
 
-		for (id, object) in &self.objects {
-			let offset = file.seek(SeekFrom::Current(0)).unwrap();
-			self.reference_table.insert(id.0, XrefEntry(EntryType::Normal, offset, id.1));
+		for (&(id, generation), object) in &self.objects {
+			let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
+			self.reference_table.insert(id, XrefEntry::Normal{offset, generation});
 
-			file.write_all(format!("{} {} obj{}", id.0, id.1, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
+			file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
 			Writer::write_object(&mut file, object)?;
 			file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) {" "} else {""}).as_bytes())?;
 		}
@@ -35,7 +35,7 @@ impl Document {
 		file.write_all(b"xref\n")?;
 		file.write_all(format!("0 {}\n", self.max_id + 1).as_bytes())?;
 
-		let mut write_xref_entry = |offset: u64, generation: u16, kind: char| {
+		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| {
 			file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes())
 		};
 		write_xref_entry(0, 65535, 'f')?;
@@ -43,7 +43,12 @@ impl Document {
 		let mut obj_id = 1;
 		while obj_id <= self.max_id {
 			if let Some(entry) = self.reference_table.get(obj_id) {
-				write_xref_entry(entry.1, entry.2, 'n')?;
+				match *entry {
+					XrefEntry::Normal{offset, generation} => {
+						write_xref_entry(offset, generation, 'n')?;
+					},
+					_ => {},
+				};
 			} else {
 				write_xref_entry(0, 65535, 'f')?;
 			}

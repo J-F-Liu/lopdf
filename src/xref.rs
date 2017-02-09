@@ -4,19 +4,15 @@ pub struct Xref {
 	pub entries: BTreeMap<u32, XrefEntry>
 }
 
-pub enum EntryType {
+pub enum XrefEntry {
 	Free,
-	Normal,
-	Compressed
+	Normal { offset: u32, generation: u16 },
+	Compressed { container: u32, index: u16 },
 }
-
-pub struct XrefEntry(pub EntryType, pub u64, pub u16);
 
 impl Xref {
 	pub fn new() -> Xref {
-		Xref {
-			entries: BTreeMap::new()
-		}
+		Xref { entries: BTreeMap::new() }
 	}
 
 	pub fn get(&self, id: u32) -> Option<&XrefEntry> {
