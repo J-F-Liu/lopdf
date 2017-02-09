@@ -168,7 +168,7 @@ pub fn header() -> Parser<u8, String> {
 	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(|v|String::from_utf8(v)) - eol() - comment().repeat(0..)
 }
 
-pub fn xref() -> Parser<u8, Xref> {
+fn xref() -> Parser<u8, Xref> {
 	let xref_entry = integer().map(|i|i as u32) - sym(b' ') + integer().map(|i|i as u16) - sym(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
 	let xref_section = integer().map(|i|i as usize) - sym(b' ') + integer() - eol() + xref_entry.repeat(1..);
 	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
@@ -186,8 +186,18 @@ pub fn xref() -> Parser<u8, Xref> {
 	})
 }
 
-pub fn trailer() -> Parser<u8, Dictionary> {
+fn trailer() -> Parser<u8, Dictionary> {
 	seq(b"trailer") * space() * dictionary() - space()
+}
+
+pub fn xref_and_trailer<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, (Xref, Dictionary)> {
+	xref() + trailer()
+	| indirect_object(reader).convert(|(_, obj)| {
+		match obj {
+			Object::Stream(stream) => Ok(decode_xref_stream(stream)),
+			_ => Err("Xref is not a stream object.")
+		}
+	})
 }
 
 pub fn xref_start() -> Parser<u8, i64> {

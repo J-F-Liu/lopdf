@@ -42,11 +42,8 @@ impl Reader {
 		let xref_start = Self::get_xref_start(&self.buffer, &mut input)?;
 		input.jump_to(xref_start);
 
-		let xref = parser::xref().parse(&mut input)
-			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref)."))?;
-
-		let trailer = parser::trailer().parse(&mut input)
-			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (trailer)."))?;
+		let (xref, trailer) = parser::xref_and_trailer(&self).parse(&mut input)
+			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_and_trailer)."))?;
 
 		self.document.version = version;
 		self.document.max_id = trailer.get("Size").and_then(|value| value.as_i64()).unwrap() as u32 - 1;
