@@ -10,58 +10,27 @@ impl Document {
 	/// Save PDF document to specified file path.
 	pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
 		let mut file = File::create(path)?;
-
+		let mut xref = Xref::new(self.max_id + 1);
 		file.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
-		self.reference_table.clear();
 
 		for (&(id, generation), object) in &self.objects {
 			if object.as_dict().map(|dict| dict.type_is("ObjStm")) != Some(true) {
-				let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
-				self.reference_table.insert(id, XrefEntry::Normal{offset, generation});
-				Writer::write_indirect_object(&mut file, id, generation, object)?;
+				Writer::write_indirect_object(&mut file, id, generation, object, &mut xref)?;
 			}
 		}
 
 		for stream in (&self.streams).values() {
 			for &((id, generation), ref object) in &stream.objects {
-				let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
-				self.reference_table.insert(id, XrefEntry::Normal{offset, generation});
-				Writer::write_indirect_object(&mut file, id, generation, object)?;
+				Writer::write_indirect_object(&mut file, id, generation, object, &mut xref)?;
 			}
 		}
 
 		let xref_start = file.seek(SeekFrom::Current(0)).unwrap();
-		self.write_xref(&mut file)?;
+		Writer::write_xref(&mut file, &xref)?;
 		self.write_trailer(&mut file)?;
 		file.write_all(format!("\nstartxref\n{}\n%%EOF", xref_start).as_bytes())?;
 
 		Ok(file)
-	}
-
-	fn write_xref(&self, file: &mut Write) -> Result<()> {
-		file.write_all(b"xref\n")?;
-		file.write_all(format!("0 {}\n", self.max_id + 1).as_bytes())?;
-
-		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| {
-			file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes())
-		};
-		write_xref_entry(0, 65535, 'f')?;
-
-		let mut obj_id = 1;
-		while obj_id <= self.max_id {
-			if let Some(entry) = self.reference_table.get(obj_id) {
-				match *entry {
-					XrefEntry::Normal{offset, generation} => {
-						write_xref_entry(offset, generation, 'n')?;
-					},
-					_ => {},
-				};
-			} else {
-				write_xref_entry(0, 65535, 'f')?;
-			}
-			obj_id += 1;
-		}
-		Ok(())
 	}
 
 	fn write_trailer(&mut self, file: &mut Write) -> Result<()> {
@@ -99,7 +68,35 @@ impl Writer {
 		}
 	}
 
-	fn write_indirect_object<'a>(file: &mut Write, id: u32, generation: u16, object: &'a Object) -> Result<()> {
+	fn write_xref(file: &mut Write, xref: &Xref) -> Result<()> {
+		file.write_all(b"xref\n")?;
+		file.write_all(format!("0 {}\n", xref.size).as_bytes())?;
+
+		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| {
+			file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes())
+		};
+		write_xref_entry(0, 65535, 'f')?;
+
+		let mut obj_id = 1;
+		while obj_id < xref.size {
+			if let Some(entry) = xref.get(obj_id) {
+				match *entry {
+					XrefEntry::Normal{offset, generation} => {
+						write_xref_entry(offset, generation, 'n')?;
+					},
+					_ => {},
+				};
+			} else {
+				write_xref_entry(0, 65535, 'f')?;
+			}
+			obj_id += 1;
+		}
+		Ok(())
+	}
+
+	fn write_indirect_object<'a, W: Write+Seek>(file: &mut W, id: u32, generation: u16, object: &'a Object, xref: &mut Xref) -> Result<()> {
+		let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
+		xref.insert(id, XrefEntry::Normal{offset, generation});
 		file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
 		Writer::write_object(file, object)?;
 		file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) {" "} else {""}).as_bytes())?;

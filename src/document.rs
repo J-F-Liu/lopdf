@@ -30,7 +30,7 @@ impl Document {
 		Document {
 			version: "1.4".to_string(),
 			trailer: Dictionary::new(),
-			reference_table: Xref::new(),
+			reference_table: Xref::new(0),
 			objects: BTreeMap::new(),
 			streams: BTreeMap::new(),
 			max_id: 0,

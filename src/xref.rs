@@ -3,7 +3,11 @@ use std::io::{Cursor, Read};
 use super::{Dictionary, Stream};
 
 pub struct Xref {
+	/// Entries for indirect object.
 	pub entries: BTreeMap<u32, XrefEntry>,
+
+	/// Total number of entries (including free entries), equal to the highest object number plus 1.
+	pub size: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -14,8 +18,8 @@ pub enum XrefEntry {
 }
 
 impl Xref {
-	pub fn new() -> Xref {
-		Xref { entries: BTreeMap::new() }
+	pub fn new(size: u32) -> Xref {
+		Xref { entries: BTreeMap::new(), size }
 	}
 
 	pub fn get(&self, id: u32) -> Option<&XrefEntry> {
@@ -52,8 +56,8 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 	stream.decompress();
 	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
-	let size = dict.get("Size").and_then(|size| size.as_i64()).expect("Size is required in trailer.");
-	let mut xref = Xref::new();
+	let size = dict.get("Size").and_then(|size| size.as_i64()).expect("Size is absent in trailer.");
+	let mut xref = Xref::new(size as u32);
 	{
 		let section_indice = dict.get("Index")
 			.and_then(|obj| obj.as_array())
@@ -62,7 +66,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 		let field_widths: Vec<usize> = dict.get("W")
 			.and_then(|obj| obj.as_array())
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap() as usize).collect())
-			.expect("W is required in trailer.");
+			.expect("W is absent in trailer.");
 		let mut bytes1 = vec![0_u8; field_widths[0]];
 		let mut bytes2 = vec![0_u8; field_widths[1]];
 		let mut bytes3 = vec![0_u8; field_widths[2]];

@@ -174,7 +174,7 @@ fn xref() -> Parser<u8, Xref> {
 	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
 	xref.map(|sections| {
 		sections.into_iter().fold(
-		Xref::new(),
+		Xref::new(0),
 		|mut xref: Xref, ((start, _count), entries): ((usize, i64), Vec<((u32, u16), bool)>)| {
 			for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
 				if is_normal {
@@ -191,7 +191,11 @@ fn trailer() -> Parser<u8, Dictionary> {
 }
 
 pub fn xref_and_trailer<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, (Xref, Dictionary)> {
-	xref() + trailer()
+	(xref() + trailer()).map(|(mut xref, trailer)| {
+		xref.size = trailer.get("Size").and_then(|value| value.as_i64())
+			.expect("Size is absent in trailer.") as u32;
+		(xref, trailer)
+	})
 	| indirect_object(reader).convert(|(_, obj)| {
 		match obj {
 			Object::Stream(stream) => Ok(decode_xref_stream(stream)),

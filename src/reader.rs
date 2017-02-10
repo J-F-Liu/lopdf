@@ -47,7 +47,7 @@ impl Reader {
 			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_and_trailer)."))?;
 
 		self.document.version = version;
-		self.document.max_id = trailer.get("Size").and_then(|value| value.as_i64()).unwrap() as u32 - 1;
+		self.document.max_id = xref.size - 1;
 		self.document.trailer = trailer;
 		self.document.reference_table = xref;
 
