@@ -240,7 +240,7 @@ impl Stream {
 		}
 	}
 
-	pub fn decompress(&mut self) {
+	pub fn decompressed_content(&self) -> Option<Vec<u8>> {
 		use std::io::prelude::*;
 		use flate2::read::ZlibDecoder;
 		use filters::png;
@@ -259,16 +259,23 @@ impl Stream {
 							let pixels_per_row = params.get("Columns").and_then(|obj|obj.as_i64()).unwrap_or(1) as usize;
 							let colors = params.get("Colors").and_then(|obj|obj.as_i64()).unwrap_or(1) as usize;
 							let bits = params.get("BitsPerComponent").and_then(|obj|obj.as_i64()).unwrap_or(8) as usize;
-         					let bytes_per_pixel = colors * bits / 8;
+							let bytes_per_pixel = colors * bits / 8;
 							data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
 						}
 					}
-					self.dict.remove("DecodeParms");
-					self.dict.remove("Filter");
-					self.set_content(data);
+					return Some(data);
 				},
 				_ => {}
 			}
+		}
+		return None;
+	}
+
+	pub fn decompress(&mut self) {
+		if let Some(data) = self.decompressed_content() {
+			self.dict.remove("DecodeParms");
+			self.dict.remove("Filter");
+			self.set_content(data);
 		}
 	}
 }
