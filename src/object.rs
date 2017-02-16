@@ -146,6 +146,14 @@ impl Object {
 			_ => None
 		}
 	}
+
+	pub fn type_name(&self) -> Option<&str> {
+		match *self {
+			Object::Dictionary(ref dict) => dict.type_name(),
+			Object::Stream(ref stream) => stream.dict.type_name(),
+			_ => None
+		}
+	}
 }
 
 impl Dictionary {
@@ -174,6 +182,10 @@ impl Dictionary {
 		where K: Into<String>
 	{
 		self.0.remove(&key.into())
+	}
+
+	pub fn type_name(&self) -> Option<&str> {
+		self.0.get("Type").and_then(|obj|obj.as_name()).or(self.0.get("Linearized").and(Some("Linearized")))
 	}
 
 	pub fn type_is(&self, type_name: &str) -> bool {

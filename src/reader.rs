@@ -43,8 +43,18 @@ impl Reader {
 		let xref_start = Self::get_xref_start(&self.buffer, &mut input)?;
 		input.jump_to(xref_start);
 
-		let (xref, trailer) = parser::xref_and_trailer(&self).parse(&mut input)
+		let (mut xref, mut trailer) = parser::xref_and_trailer(&self).parse(&mut input)
 			.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_and_trailer)."))?;
+
+		// Read previous Xrefs of linearized or incremental updated document.
+		let mut prev_xref_start = trailer.remove("Prev");
+		while let Some(prev) = prev_xref_start.and_then(|offset|offset.as_i64()) {
+			input.jump_to(prev as usize);
+			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self).parse(&mut input)
+				.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev xref_and_trailer)."))?;
+			xref.extend(prev_xref);
+			prev_xref_start = prev_trailer.remove("Prev");
+		}
 
 		self.document.version = version;
 		self.document.max_id = xref.size - 1;

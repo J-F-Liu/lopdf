@@ -30,6 +30,10 @@ impl Xref {
 		self.entries.insert(id, entry);
 	}
 
+	pub fn extend(&mut self, xref: Xref) {
+		self.entries.extend(xref.entries);
+	}
+
 	pub fn clear(&mut self) {
 		self.entries.clear()
 	}
@@ -106,6 +110,8 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 		}
 	}
 	dict.remove("Length");
+	dict.remove("W");
+	dict.remove("Index");
 	(xref, dict)
 }
 

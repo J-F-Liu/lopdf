@@ -14,7 +14,7 @@ impl Document {
 		file.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
 
 		for (&(id, generation), object) in &self.objects {
-			if object.as_dict().map(|dict| dict.type_is("ObjStm")) != Some(true) {
+			if object.type_name().map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name)) != Some(true) {
 				Writer::write_indirect_object(&mut file, id, generation, object, &mut xref)?;
 			}
 		}
