@@ -38,12 +38,17 @@ impl Content {
 		}
 		Ok(buffer)
 	}
+
+	/// Decode content operations.
+	pub fn decode(data: &[u8]) -> Result<Content> {
+		let mut input = DataInput::new(data);
+		parser::content().parse(&mut input)
+	}
 }
 
 impl Stream {
 	/// Decode content after decoding all stream filters.
 	pub fn decode_content(&self) -> Result<Content> {
-		let mut input = DataInput::new(&self.content);
-		parser::content().parse(&mut input)
+		Content::decode(&self.content)
 	}
 }
