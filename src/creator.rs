@@ -44,7 +44,7 @@ fn create_document() {
 		Operation::new("BT", vec![]),
 		Operation::new("Tf", vec!["F1".into(), 48.into()]),
 		Operation::new("Td", vec![100.into(), 600.into()]),
-		Operation::new("Tj", vec![Object::String("Hello World!".as_bytes().to_vec(), StringFormat::Literal)]),
+		Operation::new("Tj", vec![Object::String(b"Hello World!".to_vec(), StringFormat::Literal)]),
 		Operation::new("ET", vec![]),
 	]};
 	let content_id = doc.add_object(Stream::new(Dictionary::new(), content.encode().unwrap()));

@@ -11,7 +11,7 @@ fn modify_text() -> Result<Document> {
 			Object::Stream(ref mut stream) => {
 				let mut content = stream.decode_content().unwrap();
 				content.operations[3].operands[0] = Object::String(
-					"Modified text!".as_bytes().to_vec(),
+					b"Modified text!".to_vec(),
 					StringFormat::Literal);
 				stream.set_content(content.encode().unwrap());
 			},

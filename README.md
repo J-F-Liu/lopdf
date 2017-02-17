@@ -37,7 +37,7 @@ let content = Content{operations: vec![
 	Operation::new("BT", vec![]),
 	Operation::new("Tf", vec!["F1".into(), 48.into()]),
 	Operation::new("Td", vec![100.into(), 600.into()]),
-	Operation::new("Tj", vec![Object::String("Hello World!".as_bytes().to_vec(), StringFormat::Literal)]),
+	Operation::new("Tj", vec![Object::String(b"Hello World!".to_vec(), StringFormat::Literal)]),
 	Operation::new("ET", vec![]),
 ]};
 let content_id = doc.add_object(Stream::new(Dictionary::new(), content.encode().unwrap()));
@@ -74,7 +74,7 @@ if let Some(content_stream) = doc.objects.get_mut(&(3, 0)) {
 		Object::Stream(ref mut stream) => {
 			let mut content = stream.decode_content().unwrap();
 			content.operations[3].operands[0] = Object::String(
-				"Modified text!".as_bytes().to_vec(),
+				b"Modified text!".to_vec(),
 				StringFormat::Literal);
 			stream.set_content(content.encode().unwrap());
 		},
