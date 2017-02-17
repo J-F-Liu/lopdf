@@ -1,5 +1,3 @@
-#![feature(field_init_shorthand)]
-
 extern crate pom;
 extern crate flate2;
 extern crate linked_hash_map;
