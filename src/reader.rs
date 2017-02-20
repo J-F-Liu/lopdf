@@ -53,6 +53,16 @@ impl Reader {
 			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self).parse(&mut input)
 				.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev xref_and_trailer)."))?;
 			xref.extend(prev_xref);
+
+			// Read xref stream in hybrid-reference file
+			let prev_xref_stream_start = trailer.remove("XRefStm");
+			if let Some(prev) = prev_xref_stream_start.and_then(|offset|offset.as_i64()) {
+				input.jump_to(prev as usize);
+				let (prev_xref, _) = parser::xref_and_trailer(&self).parse(&mut input)
+					.map_err(|_|Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev xref_and_trailer)."))?;
+				xref.extend(prev_xref);
+			}
+
 			prev_xref_start = prev_trailer.remove("Prev");
 		}
 
