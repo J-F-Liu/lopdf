@@ -63,10 +63,13 @@ fn create_document() {
 		("MediaBox", vec![0.into(), 0.into(), 595.into(), 842.into()].into()),
 	]);
 	doc.objects.insert(pages_id, Object::Dictionary(pages));
-	doc.trailer.set("Root", Dictionary::from_iter(vec![
-		("Type", "Catalog".into()),
-		("Pages", Reference(pages_id)),
-	]));
+	let catalog_id = doc.add_object(
+		Dictionary::from_iter(vec![
+			("Type", "Catalog".into()),
+			("Pages", Reference(pages_id)),
+		])
+	);
+	doc.trailer.set("Root", Reference(catalog_id));
 	doc.compress();
 	doc.save("test_1_create.pdf").unwrap();
 }
