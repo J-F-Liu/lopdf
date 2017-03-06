@@ -1,6 +1,6 @@
 [package]
 name = "lopdf"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
 homepage = "https://github.com/J-F-Liu/lopdf"
 documentation = "https://docs.rs/crate/lopdf/"
@@ -11,6 +11,7 @@ description = "A Rust library for PDF document manipulation."
 
 [dependencies]
 pom = "1.0.0"
+chrono = "0.3.0"
 flate2 = "0.2.14"
 linked-hash-map = "0.3.0"
 

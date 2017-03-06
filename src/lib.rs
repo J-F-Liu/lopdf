@@ -1,8 +1,10 @@
 extern crate pom;
+extern crate chrono;
 extern crate flate2;
 extern crate linked_hash_map;
 
 mod object;
+mod datetime;
 pub use object::{Object, ObjectId, Dictionary, Stream, StringFormat};
 
 mod xref;

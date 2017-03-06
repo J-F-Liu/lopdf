@@ -7,7 +7,7 @@ A Rust library for PDF document manipulation.
 
 ## Example Code
 
-- Create new PDF document
+- Create PDF document
 
 ```rust
 extern crate lopdf;

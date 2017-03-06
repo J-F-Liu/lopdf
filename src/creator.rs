@@ -22,9 +22,17 @@ fn create_document() {
 	use super::content::*;
 	use Object::Reference;
 	use std::iter::FromIterator;
+	use chrono::prelude::Local;
 
 	let mut doc = Document::new();
 	doc.version = "1.5".to_string();
+	let info_id = doc.add_object(
+		Dictionary::from_iter(vec![
+			("Title", Object::String(b"Create PDF document example".to_vec(), StringFormat::Literal)),
+			("Creator", Object::String(b"https://crates.io/crates/lopdf".to_vec(), StringFormat::Literal)),
+			("CreationDate", Local::now().into()),
+		])
+	);
 	let pages_id = doc.new_object_id();
 	let font_id = doc.add_object(
 		Dictionary::from_iter(vec![
@@ -70,6 +78,7 @@ fn create_document() {
 		])
 	);
 	doc.trailer.set("Root", Reference(catalog_id));
+	doc.trailer.set("Info", Reference(info_id));
 	doc.compress();
 	doc.save("test_1_create.pdf").unwrap();
 }
