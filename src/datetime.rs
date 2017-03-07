@@ -3,9 +3,16 @@ use super::{Object, StringFormat};
 
 impl From<DateTime<Local>> for Object {
 	fn from(date: DateTime<Local>) -> Self {
-		let mut text = date.format("%Y%m%d%H%M%S%:z'").to_string().replace(':', "'");
-		text.insert_str(0, "D:");
-		Object::String(text.into_bytes(), StringFormat::Literal)
+		let mut bytes = date.format("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
+		let mut index = bytes.len();
+		while let Some(last) = bytes[..index].last_mut() {
+			if *last == b':' {
+				*last = b'\'';
+				break;
+			}
+			index -= 1;
+		}
+		Object::String(bytes, StringFormat::Literal)
 	}
 }
 
@@ -13,4 +20,26 @@ impl From<DateTime<UTC>> for Object {
 	fn from(date: DateTime<UTC>) -> Self {
 		Object::String(date.format("D:%Y%m%d%H%M%SZ").to_string().into_bytes(), StringFormat::Literal)
 	}
+}
+
+impl Object {
+	pub fn as_datetime(&self) -> Option<DateTime<Local>> {
+		match *self {
+			Object::String(ref bytes, _) => {
+				let text = String::from_utf8(
+					bytes.iter().filter(|b| ![b'D', b':', b'\''].contains(b)).map(|b|*b).collect()
+				).unwrap();
+				Local.datetime_from_str(&text, "%Y%m%d%H%M%S%z").ok()
+			},
+			_ => None
+		}
+	}
+}
+
+#[test]
+fn parse_datetime() {
+	let time = Local::now().with_nanosecond(0).unwrap();
+	let text: Object = time.into();
+	let time2 = text.as_datetime();
+	assert_eq!(time2, Some(time));
 }
