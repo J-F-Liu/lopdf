@@ -263,7 +263,7 @@ impl Stream {
 			match filter.as_str() {
 				"FlateDecode" => {
 					let mut data = Vec::new();
-					{
+					if self.content.len() > 0 {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
 						decoder.read_to_end(&mut data).unwrap();
 					}
