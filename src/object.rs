@@ -1,4 +1,5 @@
 use linked_hash_map::{self, LinkedHashMap};
+use std::str;
 
 /// Object identifier consists of two parts: object number and generation number.
 pub type ObjectId = (u32, u16);
@@ -21,7 +22,7 @@ pub enum Object {
 	Boolean(bool),
 	Integer(i64),
 	Real(f64),
-	Name(String),
+	Name(Vec<u8>),
 	String(Vec<u8>, StringFormat),
 	Array(Vec<Object>),
 	Dictionary(Dictionary),
@@ -62,13 +63,13 @@ impl From<f64> for Object {
 
 impl From<String> for Object {
 	fn from(name: String) -> Self {
-		Object::Name(name)
+		Object::Name(name.into_bytes())
 	}
 }
 
 impl<'a> From<&'a str> for Object {
 	fn from(name: &'a str) -> Self {
-		Object::Name(name.to_owned())
+		Object::Name(name.as_bytes().to_vec())
 	}
 }
 
@@ -112,7 +113,7 @@ impl Object {
 		}
 	}
 
-	pub fn as_name(&self) -> Option<&str> {
+	pub fn as_name(&self) -> Option<&[u8]> {
 		match *self {
 			Object::Name(ref name) => Some(name),
 			_ => None
@@ -185,10 +186,11 @@ impl Dictionary {
 	}
 
 	pub fn type_name(&self) -> Option<&str> {
-		self.0.get("Type").and_then(|obj|obj.as_name()).or(self.0.get("Linearized").and(Some("Linearized")))
+		self.0.get("Type").and_then(|obj|obj.as_name()).and_then(|name|str::from_utf8(name).ok())
+		.or(self.0.get("Linearized").and(Some("Linearized")))
 	}
 
-	pub fn type_is(&self, type_name: &str) -> bool {
+	pub fn type_is(&self, type_name: &[u8]) -> bool {
 		self.0.get("Type").and_then(|obj|obj.as_name()) == Some(type_name)
 	}
 }
@@ -225,7 +227,7 @@ impl Stream {
 	pub fn filter(&self) -> Option<String> {
 		if let Some(filter) = self.dict.get("Filter") {
 			if let Some(filter) = filter.as_name() {
-				return Some(filter.to_owned()); // so as to pass borrow checker
+				return Some(String::from_utf8(filter.to_vec()).unwrap()); // so as to pass borrow checker
 			}
 		}
 		return None;

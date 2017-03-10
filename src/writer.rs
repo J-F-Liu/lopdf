@@ -118,9 +118,9 @@ impl Writer {
 		}
 	}
 
-	fn write_name<'a>(file: &mut Write, name: &'a str) -> Result<()> {
+	fn write_name<'a>(file: &mut Write, name: &'a [u8]) -> Result<()> {
 		file.write_all(b"/")?;
-		for &byte in name.as_bytes() {
+		for &byte in name {
 			// white-space and delimiter chars are encoded to # sequences
 			if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) {
 				file.write_all(format!("#{:02X}", byte).as_bytes())?;
@@ -201,7 +201,7 @@ impl Writer {
 	fn write_dictionary<'a>(file: &mut Write, dictionary: &'a Dictionary) -> Result<()> {
 		file.write_all(b"<<")?;
 		for (key, value) in dictionary {
-			Writer::write_name(file, key)?;
+			Writer::write_name(file, key.as_bytes())?;
 			if Writer::need_separator(value) {
 				file.write_all(b" ")?;
 			}
@@ -230,14 +230,14 @@ fn save_document() {
 	doc.objects.insert((4,0), Real(0.5));
 	doc.objects.insert((5,0), String("text((\r)".as_bytes().to_vec(), StringFormat::Literal));
 	doc.objects.insert((6,0), String("text((\r)".as_bytes().to_vec(), StringFormat::Hexadecimal));
-	doc.objects.insert((7,0), Name("name \t".to_string()));
+	doc.objects.insert((7,0), Name(b"name \t".to_vec()));
 	doc.objects.insert((8,0), Reference((1,0)));
 	doc.objects.insert((9,2), Array(vec![Integer(1), Integer(2), Integer(3)]));
 	doc.objects.insert((11,0), Stream(Stream::new(Dictionary::new(), vec![0x41, 0x42, 0x43])));
 	let mut dict = Dictionary::new();
 	dict.set("A", Null);
 	dict.set("B", false);
-	dict.set("C", Name("name".to_string()));
+	dict.set("C", Name(b"name".to_vec()));
 	doc.objects.insert((12,0), Object::Dictionary(dict));
 	doc.max_id = 12;
 	doc.save("test_0_save.pdf").unwrap();

@@ -77,7 +77,7 @@ impl Reader {
 					let (object_id, mut object) = self.read_object(offset as usize)?;
 
 					match object {
-						Object::Stream(ref mut stream) => if stream.dict.type_is("ObjStm") {
+						Object::Stream(ref mut stream) => if stream.dict.type_is(b"ObjStm") {
 							self.document.streams.insert(object_id.0, ObjectStream::new(stream));
 						},
 						_ => {}

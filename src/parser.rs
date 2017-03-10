@@ -35,7 +35,7 @@ fn real() -> Parser<u8, f64> {
 }
 
 fn hex_char() -> Parser<u8, u8> {
-	let number = is_a(hex_digit).repeat(2..3);
+	let number = is_a(hex_digit).repeat(2);
 	number.collect().convert(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 16))
 }
 
@@ -44,9 +44,8 @@ fn oct_char() -> Parser<u8, u8> {
 	number.collect().convert(|v|u8::from_str_radix(&String::from_utf8(v).unwrap(), 8))
 }
 
-fn name() -> Parser<u8, String> {
-	let name = sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | sym(b'#') * hex_char()).repeat(0..);
-	name.convert(|v|String::from_utf8(v))
+fn name() -> Parser<u8, Vec<u8>> {
+	sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | sym(b'#') * hex_char()).repeat(0..)
 }
 
 fn escape_sequence() -> Parser<u8, Vec<u8>> {
@@ -105,7 +104,7 @@ fn dictionary() -> Parser<u8, Dictionary> {
 	let entries = seq(b"<<") * space() * entry.repeat(0..) - seq(b">>");
 	entries.map(|entries| entries.into_iter().fold(
 		Dictionary::new(),
-		|mut dict: Dictionary, (key, value)| { dict.set(key, value); dict }
+		|mut dict: Dictionary, (key, value)| { dict.set(String::from_utf8(key).unwrap(), value); dict }
 	))
 }
 
@@ -136,7 +135,7 @@ pub fn direct_object() -> Parser<u8, Object> {
 	| object_id().map(|id|Object::Reference(id)) - sym(b'R')
 	| real().map(|num|Object::Real(num))
 	| integer().map(|num|Object::Integer(num))
-	| name().map(|text| Object::Name(text))
+	| name().map(|bytes| Object::Name(bytes))
 	| literal_string().map(|bytes| Object::String(bytes, StringFormat::Literal))
 	| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 	| array().map(|items|Object::Array(items))
@@ -280,7 +279,15 @@ mod tests {
 			Ok(b"text line()".to_vec()));
 		assert_eq!(
 			name().parse(&mut DataInput::new(b"/ABC#5f")),
-			Ok("ABC\x5F".to_string()));
+			Ok(b"ABC\x5F".to_vec()));
+	}
+
+	#[test]
+	fn parse_name() {
+		let text = b"/#cb#ce#cc#e5";
+		let name = name().parse(&mut DataInput::new(text));
+		println!("{:?}", name);
+		assert_eq!(name.is_ok(), true);
 	}
 
 	#[test]
