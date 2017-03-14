@@ -62,5 +62,42 @@ impl Document {
 		}
 		return None;
 	}
-}
 
+	/// Traverse objects from trailer recursively, return all referenced object IDs.
+	pub fn traverse_objects<A: Fn(&mut Object) -> ()>(&mut self, action: A) -> Vec<ObjectId> {
+		fn traverse_array<A: Fn(&mut Object) -> ()>(array: &mut Vec<Object>, action: &A, refs: &mut Vec<ObjectId>) {
+			for item in array.iter_mut() {
+				traverse_object(item, action, refs);
+			}
+		}
+		fn traverse_dictionary<A: Fn(&mut Object) -> ()>(dict: &mut Dictionary, action: &A, refs: &mut Vec<ObjectId>) {
+			for (_, v) in dict.iter_mut() {
+				traverse_object(v, action, refs);
+			}
+		}
+		fn traverse_object<A: Fn(&mut Object) -> ()>(object: &mut Object, action: &A, refs: &mut Vec<ObjectId>) {
+			action(object);
+			match *object {
+				Object::Array(ref mut array) => traverse_array(array, action, refs),
+				Object::Dictionary(ref mut dict) => traverse_dictionary(dict, action, refs),
+				Object::Stream(ref mut stream) => traverse_dictionary(&mut stream.dict, action, refs),
+				Object::Reference(id) => {
+					if !refs.contains(&id) {
+						refs.push(id);
+					}
+				},
+				_ => {}
+			}
+		}
+		let mut refs = vec![];
+		traverse_dictionary(&mut self.trailer, &action, &mut refs);
+		let mut index = 0;
+		while index < refs.len() {
+			if let Some(object) = self.objects.get_mut(&refs[index]) {
+				traverse_object(object, &action, &mut refs);
+			}
+			index += 1;
+		}
+		refs
+	}
+}

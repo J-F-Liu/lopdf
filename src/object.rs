@@ -1,4 +1,4 @@
-use linked_hash_map::{self, LinkedHashMap};
+use linked_hash_map::{self, LinkedHashMap, Iter, IterMut};
 use std::str;
 
 /// Object identifier consists of two parts: object number and generation number.
@@ -179,10 +179,9 @@ impl Dictionary {
 		self.0.len()
 	}
 
-	pub fn remove<K>(&mut self, key: K) -> Option<Object>
-		where K: Into<String>
+	pub fn remove(&mut self, key: &str) -> Option<Object>
 	{
-		self.0.remove(&key.into())
+		self.0.remove(key)
 	}
 
 	pub fn type_name(&self) -> Option<&str> {
@@ -192,6 +191,14 @@ impl Dictionary {
 
 	pub fn type_is(&self, type_name: &[u8]) -> bool {
 		self.0.get("Type").and_then(|obj|obj.as_name()) == Some(type_name)
+	}
+
+	pub fn iter(&self) -> Iter<String, Object> {
+		self.0.iter()
+	}
+
+	pub fn iter_mut(&mut self) -> IterMut<String, Object> {
+		self.0.iter_mut()
 	}
 }
 
