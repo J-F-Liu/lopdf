@@ -1,4 +1,4 @@
-use super::{Document, Object};
+use super::{Document, Object, ObjectId};
 
 impl Document {
 	/// Compress PDF stream objects.
@@ -19,5 +19,47 @@ impl Document {
 				_ => ()
 			}
 		}
+	}
+
+	/// Delete unused objects.
+	pub fn delete_unused_objects(&mut self) {
+		let refs = self.traverse_objects(|_|{});
+		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
+			if !refs.contains(&id) {
+				self.objects.remove(&id);
+			}
+		}
+	}
+
+	/// Delete object by object ID.
+	pub fn delete_object(&mut self, id: ObjectId) -> Option<Object> {
+		let action = |object: &mut Object| {
+			match *object {
+				Object::Array(ref mut array) => {
+					if let Some(index) = array.iter().position(|item: &Object| {
+						match *item {
+							Object::Reference(ref_id) => ref_id == id,
+							_ => false
+						}
+					}) {
+						array.remove(index);
+					}
+				},
+				Object::Dictionary(ref mut dict) => {
+					let keys: Vec<String> = dict.iter().filter(|&(_, item): &(&String, &Object)| {
+						match *item {
+							Object::Reference(ref_id) => ref_id == id,
+							_ => false
+						}
+					}).map(|(k, _)| k.clone()).collect();
+					for key in keys {
+						dict.remove(key.as_str());
+					}
+				},
+				_ => {}
+			}
+		};
+		self.traverse_objects(action);
+		self.objects.remove(&id)
 	}
 }
