@@ -29,12 +29,14 @@ fn main() {
 			.about("Decompress PDF document"))
 		.subcommand(SubCommand::with_name("delete_unused_objects")
 			.about("Delete unused objects"))
-		.subcommand(SubCommand::with_name("delete")
+		.subcommand(SubCommand::with_name("delete_objects")
 			.about("Delete objects")
 			.arg(Arg::with_name("ids")
 				.long("ids")
 				.value_name("object ids")
 				.takes_value(true)))
+		.subcommand(SubCommand::with_name("renumber_objects")
+			.about("Renumber objects"))
 		.get_matches();
 
 	if let (cmd, Some(args)) = app.subcommand() {
@@ -48,7 +50,7 @@ fn main() {
 				"compress" => doc.compress(),
 				"decompress" => doc.decompress(),
 				"delete_unused_objects" => doc.delete_unused_objects(),
-				"delete" => {
+				"delete_objects" => {
 					if let Some(ids) = args.value_of("ids") {
 						for id in ids.split(',') {
 							let nums: Vec<u32> = id.split(' ').map(|num|u32::from_str(num).unwrap()).collect();
@@ -56,6 +58,7 @@ fn main() {
 						}
 					}
 				},
+				"renumber_objects" => doc.renumber_objects(),
 				_ => (),
 			}
 

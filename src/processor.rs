@@ -1,4 +1,5 @@
 use super::{Document, Object, ObjectId};
+use std::collections::BTreeMap;
 
 impl Document {
 	/// Compress PDF stream objects.
@@ -61,5 +62,41 @@ impl Document {
 		};
 		self.traverse_objects(action);
 		self.objects.remove(&id)
+	}
+
+	/// Renumber objects, normally called after delete_unused_objects.
+	pub fn renumber_objects(&mut self) {
+		let mut replace = BTreeMap::new();
+		let mut new_id = 1;
+		let mut ids = self.objects.keys().cloned().collect::<Vec<ObjectId>>();
+		ids.sort();
+
+		for id in ids {
+			if id.0 != new_id {
+				replace.insert(id, (new_id, id.1));
+			}
+			new_id += 1;
+		}
+
+		// replace order is from small to big
+		for (old, new) in replace.iter() {
+			if let Some(object) = self.objects.remove(old) {
+				self.objects.insert(new.clone(), object);
+			}
+		}
+
+		let action = |object: &mut Object| {
+			match *object {
+				Object::Reference(ref mut id) => {
+					if replace.contains_key(&id) {
+						*id = replace.get(id).unwrap().clone();
+					}
+				},
+				_ => {}
+			}
+		};
+		
+		self.traverse_objects(action);
+		self.max_id = new_id - 1;
 	}
 }
