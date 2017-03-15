@@ -27,6 +27,12 @@ fn main() {
 			.about("Compress PDF document"))
 		.subcommand(SubCommand::with_name("decompress")
 			.about("Decompress PDF document"))
+		.subcommand(SubCommand::with_name("delete_pages")
+			.about("Delete pages")
+			.arg(Arg::with_name("pages")
+				.long("pages")
+				.value_name("page numbers")
+				.takes_value(true)))
 		.subcommand(SubCommand::with_name("delete_unused_objects")
 			.about("Delete unused objects"))
 		.subcommand(SubCommand::with_name("delete_objects")
@@ -49,12 +55,26 @@ fn main() {
 			match cmd {
 				"compress" => doc.compress(),
 				"decompress" => doc.decompress(),
+				"delete_pages" => {
+					if let Some(pages) = args.value_of("pages") {
+						let mut page_numbers = vec![];
+						for page in pages.split(',') {
+							let nums: Vec<u32> = page.split('-').map(|num|u32::from_str(num).unwrap()).collect();
+							match nums.len() {
+								1 => page_numbers.push(nums[0]),
+								2 => page_numbers.append(&mut (nums[0]..nums[1]+1).collect()),
+								_ => {}
+							}
+						}
+						doc.delete_pages(&page_numbers);
+					}
+				}
 				"delete_unused_objects" => doc.delete_unused_objects(),
 				"delete_objects" => {
 					if let Some(ids) = args.value_of("ids") {
 						for id in ids.split(',') {
 							let nums: Vec<u32> = id.split(' ').map(|num|u32::from_str(num).unwrap()).collect();
-							doc.delete_object((nums[0], nums[1] as u16));
+							doc.delete_object(&(nums[0], nums[1] as u16));
 						}
 					}
 				},

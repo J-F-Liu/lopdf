@@ -10,6 +10,7 @@ pub use object::{Object, ObjectId, Dictionary, Stream, StringFormat};
 mod xref;
 mod object_stream;
 mod document;
+mod byref;
 pub use document::Document;
 
 pub mod content;

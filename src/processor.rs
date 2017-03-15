@@ -35,6 +35,26 @@ impl Document {
 		}
 	}
 
+	/// Delete pages.
+	pub fn delete_pages(&mut self, page_numbers: &[u32]) {
+		let pages = self.get_pages();
+		for page_number in page_numbers {
+			if let Some(page) = pages.get(&page_number).and_then(|page_id|self.delete_object(page_id)) {
+				let mut page_tree_ref = page.as_dict().and_then(|dict|dict.get("Parent")).and_then(|obj|obj.as_reference());
+				while let Some(page_tree_id) = page_tree_ref {
+					if let Some(page_tree) = self.objects.get_mut(&page_tree_id).and_then(|obj|obj.as_dict_mut()) {
+						page_tree.get("Count").and_then(|obj|obj.as_i64()).map(|count|{
+							page_tree.set("Count", count - 1);
+						});
+						page_tree_ref = page_tree.get("Parent").and_then(|obj|obj.as_reference());
+					} else {
+						break;
+					}
+				}
+			}
+		}
+	}
+
 	/// Delete unused objects.
 	pub fn delete_unused_objects(&mut self) {
 		let refs = self.traverse_objects(|_|{});
@@ -46,13 +66,13 @@ impl Document {
 	}
 
 	/// Delete object by object ID.
-	pub fn delete_object(&mut self, id: ObjectId) -> Option<Object> {
+	pub fn delete_object(&mut self, id: &ObjectId) -> Option<Object> {
 		let action = |object: &mut Object| {
 			match *object {
 				Object::Array(ref mut array) => {
 					if let Some(index) = array.iter().position(|item: &Object| {
 						match *item {
-							Object::Reference(ref_id) => ref_id == id,
+							Object::Reference(ref_id) => ref_id == *id,
 							_ => false
 						}
 					}) {
@@ -62,7 +82,7 @@ impl Document {
 				Object::Dictionary(ref mut dict) => {
 					let keys: Vec<String> = dict.iter().filter(|&(_, item): &(&String, &Object)| {
 						match *item {
-							Object::Reference(ref_id) => ref_id == id,
+							Object::Reference(ref_id) => ref_id == *id,
 							_ => false
 						}
 					}).map(|(k, _)| k.clone()).collect();
@@ -74,7 +94,7 @@ impl Document {
 			}
 		};
 		self.traverse_objects(action);
-		self.objects.remove(&id)
+		self.objects.remove(id)
 	}
 
 	/// Renumber objects, normally called after delete_unused_objects.
