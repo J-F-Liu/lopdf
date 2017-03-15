@@ -1,7 +1,20 @@
-use super::{Document, Object, ObjectId};
 use std::collections::BTreeMap;
+use super::{Document, Object, ObjectId, StringFormat};
 
 impl Document {
+	/// Change producer of document information dictionary.
+	pub fn change_producer(&mut self, producer: &str) {
+		if let Some(info) = self.trailer.get_mut("Info") {
+			if let Some(dict) = match *info {
+				Object::Dictionary(ref mut dict) => Some(dict),
+				Object::Reference(ref id) => self.objects.get_mut(id).and_then(|obj|obj.as_dict_mut()),
+				_ => None,
+			} {
+				dict.set("Producer", Object::String(producer.as_bytes().to_vec(), StringFormat::Literal));
+			}
+		}
+	}
+
 	/// Compress PDF stream objects.
 	pub fn compress(&mut self) {
 		for (_, object) in self.objects.iter_mut() {

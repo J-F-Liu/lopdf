@@ -62,6 +62,8 @@ fn main() {
 				_ => (),
 			}
 
+			doc.change_producer("https://crates.io/crates/lopdf");
+
 			if let Some(output) = args.value_of("output") {
 				println!("Save to {}", output);
 				doc.save(output).unwrap();

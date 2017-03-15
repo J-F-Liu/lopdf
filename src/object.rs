@@ -141,6 +141,13 @@ impl Object {
 		}
 	}
 
+	pub fn as_dict_mut(&mut self) -> Option<&mut Dictionary> {
+		match *self {
+			Object::Dictionary(ref mut dict) => Some(dict),
+			_ => None
+		}
+	}
+
 	pub fn as_stream(&self) -> Option<&Stream> {
 		match *self {
 			Object::Stream(ref stream) => Some(stream),
@@ -166,6 +173,12 @@ impl Dictionary {
 		where K: Into<String>
 	{
 		self.0.get(&key.into())
+	}
+
+	pub fn get_mut<K>(&mut self, key: K) -> Option<&mut Object>
+		where K: Into<String>
+	{
+		self.0.get_mut(&key.into())
 	}
 
 	pub fn set<K, V>(&mut self, key: K, value: V)
