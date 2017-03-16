@@ -102,10 +102,12 @@ impl Document {
 		refs
 	}
 
+	/// Get catalog dictionary.
 	pub fn catalog(&self) -> Option<&Dictionary> {
 		self.trailer.get("Root").get_dict_by_ref(self)
 	}
 
+	/// Get page numbers and corresponding object ids.
 	pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
 		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>) {
 			if let Some(kids) = doc.get_object(page_tree_id).and_then(|obj|obj.as_dict()).and_then(|page_tree|page_tree.get("Kids")).and_then(|obj|obj.as_array()) {

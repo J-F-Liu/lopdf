@@ -30,19 +30,21 @@ fn main() {
 		.subcommand(SubCommand::with_name("delete_pages")
 			.about("Delete pages")
 			.arg(Arg::with_name("pages")
-				.long("pages")
 				.value_name("page numbers")
+				.help("e.g. 3,5,7-9")
 				.takes_value(true)))
-		.subcommand(SubCommand::with_name("delete_unused_objects")
-			.about("Delete unused objects"))
+		.subcommand(SubCommand::with_name("prune_objects")
+			.about("Prune unused objects"))
 		.subcommand(SubCommand::with_name("delete_objects")
 			.about("Delete objects")
 			.arg(Arg::with_name("ids")
-				.long("ids")
 				.value_name("object ids")
+				.help("e.g. \"1 0,2 1,35,36\"")
 				.takes_value(true)))
 		.subcommand(SubCommand::with_name("renumber_objects")
 			.about("Renumber objects"))
+		.subcommand(SubCommand::with_name("prune_renumber_objects")
+			.about("Prune unused objects and renumber objects"))
 		.get_matches();
 
 	if let (cmd, Some(args)) = app.subcommand() {
@@ -69,17 +71,33 @@ fn main() {
 						doc.delete_pages(&page_numbers);
 					}
 				}
-				"delete_unused_objects" => doc.delete_unused_objects(),
+				"prune_objects" => {
+					let ids = doc.prune_objects();
+					println!("Deleted {:?}", ids);
+					let streams = doc.delete_zero_length_streams();
+					println!("Deleted zero length streams {:?}", streams);
+				}
 				"delete_objects" => {
 					if let Some(ids) = args.value_of("ids") {
 						for id in ids.split(',') {
 							let nums: Vec<u32> = id.split(' ').map(|num|u32::from_str(num).unwrap()).collect();
-							doc.delete_object(&(nums[0], nums[1] as u16));
+							match nums.len() {
+								1 => doc.delete_object(&(nums[0], 0)),
+								2 => doc.delete_object(&(nums[0], nums[1] as u16)),
+								_ => None
+							};
 						}
 					}
-				},
+				}
 				"renumber_objects" => doc.renumber_objects(),
-				_ => (),
+				"prune_renumber_objects" => {
+					let ids = doc.prune_objects();
+					println!("Deleted {:?}", ids);
+					let streams = doc.delete_zero_length_streams();
+					println!("Deleted zero length streams {:?}", streams);
+					doc.renumber_objects();
+				}
+				_ => {}
 			}
 
 			doc.change_producer("https://crates.io/crates/lopdf");

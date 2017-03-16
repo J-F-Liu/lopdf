@@ -55,14 +55,17 @@ impl Document {
 		}
 	}
 
-	/// Delete unused objects.
-	pub fn delete_unused_objects(&mut self) {
+	/// Prune all unused objects.
+	pub fn prune_objects(&mut self) -> Vec<ObjectId> {
+		let mut ids = vec![];
 		let refs = self.traverse_objects(|_|{});
 		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
 			if !refs.contains(&id) {
 				self.objects.remove(&id);
+				ids.push(id);
 			}
 		}
+		ids
 	}
 
 	/// Delete object by object ID.
@@ -95,6 +98,18 @@ impl Document {
 		};
 		self.traverse_objects(action);
 		self.objects.remove(id)
+	}
+
+	/// Delete zero length stream objects.
+	pub fn delete_zero_length_streams(&mut self) -> Vec<ObjectId> {
+		let mut ids = vec![];
+		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
+			if self.objects.get(&id).and_then(|obj|obj.as_stream()).map(|stream|stream.content.len()==0) == Some(true) {
+				self.objects.remove(&id);
+				ids.push(id);
+			}
+		}
+		ids
 	}
 
 	/// Renumber objects, normally called after delete_unused_objects.
