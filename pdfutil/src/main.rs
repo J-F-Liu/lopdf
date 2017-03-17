@@ -94,7 +94,9 @@ fn main() {
 					let ids = doc.prune_objects();
 					println!("Deleted {:?}", ids);
 					let streams = doc.delete_zero_length_streams();
-					println!("Deleted zero length streams {:?}", streams);
+					if streams.len() > 0 {
+						println!("Deleted zero length streams {:?}", streams);
+					}
 					doc.renumber_objects();
 				}
 				_ => {}

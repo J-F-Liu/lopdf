@@ -105,7 +105,7 @@ impl Document {
 		let mut ids = vec![];
 		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
 			if self.objects.get(&id).and_then(|obj|obj.as_stream()).map(|stream|stream.content.len()==0) == Some(true) {
-				self.objects.remove(&id);
+				self.delete_object(&id);
 				ids.push(id);
 			}
 		}
