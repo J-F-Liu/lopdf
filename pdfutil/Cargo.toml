@@ -2,7 +2,7 @@
 name = "pdfutil"
 version = "0.1.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
-homepage = "https://github.com/J-F-Liu/lopdf"
+homepage = "https://github.com/J-F-Liu/lopdf/tree/master/pdfutil"
 documentation = "https://docs.rs/crate/lopdf/"
 repository = "https://github.com/J-F-Liu/lopdf.git"
 license = "MIT"
