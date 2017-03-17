@@ -23,6 +23,13 @@ fn main() {
 			.value_name("output file")
 			.takes_value(true)
 			.global(true))
+		.subcommand(SubCommand::with_name("process")
+			.about("Process PDF document with specified operations")
+			.arg(Arg::with_name("operations")
+				.value_name("operations")
+				.help("e.g. prune_objects delete_zero_length_streams renumber_objects")
+				.takes_value(true)
+				.multiple(true)))
 		.subcommand(SubCommand::with_name("compress")
 			.about("Compress PDF document"))
 		.subcommand(SubCommand::with_name("decompress")
@@ -43,8 +50,8 @@ fn main() {
 				.takes_value(true)))
 		.subcommand(SubCommand::with_name("renumber_objects")
 			.about("Renumber objects"))
-		.subcommand(SubCommand::with_name("prune_renumber_objects")
-			.about("Prune unused objects and renumber objects"))
+		.subcommand(SubCommand::with_name("delete_zero_length_streams")
+			.about("Delete zero length stream objects"))
 		.get_matches();
 
 	if let (cmd, Some(args)) = app.subcommand() {
@@ -55,8 +62,14 @@ fn main() {
 
 			println!("Do {}", cmd);
 			match cmd {
-				"compress" => doc.compress(),
-				"decompress" => doc.decompress(),
+				"process" => {
+					if let Some(operations) = args.values_of("operations") {
+						for operation in operations {
+							println!("Do {}", operation);
+							apply_operation(&mut doc, operation);
+						}
+					}
+				}
 				"delete_pages" => {
 					if let Some(pages) = args.value_of("pages") {
 						let mut page_numbers = vec![];
@@ -71,12 +84,6 @@ fn main() {
 						doc.delete_pages(&page_numbers);
 					}
 				}
-				"prune_objects" => {
-					let ids = doc.prune_objects();
-					println!("Deleted {:?}", ids);
-					let streams = doc.delete_zero_length_streams();
-					println!("Deleted zero length streams {:?}", streams);
-				}
 				"delete_objects" => {
 					if let Some(ids) = args.value_of("ids") {
 						for id in ids.split(',') {
@@ -89,17 +96,9 @@ fn main() {
 						}
 					}
 				}
-				"renumber_objects" => doc.renumber_objects(),
-				"prune_renumber_objects" => {
-					let ids = doc.prune_objects();
-					println!("Deleted {:?}", ids);
-					let streams = doc.delete_zero_length_streams();
-					if streams.len() > 0 {
-						println!("Deleted zero length streams {:?}", streams);
-					}
-					doc.renumber_objects();
+				operation @ _ => {
+					apply_operation(&mut doc, operation);
 				}
-				_ => {}
 			}
 
 			doc.change_producer("https://crates.io/crates/lopdf");
@@ -108,6 +107,25 @@ fn main() {
 				println!("Save to {}", output);
 				doc.save(output).unwrap();
 			}
+		}
+	}
+
+	fn apply_operation(doc: &mut Document, operation: &str) {
+		match operation {
+			"compress" => doc.compress(),
+			"decompress" => doc.decompress(),
+			"renumber_objects" => doc.renumber_objects(),
+			"prune_objects" => {
+				let ids = doc.prune_objects();
+				println!("Deleted {:?}", ids);
+			}
+			"delete_zero_length_streams" => {
+				let streams = doc.delete_zero_length_streams();
+				if streams.len() > 0 {
+					println!("Deleted {:?}", streams);
+				}
+			}
+			_ => {}
 		}
 	}
 }
