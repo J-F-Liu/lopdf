@@ -4,6 +4,7 @@ use std::str::FromStr;
 use super::{Object, ObjectId, Stream};
 use super::parser;
 
+#[derive(Debug)]
 pub struct ObjectStream {
 	pub objects: Vec<(ObjectId, Object)>,
 }

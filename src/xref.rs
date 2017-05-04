@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 use super::{Dictionary, Stream};
 
+#[derive(Debug)]
 pub struct Xref {
 	/// Entries for indirect object.
 	pub entries: BTreeMap<u32, XrefEntry>,
