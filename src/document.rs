@@ -5,6 +5,7 @@ use object_stream::ObjectStream;
 use byref::ByRef;
 
 /// PDF document.
+#[derive(Debug)]
 pub struct Document {
 	/// The version of the PDF specification to which the file conforms.
 	pub version: String,
