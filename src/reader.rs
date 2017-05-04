@@ -1,6 +1,8 @@
 use pom::{Input, DataInput};
 use std::cmp;
 use std::io::{Result, Read, Error, ErrorKind};
+use std::path::Path;
+use std::fs::File;
 
 use super::{Document, Object, ObjectId};
 use super::parser;
@@ -10,9 +12,22 @@ use object_stream::ObjectStream;
 impl Document {
 
 	/// Load PDF document from specified file path.
-	pub fn load<R: Read>(mut source: R) -> Result<Document> {
+	#[inline]
+	pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
+		let file = File::open(path)?;
+		let buffer = Vec::with_capacity(file.metadata()?.len() as usize);
+		Self::load_internal(file, buffer)
+	}
 
-		let mut buffer = Vec::new();
+	/// Load PDF document from arbitrary source
+	#[inline]
+	pub fn load_from<R: Read>(source: R) -> Result<Document> {
+		let buffer = Vec::<u8>::new();
+		Self::load_internal(source, buffer)
+	}
+
+	fn load_internal<R: Read>(mut source: R, mut buffer: Vec<u8>) -> Result<Document> {
+
 		source.read_to_end(&mut buffer)?;
 
 		let mut reader = Reader {
@@ -160,10 +175,7 @@ impl Reader {
 #[test]
 fn load_document() {
 
-	use std::fs::File;
-	let file = File::open("assets/example.pdf").unwrap();
-	let mut doc = Document::load(file).unwrap();
+	let mut doc = Document::load("assets/example.pdf").unwrap();
 	assert_eq!(doc.version, "1.5");
-	let mut file = File::create("test_2_load.pdf").unwrap();
-	doc.save(&mut file).unwrap();
+	doc.save("test_2_load.pdf").unwrap();
 }

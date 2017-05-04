@@ -1,4 +1,6 @@
 use std::io::{Result, Seek, Write, SeekFrom};
+use std::path::Path;
+use std::fs::File;
 
 use super::{Document, Object, Dictionary, Stream, StringFormat};
 use super::Object::*;
@@ -7,7 +9,20 @@ use xref::*;
 impl Document {
 
 	/// Save PDF document to specified file path.
-	pub fn save<W: Write + Seek>(&mut self, target: &mut W) -> Result<()> {
+	#[inline]
+	pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
+		let mut file = File::create(path)?;
+		self.save_internal(&mut file)?;
+		Ok(file)
+	}
+
+	/// Save PDF to arbitrary target
+	#[inline]
+	pub fn save_to<W: Write + Seek>(&mut self, target: &mut W) -> Result <()> {
+		self.save_internal(target)
+	}
+	
+	fn save_internal<W: Write + Seek>(&mut self, target: &mut W) -> Result<()> {
 		let mut xref = Xref::new(self.max_id + 1);
 		target.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
 
@@ -238,6 +253,5 @@ fn save_document() {
 	doc.objects.insert((12,0), Object::Dictionary(dict));
 	doc.max_id = 12;
 
-	let mut file = ::std::fs::File::create("test_0_save.pdf").unwrap();
-	doc.save(&mut file).unwrap();
+	doc.save("test_0_save.pdf").unwrap();
 }
