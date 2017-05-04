@@ -1,8 +1,6 @@
 use pom::{Input, DataInput};
 use std::cmp;
-use std::fs::File;
 use std::io::{Result, Read, Error, ErrorKind};
-use std::path::Path;
 
 use super::{Document, Object, ObjectId};
 use super::parser;
@@ -10,11 +8,12 @@ use xref::XrefEntry;
 use object_stream::ObjectStream;
 
 impl Document {
+
 	/// Load PDF document from specified file path.
-	pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
-		let mut file = File::open(path)?;
-		let mut buffer = Vec::with_capacity(file.metadata()?.len() as usize);
-		file.read_to_end(&mut buffer)?;
+	pub fn load<R: Read>(mut source: R) -> Result<Document> {
+
+		let mut buffer = Vec::new();
+		source.read_to_end(&mut buffer)?;
 
 		let mut reader = Reader {
 			buffer: buffer,
@@ -160,7 +159,11 @@ impl Reader {
 
 #[test]
 fn load_document() {
-	let mut doc = Document::load("assets/example.pdf").unwrap();
+
+	use std::fs::File;
+	let file = File::open("assets/example.pdf").unwrap();
+	let mut doc = Document::load(file).unwrap();
 	assert_eq!(doc.version, "1.5");
-	doc.save("test_2_load.pdf").unwrap();
+	let mut file = File::create("test_2_load.pdf").unwrap();
+	doc.save(&mut file).unwrap();
 }

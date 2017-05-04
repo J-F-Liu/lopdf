@@ -1,36 +1,34 @@
-use std::fs::File;
 use std::io::{Result, Seek, Write, SeekFrom};
-use std::path::Path;
 
 use super::{Document, Object, Dictionary, Stream, StringFormat};
 use super::Object::*;
 use xref::*;
 
 impl Document {
+
 	/// Save PDF document to specified file path.
-	pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
-		let mut file = File::create(path)?;
+	pub fn save<W: Write + Seek>(&mut self, target: &mut W) -> Result<()> {
 		let mut xref = Xref::new(self.max_id + 1);
-		file.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
+		target.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
 
 		for (&(id, generation), object) in &self.objects {
 			if object.type_name().map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name)) != Some(true) {
-				Writer::write_indirect_object(&mut file, id, generation, object, &mut xref)?;
+				Writer::write_indirect_object(target, id, generation, object, &mut xref)?;
 			}
 		}
 
 		for stream in (&self.streams).values() {
 			for &((id, generation), ref object) in &stream.objects {
-				Writer::write_indirect_object(&mut file, id, generation, object, &mut xref)?;
+				Writer::write_indirect_object(target, id, generation, object, &mut xref)?;
 			}
 		}
 
-		let xref_start = file.seek(SeekFrom::Current(0)).unwrap();
-		Writer::write_xref(&mut file, &xref)?;
-		self.write_trailer(&mut file)?;
-		file.write_all(format!("\nstartxref\n{}\n%%EOF", xref_start).as_bytes())?;
+		let xref_start = target.seek(SeekFrom::Current(0)).unwrap();
+		Writer::write_xref(target, &xref)?;
+		self.write_trailer(target)?;
+		target.write_all(format!("\nstartxref\n{}\n%%EOF", xref_start).as_bytes())?;
 
-		Ok(file)
+		Ok(())
 	}
 
 	fn write_trailer(&mut self, file: &mut Write) -> Result<()> {
@@ -222,8 +220,7 @@ impl Writer {
 
 #[test]
 fn save_document() {
-	let mut doc = Document::new();
-	doc.version = "1.5".to_string();
+	let mut doc = Document::with_version("1.5");
 	doc.objects.insert((1,0), Null);
 	doc.objects.insert((2,0), Boolean(true));
 	doc.objects.insert((3,0), Integer(3));
@@ -240,5 +237,7 @@ fn save_document() {
 	dict.set("C", Name(b"name".to_vec()));
 	doc.objects.insert((12,0), Object::Dictionary(dict));
 	doc.max_id = 12;
-	doc.save("test_0_save.pdf").unwrap();
+
+	let mut file = ::std::fs::File::create("test_0_save.pdf").unwrap();
+	doc.save(&mut file).unwrap();
 }

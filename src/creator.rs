@@ -80,5 +80,7 @@ fn create_document() {
 	doc.trailer.set("Root", Reference(catalog_id));
 	doc.trailer.set("Info", Reference(info_id));
 	doc.compress();
-	doc.save("test_1_create.pdf").unwrap();
+
+	let mut file = ::std::fs::File::create("test_1_create.pdf").unwrap();
+	doc.save(&mut file).unwrap();
 }
