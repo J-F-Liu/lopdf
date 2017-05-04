@@ -27,6 +27,7 @@ pub struct Document {
 }
 
 impl Document {
+
 	/// Create new PDF document.
 	pub fn new() -> Document {
 		Document {
@@ -37,6 +38,13 @@ impl Document {
 			streams: BTreeMap::new(),
 			max_id: 0,
 		}
+	}
+
+	/// Create new PDF document.
+	pub fn with_version<S: Into<String>>(version: S) -> Document {
+		let mut document = Self::new();
+		document.version = version.into();
+		document
 	}
 
 	/// Get object by object id, will recursively dereference a referenced object.

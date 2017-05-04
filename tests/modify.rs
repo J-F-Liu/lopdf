@@ -2,9 +2,11 @@ extern crate lopdf;
 
 use lopdf::{Document, Object, StringFormat};
 use std::io::Result;
+use std::fs::File;
 
 fn modify_text() -> Result<Document> {
-	let mut doc = Document::load("assets/example.pdf")?;
+	let file = File::open("assets/example.pdf").unwrap();
+	let mut doc = Document::load(file)?;
 	doc.version = "1.4".to_string();
 	if let Some(content_stream) = doc.objects.get_mut(&(4, 0)) {
 		match *content_stream {
@@ -18,7 +20,9 @@ fn modify_text() -> Result<Document> {
 			_ => ()
 		}
 	}
-	doc.save("test_3_modify.pdf")?;
+
+	let mut file = File::create("test_3_modify.pdf")?;
+	doc.save(&mut file)?;
 	Ok(doc)
 }
 
