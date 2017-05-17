@@ -28,3 +28,11 @@ fn modify_text() -> Result<Document> {
 fn test_modify() {
 	assert_eq!(modify_text().is_ok(), true);
 }
+
+#[test]
+fn test_get_object() {
+	let mut doc = Document::new();
+	let id = doc.add_object(Object::String("test".as_bytes().to_vec(), StringFormat::Literal));
+	println!("{:?}", id);
+	assert!(doc.get_object(id).is_some());
+}
