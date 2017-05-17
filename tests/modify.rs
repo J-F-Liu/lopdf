@@ -31,8 +31,16 @@ fn test_modify() {
 
 #[test]
 fn test_get_object() {
+	use lopdf::Dictionary as LoDictionary;
+	use lopdf::Stream as LoStream;
+	use self::Object;
+
 	let mut doc = Document::new();
 	let id = doc.add_object(Object::String("test".as_bytes().to_vec(), StringFormat::Literal));
+	let id2 = doc.add_object(Object::Stream(LoStream::new(LoDictionary::new(), "stream".as_bytes().to_vec())));
+
 	println!("{:?}", id);
+	println!("{:?}", id2);
 	assert!(doc.get_object(id).is_some());
+	assert!(doc.get_object(id2).is_some());
 }
