@@ -49,28 +49,17 @@ impl Document {
 
 	/// Get object by object id, will recursively dereference a referenced object.
 	pub fn get_object(&self, id: ObjectId) -> Option<&Object> {
-		if let Some(entry) = self.reference_table.get(id.0) {
+
+		let mut ret_entry = None;
+
+		if let Some(entry) = self.objects.get(&id) {
 			match *entry {
-				XrefEntry::Normal { .. } => {
-					if let Some(object) = self.objects.get(&id) {
-						if let Some(id) = object.as_reference() {
-							return self.get_object(id);
-						} else {
-							return Some(object);
-						}
-					}
-				}
-				XrefEntry::Compressed { container, index } => {
-					if let Some(stream) = self.streams.get(&container) {
-						if let Some(&(_id, ref object)) = stream.get_object(index as usize) {
-							return Some(object);
-						}
-					}
-				}
-				_ => {},
+				Object::Reference(obj_ref) => { ret_entry = self.get_object(obj_ref); }
+				_ => { ret_entry = Some(entry); }
 			}
 		}
-		return None;
+
+		return ret_entry;
 	}
 
 	/// Traverse objects from trailer recursively, return all referenced object IDs.
