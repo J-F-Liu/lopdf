@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use xref::{Xref, XrefEntry};
+use xref::{Xref};
 use super::{Object, ObjectId, Dictionary};
 use object_stream::ObjectStream;
 use byref::ByRef;
