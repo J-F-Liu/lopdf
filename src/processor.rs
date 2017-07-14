@@ -19,7 +19,11 @@ impl Document {
 	pub fn compress(&mut self) {
 		for (_, object) in self.objects.iter_mut() {
 			match *object {
-				Object::Stream(ref mut stream) => stream.compress(),
+				Object::Stream(ref mut stream) => {
+                    if stream.allows_compression {
+                        stream.compress()
+                    }
+                },
 				_ => ()
 			}
 		}

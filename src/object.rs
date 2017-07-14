@@ -8,11 +8,18 @@ pub type ObjectId = (u32, u16);
 #[derive(Debug, Clone)]
 pub struct Dictionary(LinkedHashMap<String, Object>);
 
-/// Stream Object.
+/// Stream object
+/// Warning - all streams must be indirect objects, while 
+/// the stream dictionary may be a direct object
 #[derive(Debug, Clone)]
 pub struct Stream {
+    /// Associated stream dictionary
 	pub dict: Dictionary,
+    /// Contents of the stream in bytes
 	pub content: Vec<u8>,
+    /// Can the stream be compressed by the `Document::compress()` function?
+    /// Font streams may not be compressed, for example
+    pub allows_compression: bool,
 }
 
 /// Basic PDF object types defined in an enum.
@@ -241,8 +248,17 @@ impl Stream {
 		Stream {
 			dict: dict,
 			content: content,
+            allows_compression: true,
 		}
 	}
+
+    /// Default is that the stream may be compressed. On font streams, 
+    /// set this to false, otherwise the font will be corrupt
+    #[inline]
+    pub fn with_compression(mut self, allows_compression: bool) -> Stream {
+        self.allows_compression = allows_compression;
+        self
+    }
 
 	pub fn filter(&self) -> Option<String> {
 		if let Some(filter) = self.dict.get("Filter") {
