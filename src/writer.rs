@@ -21,7 +21,7 @@ impl Document {
 	pub fn save_to<W: Write + Seek>(&mut self, target: &mut W) -> Result <()> {
 		self.save_internal(target)
 	}
-	
+
 	fn save_internal<W: Write + Seek>(&mut self, target: &mut W) -> Result<()> {
 		let mut xref = Xref::new(self.max_id + 1);
 		target.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
@@ -117,12 +117,15 @@ impl Writer {
 	}
 
 	pub fn write_object<'a>(file: &mut Write, object: &'a Object) -> Result<()> {
+        use dtoa;
+        use itoa;
+
 		match *object {
 			Null => file.write_all(b"null"),
-			Boolean(ref value) => file.write_all(format!("{}", value).as_bytes()),
-			Integer(ref value) => file.write_all(format!("{}", value).as_bytes()),
-			Real(ref value) => file.write_all(format!("{}", value).as_bytes()),
-			Name(ref name) => Writer::write_name(file, name),
+			Boolean(ref value) => if *value { file.write_all(b"true") } else { file.write_all(b"false") },
+            Integer(ref value) => { let _ = itoa::write(file, *value); Ok(()) },
+            Real(ref value) => { let _ = dtoa::write(file, *value); Ok(()) },
+            Name(ref name) => Writer::write_name(file, name),
 			String(ref text, ref format) => Writer::write_string(file, text, format),
 			Array(ref array) => Writer::write_array(file, array),
 			Object::Dictionary(ref dict) => Writer::write_dictionary(file, dict),
