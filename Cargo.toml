@@ -14,6 +14,8 @@ pom = "1.0.1"
 chrono = "0.3.0"
 flate2 = "0.2.14"
 linked-hash-map = "0.3.0"
+dtoa = "0.4.1"
+itoa = "0.3.1"
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }
