@@ -169,7 +169,7 @@ pub fn header() -> Parser<u8, String> {
 
 fn xref() -> Parser<u8, Xref> {
 	let xref_entry = integer().map(|i|i as u32) - sym(b' ') + integer().map(|i|i as u16) - sym(b' ') + one_of(b"nf").map(|k|k==b'n') - take(2);
-	let xref_section = integer().map(|i|i as usize) - sym(b' ') + integer() - eol() + xref_entry.repeat(1..);
+	let xref_section = integer().map(|i|i as usize) - sym(b' ') + integer() - sym(b' ').opt() - eol() + xref_entry.repeat(1..);
 	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
 	xref.map(|sections| {
 		sections.into_iter().fold(

@@ -16,8 +16,7 @@ use lopdf::content::{Content, Operation};
 use Object::Reference;
 use std::iter::FromIterator;
 
-let mut doc = Document::new();
-doc.version = "1.5".to_string();
+let mut doc = Document::with_version("1.5");
 let pages_id = doc.new_object_id();
 let font_id = doc.add_object(
 	Dictionary::from_iter(vec![
