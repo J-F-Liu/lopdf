@@ -88,16 +88,19 @@ impl Reader {
 		for entry in self.document.reference_table.entries.values().filter(|entry|entry.is_normal()) {
 			match *entry {
 				XrefEntry::Normal{offset, ..} => {
-					let (object_id, mut object) = self.read_object(offset as usize)?;
-
-					match object {
-						Object::Stream(ref mut stream) => if stream.dict.type_is(b"ObjStm") {
-							self.document.streams.insert(object_id.0, ObjectStream::new(stream));
+					let read_result = self.read_object(offset as usize);
+					match read_result {
+						Ok((object_id, mut object)) => {
+							match object {
+								Object::Stream(ref mut stream) => if stream.dict.type_is(b"ObjStm") {
+									self.document.streams.insert(object_id.0, ObjectStream::new(stream));
+								},
+								_ => {}
+							}
+							self.document.objects.insert(object_id, object);
 						},
-						_ => {}
+						Err(err) => { println!("{:?}", err); }
 					}
-
-					self.document.objects.insert(object_id, object);
 				},
 				_ => {},
 			};
