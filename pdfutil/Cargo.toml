@@ -9,5 +9,5 @@ license = "MIT"
 description = "A utility for PDF document manipulation."
 
 [dependencies]
-lopdf = {version = "0.8.0", path = "../"}
+lopdf = {version = "0.12.0", path = "../"}
 clap = "2.21.1"

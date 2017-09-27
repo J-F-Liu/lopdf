@@ -2,11 +2,19 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
+			"type": "lldb",
+			"request": "launch",
+			"name": "lldb",
+			"program": "./pdfutil/target/debug/pdfutil",
+			"args": ["decompress", "-i", "/Users/Junfeng/Downloads/Lifetimes.pdf"],
+			"cwd": "${workspaceRoot}"
+		},
+		{
 			"type": "lldb-mi",
 			"request": "launch",
 			"name": "pdfutil",
 			"target": "./pdfutil/target/debug/pdfutil",
-			"arguments": "decompress -i /home/junfeng/Downloads/rfc7159.pdf",
+			"arguments": "decompress -i /Users/Junfeng/Downloads/Lifetimes.pdf",
 			"cwd": "${workspaceRoot}"
 		}
 	]
