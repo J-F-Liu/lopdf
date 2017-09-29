@@ -49,6 +49,9 @@ impl Document {
 
 	/// Get object by object id, will recursively dereference a referenced object.
 	pub fn get_object(&self, id: ObjectId) -> Option<&Object> {
+		if let Some(object) = self.objects.get(&id) {
+			return Some(object);
+		}
 		if let Some(entry) = self.reference_table.get(id.0) {
 			match *entry {
 				XrefEntry::Normal { .. } => {
