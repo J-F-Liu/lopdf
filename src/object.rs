@@ -326,6 +326,9 @@ impl Stream {
 		if let Some(filter) = self.filter() {
 			match filter.as_str() {
 				"FlateDecode" => {
+					if self.dict.get("Subtype").is_some() {
+						return None;
+					}
 					let mut data = Vec::new();
 					if self.content.len() > 0 {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
