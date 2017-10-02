@@ -32,12 +32,6 @@ impl Document {
 			}
 		}
 
-		for stream in (&self.streams).values() {
-			for &((id, generation), ref object) in &stream.objects {
-				Writer::write_indirect_object(target, id, generation, object, &mut xref)?;
-			}
-		}
-
 		let xref_start = target.seek(SeekFrom::Current(0)).unwrap();
 		Writer::write_xref(target, &xref)?;
 		self.write_trailer(target)?;

@@ -93,7 +93,8 @@ impl Reader {
 						Ok((object_id, mut object)) => {
 							match object {
 								Object::Stream(ref mut stream) => if stream.dict.type_is(b"ObjStm") {
-									self.document.streams.insert(object_id.0, ObjectStream::new(stream));
+									let mut obj_stream = ObjectStream::new(stream);
+									self.document.objects.append(&mut obj_stream.objects);
 								},
 								_ => {}
 							}
