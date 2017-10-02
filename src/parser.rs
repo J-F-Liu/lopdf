@@ -234,15 +234,12 @@ fn operand() -> Parser<u8, Object> {
 fn operation() -> Parser<u8, Operation> {
 	let operation = operand().repeat(0..) + operator() - content_space();
 	operation.map(|(operands, operator)| {
-		Operation {
-			operator: operator,
-			operands: operands,
-		}
+		Operation {operator, operands}
 	})
 }
 
 pub fn content() -> Parser<u8, Content> {
-	content_space() * operation().repeat(0..).map(|operations| Content{operations: operations})
+	content_space() * operation().repeat(0..).map(|operations| Content{operations})
 }
 
 #[cfg(test)]

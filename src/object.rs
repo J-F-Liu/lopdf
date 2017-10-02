@@ -1,15 +1,16 @@
 use linked_hash_map::{self, LinkedHashMap, Iter, IterMut};
 use std::str;
+use std::fmt;
 
 /// Object identifier consists of two parts: object number and generation number.
 pub type ObjectId = (u32, u16);
 
 /// Dictionary object.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Dictionary(LinkedHashMap<String, Object>);
 
 /// Stream object
-/// Warning - all streams must be indirect objects, while 
+/// Warning - all streams must be indirect objects, while
 /// the stream dictionary may be a direct object
 #[derive(Debug, Clone)]
 pub struct Stream {
@@ -23,7 +24,7 @@ pub struct Stream {
 }
 
 /// Basic PDF object types defined in an enum.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Object {
 	Null,
 	Boolean(bool),
@@ -171,6 +172,26 @@ impl Object {
 	}
 }
 
+impl fmt::Debug for Object {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match *self {
+			Object::Null => f.write_str("null"),
+			Object::Boolean(ref value) => if *value { f.write_str("true") } else { f.write_str("false") },
+            Object::Integer(ref value) => write!(f, "{}", *value),
+            Object::Real(ref value) => write!(f, "{}", *value),
+            Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
+			Object::String(ref text, _) => write!(f, "({})", str::from_utf8(text).unwrap()),
+			Object::Array(ref array) => {
+				let items = array.into_iter().map(|item|format!("{:?}", item)).collect::<Vec<String>>();
+				write!(f, "[{}]", items.join(" "))
+			},
+			Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
+			Object::Stream(ref stream) => write!(f, "{:?}stream...endstream", stream.dict),
+			Object::Reference(ref id) => write!(f, "{} {} R", id.0, id.1),
+		}
+    }
+}
+
 impl Dictionary {
 	pub fn new() -> Dictionary {
 		Dictionary(LinkedHashMap::new())
@@ -222,6 +243,13 @@ impl Dictionary {
 	}
 }
 
+impl fmt::Debug for Dictionary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		let entries = self.into_iter().map(|(key, value)|format!("/{} {:?}", key, value)).collect::<Vec<String>>();
+		write!(f, "<<{}>>", entries.concat())
+    }
+}
+
 impl<'a> IntoIterator for &'a Dictionary {
 	type Item = (&'a String, &'a Object);
 	type IntoIter = linked_hash_map::Iter<'a, String, Object>;
@@ -252,7 +280,7 @@ impl Stream {
 		}
 	}
 
-    /// Default is that the stream may be compressed. On font streams, 
+    /// Default is that the stream may be compressed. On font streams,
     /// set this to false, otherwise the font will be corrupt
     #[inline]
     pub fn with_compression(mut self, allows_compression: bool) -> Stream {
