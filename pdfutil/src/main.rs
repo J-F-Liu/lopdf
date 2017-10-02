@@ -40,6 +40,12 @@ fn main() {
 				.value_name("page numbers")
 				.help("e.g. 3,5,7-9")
 				.takes_value(true)))
+		.subcommand(SubCommand::with_name("extract_pages")
+			.about("Extract pages")
+			.arg(Arg::with_name("pages")
+				.value_name("page numbers")
+				.help("e.g. 3,5,7-9")
+				.takes_value(true)))
 		.subcommand(SubCommand::with_name("prune_objects")
 			.about("Prune unused objects"))
 		.subcommand(SubCommand::with_name("delete_objects")
@@ -70,17 +76,17 @@ fn main() {
 						}
 					}
 				}
+				"extract_pages" => {
+					if let Some(pages) = args.value_of("pages") {
+						let page_numbers = compute_page_numbers(pages);
+						let total = *doc.get_pages().keys().max().unwrap_or(&0);
+						let page_numbers = complement_page_numbers(&page_numbers, total);
+						doc.delete_pages(&page_numbers);
+					}
+				}
 				"delete_pages" => {
 					if let Some(pages) = args.value_of("pages") {
-						let mut page_numbers = vec![];
-						for page in pages.split(',') {
-							let nums: Vec<u32> = page.split('-').map(|num|u32::from_str(num).unwrap()).collect();
-							match nums.len() {
-								1 => page_numbers.push(nums[0]),
-								2 => page_numbers.append(&mut (nums[0]..nums[1]+1).collect()),
-								_ => {}
-							}
-						}
+						let page_numbers = compute_page_numbers(pages);
 						doc.delete_pages(&page_numbers);
 					}
 				}
@@ -127,5 +133,28 @@ fn main() {
 			}
 			_ => {}
 		}
+	}
+
+	fn compute_page_numbers(pages: &str) -> Vec<u32> {
+		let mut page_numbers = vec![];
+		for page in pages.split(',') {
+			let nums: Vec<u32> = page.split('-').map(|num|u32::from_str(num).unwrap()).collect();
+			match nums.len() {
+				1 => page_numbers.push(nums[0]),
+				2 => page_numbers.append(&mut (nums[0]..nums[1]+1).collect()),
+				_ => {}
+			}
+		}
+		page_numbers
+	}
+
+	fn complement_page_numbers(pages: &[u32], total: u32) -> Vec<u32> {
+		let mut page_numbers = vec![];
+		for page in 1..(total + 1) {
+			if !pages.contains(&page) {
+				page_numbers.push(page);
+			}
+		}
+		page_numbers
 	}
 }
