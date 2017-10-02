@@ -180,7 +180,7 @@ impl fmt::Debug for Object {
             Object::Integer(ref value) => write!(f, "{}", *value),
             Object::Real(ref value) => write!(f, "{}", *value),
             Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
-			Object::String(ref text, _) => write!(f, "({})", str::from_utf8(text).unwrap()),
+			Object::String(ref text, _) => write!(f, "({})", String::from_utf8_lossy(text)),
 			Object::Array(ref array) => {
 				let items = array.into_iter().map(|item|format!("{:?}", item)).collect::<Vec<String>>();
 				write!(f, "[{}]", items.join(" "))
