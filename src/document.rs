@@ -4,7 +4,7 @@ use super::{Object, ObjectId, Dictionary};
 use byref::ByRef;
 
 /// PDF document.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Document {
 	/// The version of the PDF specification to which the file conforms.
 	pub version: String,
