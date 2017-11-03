@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use super::{Document, Object, ObjectId, StringFormat};
+use super::{Document, Object, ObjectId};
 
 impl Document {
 	/// Change producer of document information dictionary.
@@ -10,7 +10,7 @@ impl Document {
 				Object::Reference(ref id) => self.objects.get_mut(id).and_then(|obj|obj.as_dict_mut()),
 				_ => None,
 			} {
-				dict.set("Producer", Object::String(producer.as_bytes().to_vec(), StringFormat::Literal));
+				dict.set("Producer", Object::string_literal(producer));
 			}
 		}
 	}

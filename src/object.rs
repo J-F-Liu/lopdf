@@ -106,6 +106,10 @@ impl From<ObjectId> for Object {
 }
 
 impl Object {
+	pub fn string_literal<S: Into<Vec<u8>>>(s: S) -> Self {
+		Object::String(s.into(), StringFormat::Literal)
+	}
+
 	pub fn is_null(&self) -> bool {
 		match *self {
 			Object::Null => true,

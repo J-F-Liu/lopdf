@@ -18,15 +18,15 @@ impl Document {
 
 #[test]
 fn create_document() {
-	use super::{Stream, StringFormat};
+	use super::Stream;
 	use super::content::*;
 	use chrono::prelude::Local;
 
 	let mut doc = Document::new();
 	doc.version = "1.5".to_string();
 	let info_id = doc.add_object(dictionary! {
-		"Title" => Object::String(b"Create PDF document example".to_vec(), StringFormat::Literal),
-		"Creator" => Object::String(b"https://crates.io/crates/lopdf".to_vec(), StringFormat::Literal),
+		"Title" => Object::string_literal("Create PDF document example"),
+		"Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
 		"CreationDate" => Local::now(),
 	});
 	let pages_id = doc.new_object_id();
@@ -44,7 +44,7 @@ fn create_document() {
 		Operation::new("BT", vec![]),
 		Operation::new("Tf", vec!["F1".into(), 48.into()]),
 		Operation::new("Td", vec![100.into(), 600.into()]),
-		Operation::new("Tj", vec![Object::String(b"Hello World!".to_vec(), StringFormat::Literal)]),
+		Operation::new("Tj", vec![Object::string_literal("Hello World!")]),
 		Operation::new("ET", vec![]),
 	]};
 	let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
