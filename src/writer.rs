@@ -1,4 +1,4 @@
-use std::io::{Result, Seek, Write, SeekFrom};
+use std::io::{Result, Write};
 use std::path::Path;
 use std::fs::File;
 
@@ -18,23 +18,27 @@ impl Document {
 
 	/// Save PDF to arbitrary target
 	#[inline]
-	pub fn save_to<W: Write + Seek>(&mut self, target: &mut W) -> Result <()> {
+	pub fn save_to<W: Write>(&mut self, target: &mut W) -> Result <()> {
 		self.save_internal(target)
 	}
 
-	fn save_internal<W: Write + Seek>(&mut self, target: &mut W) -> Result<()> {
+	fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
+		let mut target = CountingWrite {
+			inner: target,
+			bytes_written: 0,
+		};
 		let mut xref = Xref::new(self.max_id + 1);
 		target.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
 
 		for (&(id, generation), object) in &self.objects {
 			if object.type_name().map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name)) != Some(true) {
-				Writer::write_indirect_object(target, id, generation, object, &mut xref)?;
+				Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
 			}
 		}
 
-		let xref_start = target.seek(SeekFrom::Current(0)).unwrap();
-		Writer::write_xref(target, &xref)?;
-		self.write_trailer(target)?;
+		let xref_start = target.bytes_written;
+		Writer::write_xref(&mut target, &xref)?;
+		self.write_trailer(&mut target)?;
 		target.write_all(format!("\nstartxref\n{}\n%%EOF", xref_start).as_bytes())?;
 
 		Ok(())
@@ -101,8 +105,10 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_indirect_object<'a, W: Write+Seek>(file: &mut W, id: u32, generation: u16, object: &'a Object, xref: &mut Xref) -> Result<()> {
-		let offset = file.seek(SeekFrom::Current(0)).unwrap() as u32;
+	fn write_indirect_object<'a, W: Write>(
+		file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &'a Object, xref: &mut Xref
+	) -> Result<()> {
+		let offset = file.bytes_written as u32;
 		xref.insert(id, XrefEntry::Normal{offset, generation});
 		file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
 		Writer::write_object(file, object)?;
@@ -227,6 +233,35 @@ impl Writer {
 		file.write_all(&stream.content)?;
 		file.write_all(b"endstream")?;
 		Ok(())
+	}
+}
+
+pub struct CountingWrite<W: Write> {
+	inner: W,
+	bytes_written: usize,
+}
+
+impl<W: Write> Write for CountingWrite<W> {
+	#[inline]
+	fn write(&mut self, buffer: &[u8]) -> Result<usize> {
+		let result = self.inner.write(buffer);
+		if let Ok(bytes) = result {
+			self.bytes_written += bytes;
+		}
+		result
+	}
+
+	#[inline]
+	fn write_all(&mut self, buffer: &[u8]) -> Result<()> {
+		self.bytes_written += buffer.len();
+		// If this returns `Err` we can’t know how many bytes were actually written (if any)
+		// but that doesn’t matter since we’re gonna abort the entire PDF generation anyway.
+		self.inner.write_all(buffer)
+	}
+
+	#[inline]
+	fn flush(&mut self) -> Result<()> {
+		self.inner.flush()
 	}
 }
 
