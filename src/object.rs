@@ -63,9 +63,32 @@ impl From<i64> for Object {
 	}
 }
 
+macro_rules! from_smaller_ints {
+	($( $Int: ty )+) => {
+		$(
+			impl From<$Int> for Object {
+				fn from(number: $Int) -> Self {
+					Object::Integer(number as i64)
+				}
+			}
+		)+
+	}
+}
+
+from_smaller_ints! {
+	i8 i16 i32
+	u8 u16 u32
+}
+
 impl From<f64> for Object {
 	fn from(number: f64) -> Self {
 		Object::Real(number)
+	}
+}
+
+impl From<f32> for Object {
+	fn from(number: f32) -> Self {
+		Object::Real(number as f64)
 	}
 }
 
