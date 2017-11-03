@@ -249,6 +249,23 @@ impl Dictionary {
 	}
 }
 
+#[macro_export]
+macro_rules! dictionary {
+	() => {
+		$crate::Dictionary::new()
+	};
+	($( $key: expr => $value: expr ),+ ,) => {
+		dictionary!( $($key => $value),+ )
+	};
+	($( $key: expr => $value: expr ),*) => {{
+		let mut dict = $crate::Dictionary::new();
+		$(
+			dict.set($key, $value);
+		)*
+		dict
+	}}
+}
+
 impl fmt::Debug for Dictionary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		let entries = self.into_iter().map(|(key, value)|format!("/{} {:?}", key, value)).collect::<Vec<String>>();

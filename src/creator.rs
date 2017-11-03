@@ -18,36 +18,28 @@ impl Document {
 
 #[test]
 fn create_document() {
-	use super::{Dictionary, Stream, StringFormat};
+	use super::{Stream, StringFormat};
 	use super::content::*;
-	use Object::Reference;
-	use std::iter::FromIterator;
 	use chrono::prelude::Local;
 
 	let mut doc = Document::new();
 	doc.version = "1.5".to_string();
-	let info_id = doc.add_object(
-		Dictionary::from_iter(vec![
-			("Title", Object::String(b"Create PDF document example".to_vec(), StringFormat::Literal)),
-			("Creator", Object::String(b"https://crates.io/crates/lopdf".to_vec(), StringFormat::Literal)),
-			("CreationDate", Local::now().into()),
-		])
-	);
+	let info_id = doc.add_object(dictionary! {
+		"Title" => Object::String(b"Create PDF document example".to_vec(), StringFormat::Literal),
+		"Creator" => Object::String(b"https://crates.io/crates/lopdf".to_vec(), StringFormat::Literal),
+		"CreationDate" => Local::now(),
+	});
 	let pages_id = doc.new_object_id();
-	let font_id = doc.add_object(
-		Dictionary::from_iter(vec![
-			("Type", "Font".into()),
-			("Subtype", "Type1".into()),
-			("BaseFont", "Courier".into()),
-		])
-	);
-	let resources_id = doc.add_object(
-		Dictionary::from_iter(vec![
-			("Font", Dictionary::from_iter(vec![
-				("F1", Reference(font_id)),
-			]).into()),
-		])
-	);
+	let font_id = doc.add_object(dictionary! {
+		"Type" => "Font",
+		"Subtype" => "Type1",
+		"BaseFont" => "Courier",
+	});
+	let resources_id = doc.add_object(dictionary! {
+		"Font" => dictionary! {
+			"F1" => font_id,
+		},
+	});
 	let content = Content{operations: vec![
 		Operation::new("BT", vec![]),
 		Operation::new("Tf", vec!["F1".into(), 48.into()]),
@@ -55,30 +47,26 @@ fn create_document() {
 		Operation::new("Tj", vec![Object::String(b"Hello World!".to_vec(), StringFormat::Literal)]),
 		Operation::new("ET", vec![]),
 	]};
-	let content_id = doc.add_object(Stream::new(Dictionary::new(), content.encode().unwrap()));
-	let page_id = doc.add_object(
-		Dictionary::from_iter(vec![
-			("Type", "Page".into()),
-			("Parent", Reference(pages_id)),
-			("Contents", vec![Reference(content_id)].into()),
-		])
-	);
-	let pages = Dictionary::from_iter(vec![
-		("Type", "Pages".into()),
-		("Kids", vec![Reference(page_id)].into()),
-		("Count", 1.into()),
-		("Resources", Reference(resources_id)),
-		("MediaBox", vec![0.into(), 0.into(), 595.into(), 842.into()].into()),
-	]);
+	let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+	let page_id = doc.add_object(dictionary! {
+		"Type" => "Page",
+		"Parent" => pages_id,
+		"Contents" => vec![content_id.into()],
+	});
+	let pages = dictionary! {
+		"Type" => "Pages",
+		"Kids" => vec![page_id.into()],
+		"Count" => 1,
+		"Resources" => resources_id,
+		"MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+	};
 	doc.objects.insert(pages_id, Object::Dictionary(pages));
-	let catalog_id = doc.add_object(
-		Dictionary::from_iter(vec![
-			("Type", "Catalog".into()),
-			("Pages", Reference(pages_id)),
-		])
-	);
-	doc.trailer.set("Root", Reference(catalog_id));
-	doc.trailer.set("Info", Reference(info_id));
+	let catalog_id = doc.add_object(dictionary! {
+		"Type" => "Catalog",
+		"Pages" => pages_id,
+	});
+	doc.trailer.set("Root", catalog_id);
+	doc.trailer.set("Info", info_id);
 	doc.compress();
 
 	doc.save("test_1_create.pdf").unwrap();

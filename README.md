@@ -13,25 +13,19 @@ A Rust library for PDF document manipulation.
 extern crate lopdf;
 use lopdf::{Document, Object, Dictionary, Stream, StringFormat};
 use lopdf::content::{Content, Operation};
-use Object::Reference;
-use std::iter::FromIterator;
 
 let mut doc = Document::with_version("1.5");
 let pages_id = doc.new_object_id();
-let font_id = doc.add_object(
-	Dictionary::from_iter(vec![
-		("Type", "Font".into()),
-		("Subtype", "Type1".into()),
-		("BaseFont", "Courier".into()),
-	])
-);
-let resources_id = doc.add_object(
-	Dictionary::from_iter(vec![
-		("Font", Dictionary::from_iter(vec![
-			("F1", font_id.into()),
-		]).into()),
-	])
-);
+let font_id = doc.add_object(dictionary! {
+	"Type" => "Font",
+	"Subtype" => "Type1",
+	"BaseFont" => "Courier",,
+});
+let resources_id = doc.add_object(dictionary! {
+	"Font" => dictionary! {
+		"F1" => font_id,
+	},
+});
 let content = Content{operations: vec![
 	Operation::new("BT", vec![]),
 	Operation::new("Tf", vec!["F1".into(), 48.into()]),
@@ -39,28 +33,24 @@ let content = Content{operations: vec![
 	Operation::new("Tj", vec![Object::String(b"Hello World!".to_vec(), StringFormat::Literal)]),
 	Operation::new("ET", vec![]),
 ]};
-let content_id = doc.add_object(Stream::new(Dictionary::new(), content.encode().unwrap()));
-let page_id = doc.add_object(
-	Dictionary::from_iter(vec![
-		("Type", "Page".into()),
-		("Parent", pages_id.into()),
-		("Contents", vec![content_id.into()].into()),
-	])
-);
-let pages = Dictionary::from_iter(vec![
-	("Type", "Pages".into()),
-	("Kids", vec![page_id.into()].into()),
-	("Count", 1.into()),
-	("Resources", resources_id.into()),
-	("MediaBox", vec![0.into(), 0.into(), 595.into(), 842.into()].into()),
-]);
+let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+let page_id = doc.add_object(dictionary! {
+	"Type" => "Page",
+	"Parent" => pages_id,
+	"Contents" => vec![content_id.into()],
+});
+let pages = dictionary! {
+	"Type" => "Pages",
+	"Kids" => vec![page_id.into()],
+	"Count" => 1,
+	"Resources" => resources_id,
+	"MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+};
 doc.objects.insert(pages_id, Object::Dictionary(pages));
-let catalog_id = doc.add_object(
-	Dictionary::from_iter(vec![
-		("Type", "Catalog".into()),
-		("Pages", pages_id.into()),
-	])
-);
+let catalog_id = doc.add_object(dictionary! {
+	"Type" => "Catalog",
+	"Pages" => pages_id,
+});
 doc.trailer.set("Root", catalog_id);
 doc.compress();
 doc.save("example.pdf").unwrap();

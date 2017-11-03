@@ -5,7 +5,7 @@ extern crate linked_hash_map;
 extern crate dtoa;
 extern crate itoa;
 
-mod object;
+#[macro_use] mod object;
 mod datetime;
 pub use object::{Object, ObjectId, Dictionary, Stream, StringFormat};
 
