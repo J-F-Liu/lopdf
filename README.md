@@ -28,7 +28,7 @@ let font_id = doc.add_object(
 let resources_id = doc.add_object(
 	Dictionary::from_iter(vec![
 		("Font", Dictionary::from_iter(vec![
-			("F1", Reference(font_id)),
+			("F1", font_id.into()),
 		]).into()),
 	])
 );
@@ -43,25 +43,25 @@ let content_id = doc.add_object(Stream::new(Dictionary::new(), content.encode().
 let page_id = doc.add_object(
 	Dictionary::from_iter(vec![
 		("Type", "Page".into()),
-		("Parent", Reference(pages_id)),
-		("Contents", vec![Reference(content_id)].into()),
+		("Parent", pages_id.into()),
+		("Contents", vec![content_id.into()].into()),
 	])
 );
 let pages = Dictionary::from_iter(vec![
 	("Type", "Pages".into()),
-	("Kids", vec![Reference(page_id)].into()),
+	("Kids", vec![page_id.into()].into()),
 	("Count", 1.into()),
-	("Resources", Reference(resources_id)),
+	("Resources", resources_id.into()),
 	("MediaBox", vec![0.into(), 0.into(), 595.into(), 842.into()].into()),
 ]);
 doc.objects.insert(pages_id, Object::Dictionary(pages));
 let catalog_id = doc.add_object(
 	Dictionary::from_iter(vec![
 		("Type", "Catalog".into()),
-		("Pages", Reference(pages_id)),
+		("Pages", pages_id.into()),
 	])
 );
-doc.trailer.set("Root", Reference(catalog_id));
+doc.trailer.set("Root", catalog_id);
 doc.compress();
 doc.save("example.pdf").unwrap();
 ```
