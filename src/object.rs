@@ -99,6 +99,12 @@ impl From<Stream> for Object {
 	}
 }
 
+impl From<ObjectId> for Object {
+	fn from(id: ObjectId) -> Self {
+		Object::Reference(id)
+	}
+}
+
 impl Object {
 	pub fn is_null(&self) -> bool {
 		match *self {
