@@ -11,7 +11,7 @@ A Rust library for PDF document manipulation.
 
 ```rust
 extern crate lopdf;
-use lopdf::{Document, Object, Dictionary, Stream, StringFormat};
+use lopdf::{Document, Object, Stream};
 use lopdf::content::{Content, Operation};
 
 let mut doc = Document::with_version("1.5");
@@ -30,7 +30,7 @@ let content = Content{operations: vec![
 	Operation::new("BT", vec![]),
 	Operation::new("Tf", vec!["F1".into(), 48.into()]),
 	Operation::new("Td", vec![100.into(), 600.into()]),
-	Operation::new("Tj", vec![Object::String(b"Hello World!".to_vec(), StringFormat::Literal)]),
+	Operation::new("Tj", vec![Object::string_literal("Hello World!")]),
 	Operation::new("ET", vec![]),
 ]};
 let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
@@ -65,9 +65,7 @@ if let Some(content_stream) = doc.objects.get_mut(&(3, 0)) {
 	match *content_stream {
 		Object::Stream(ref mut stream) => {
 			let mut content = stream.decode_content().unwrap();
-			content.operations[3].operands[0] = Object::String(
-				b"Modified text!".to_vec(),
-				StringFormat::Literal);
+			content.operations[3].operands[0] = Object::string_literal("Modified text!");
 			stream.set_content(content.encode().unwrap());
 		},
 		_ => ()

@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use super::{Object, StringFormat};
+use super::Object;
 
 impl From<DateTime<Local>> for Object {
 	fn from(date: DateTime<Local>) -> Self {
@@ -12,13 +12,13 @@ impl From<DateTime<Local>> for Object {
 			}
 			index -= 1;
 		}
-		Object::String(bytes, StringFormat::Literal)
+		Object::string_literal(bytes)
 	}
 }
 
 impl From<DateTime<UTC>> for Object {
 	fn from(date: DateTime<UTC>) -> Self {
-		Object::String(date.format("D:%Y%m%d%H%M%SZ").to_string().into_bytes(), StringFormat::Literal)
+		Object::string_literal(date.format("D:%Y%m%d%H%M%SZ").to_string())
 	}
 }
 

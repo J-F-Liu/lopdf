@@ -1,6 +1,6 @@
 extern crate lopdf;
 
-use lopdf::{Document, Object, StringFormat};
+use lopdf::{Document, Object};
 use std::io::Result;
 
 fn modify_text() -> Result<Document> {
@@ -10,9 +10,7 @@ fn modify_text() -> Result<Document> {
 		match *content_stream {
 			Object::Stream(ref mut stream) => {
 				let mut content = stream.decode_content().unwrap();
-				content.operations[3].operands[0] = Object::String(
-					b"Modified text!".to_vec(),
-					StringFormat::Literal);
+				content.operations[3].operands[0] = Object::string_literal("Modified text!");
 				stream.set_content(content.encode().unwrap());
 			},
 			_ => ()
@@ -36,7 +34,7 @@ fn test_get_object() {
 	use self::Object;
 
 	let mut doc = Document::new();
-	let id = doc.add_object(Object::String("test".as_bytes().to_vec(), StringFormat::Literal));
+	let id = doc.add_object(Object::string_literal("test"));
 	let id2 = doc.add_object(Object::Stream(LoStream::new(LoDictionary::new(), "stream".as_bytes().to_vec())));
 
 	println!("{:?}", id);
