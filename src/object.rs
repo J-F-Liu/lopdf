@@ -175,6 +175,13 @@ impl Object {
 		}
 	}
 
+	pub fn as_array_mut(&mut self) -> Option<&mut Vec<Object>> {
+		match *self {
+			Object::Array(ref mut arr) => Some(arr),
+			_ => None
+		}
+	}
+
 	pub fn as_dict(&self) -> Option<&Dictionary> {
 		match *self {
 			Object::Dictionary(ref dict) => Some(dict),
