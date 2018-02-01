@@ -54,6 +54,21 @@ impl Document {
 		return None;
 	}
 
+	/// Get mutable reference to object by object id, will recursively dereference a referenced object.
+	pub fn get_object_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
+		unsafe {
+			let s = self as *mut Self;
+			if let Some(object) = (*s).objects.get_mut(&id) {
+				if let Some(id) = object.as_reference() {
+					return (*s).get_object_mut(id);
+				} else {
+					return Some(object);
+				}
+			}
+			None
+		}
+	}
+
 	/// Traverse objects from trailer recursively, return all referenced object IDs.
 	pub fn traverse_objects<A: Fn(&mut Object) -> ()>(&mut self, action: A) -> Vec<ObjectId> {
 		fn traverse_array<A: Fn(&mut Object) -> ()>(array: &mut Vec<Object>, action: &A, refs: &mut Vec<ObjectId>) {
