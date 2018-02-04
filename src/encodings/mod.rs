@@ -13,12 +13,9 @@ pub fn bytes_to_string(encoding: [Option<u16>; 256], bytes: &[u8]) -> String {
 
 pub fn string_to_bytes(encoding: [Option<u16>; 256], text: &str) -> Vec<u8> {
 	let bytes = text.chars()
-		.map(|ch| {
-			let result = encoding.binary_search(&Some(ch as u16));
-			result.ok().map(|index| index as u8)
-		})
+		.map(|ch| encoding.iter().position(|&code| code == Some(ch as u16)))
 		.filter(|byte| byte.is_some())
-		.map(|byte| byte.unwrap())
+		.map(|byte| byte.unwrap() as u8)
 		.collect::<Vec<u8>>();
 	bytes
 }
