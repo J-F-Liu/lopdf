@@ -71,8 +71,8 @@ doc.save("modified.pdf")?;
 
 * Why keeping everything in memory as high-level objects until finallay serializing the entire document?
 
-          	Normally a PDF document won't be very large, ranging form tens of KB to hundreds of MB. Memory size is not a bottle neck for today's computer.
-          	By keep the whole document in memory, stream length can be pre-calculated, no need to use a reference object for the Length entry,
-          	the resulting PDF file is smaller for distribution and faster for PDF consumers to process.
+	Normally a PDF document won't be very large, ranging form tens of KB to hundreds of MB. Memory size is not a bottle neck for today's computer.
+	By keep the whole document in memory, stream length can be pre-calculated, no need to use a reference object for the Length entry,
+	the resulting PDF file is smaller for distribution and faster for PDF consumers to process.
 
-          	Producing is a one-time effort, while consuming is many more.
+	Producing is a one-time effort, while consuming is many more.
