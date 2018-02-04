@@ -209,4 +209,81 @@ impl Document {
 		}
 		text
 	}
+
+	pub fn change_stream_content(&mut self, stream_id: ObjectId, content: Vec<u8>) {
+		if let Some(content_stream) = self.objects.get_mut(&stream_id) {
+			match *content_stream {
+				Object::Stream(ref mut stream) => {
+					stream.set_content(content);
+				}
+				_ => (),
+			}
+		}
+	}
+
+	pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) {
+		let contents = self.get_dictionary(page_id)
+			.and_then(|page| page.get("Contents"))
+			.cloned()
+			.unwrap();
+		match contents {
+			Object::Reference(id) => self.change_stream_content(id, content),
+			Object::Array(ref arr) => {
+				if arr.len() == 1 {
+					arr[0]
+						.as_reference()
+						.map(|id| self.change_stream_content(id, content));
+				} else {
+					let new_stream = self.add_object(super::Stream::new(dictionary!{}, content));
+					if let Some(page) = self.get_object_mut(page_id) {
+						match *page {
+							Object::Dictionary(ref mut dict) => {
+								dict.set("Contents", new_stream);
+							}
+							_ => {}
+						}
+					}
+				}
+			}
+			_ => {}
+		}
+	}
+
+	pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) {
+		let pages = self.get_pages();
+		let page_id = *pages
+			.get(&page_number)
+			.expect(&format!("Page {} not exist.", page_number));
+		let encodings = self.get_page_fonts(page_id)
+			.into_iter()
+			.map(|(name, font)| (name, self.get_font_encoding(font).to_owned()))
+			.collect::<BTreeMap<String, String>>();
+		let content_data = self.get_page_content(page_id).unwrap();
+		let mut content = Content::decode(&content_data).unwrap();
+		let mut current_encoding = None;
+		for operation in content.operations.iter_mut() {
+			match operation.operator.as_ref() {
+				"Tf" => {
+					let current_font = operation.operands[0].as_name_str().unwrap();
+					current_encoding = encodings.get(current_font).map(|s| s.as_str());
+				}
+				"Tj" => for operand in operation.operands.iter_mut() {
+					match *operand {
+						Object::String(ref mut bytes, _) => {
+							let decoded_text = Document::decode_text(current_encoding, bytes);
+							println!("{}", decoded_text);
+							if decoded_text == text {
+								let encoded_bytes = Document::encode_text(current_encoding, other_text);
+								*bytes = encoded_bytes;
+							}
+						}
+						_ => {}
+					}
+				},
+				_ => {}
+			}
+		}
+		let modified_contnet = content.encode().unwrap();
+		self.change_page_content(page_id, modified_contnet);
+	}
 }

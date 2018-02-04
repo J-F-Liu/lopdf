@@ -1,7 +1,7 @@
 use super::{Dictionary, Object, ObjectId};
 use super::encodings::*;
 use encoding::all::UTF_16BE;
-use encoding::types::{DecoderTrap, Encoding};
+use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::str;
@@ -242,16 +242,32 @@ impl Document {
 	pub fn decode_text<'a>(encoding: Option<&'a str>, bytes: &'a [u8]) -> String {
 		if let Some(encoding) = encoding {
 			match encoding {
-				"StandardEncoding" => bytes_to_unicode(encodings::STANDARD_ENCODING, bytes),
-				"MacRomanEncoding" => bytes_to_unicode(encodings::MAC_ROMAN_ENCODING, bytes),
-				"MacExpertEncoding" => bytes_to_unicode(encodings::MAC_EXPERT_ENCODING, bytes),
-				"WinAnsiEncoding" => bytes_to_unicode(encodings::WIN_ANSI_ENCODING, bytes),
+				"StandardEncoding" => bytes_to_string(encodings::STANDARD_ENCODING, bytes),
+				"MacRomanEncoding" => bytes_to_string(encodings::MAC_ROMAN_ENCODING, bytes),
+				"MacExpertEncoding" => bytes_to_string(encodings::MAC_EXPERT_ENCODING, bytes),
+				"WinAnsiEncoding" => bytes_to_string(encodings::WIN_ANSI_ENCODING, bytes),
 				"UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.decode(bytes, DecoderTrap::Ignore).unwrap(),
 				"Identity-H" => "".to_string(), // Unimplemented
 				_ => String::from_utf8_lossy(bytes).to_string(),
 			}
 		} else {
-			bytes_to_unicode(encodings::STANDARD_ENCODING, bytes)
+			bytes_to_string(encodings::STANDARD_ENCODING, bytes)
+		}
+	}
+
+	pub fn encode_text<'a>(encoding: Option<&'a str>, text: &'a str) -> Vec<u8> {
+		if let Some(encoding) = encoding {
+			match encoding {
+				"StandardEncoding" => string_to_bytes(encodings::STANDARD_ENCODING, text),
+				"MacRomanEncoding" => string_to_bytes(encodings::MAC_ROMAN_ENCODING, text),
+				"MacExpertEncoding" => string_to_bytes(encodings::MAC_EXPERT_ENCODING, text),
+				"WinAnsiEncoding" => string_to_bytes(encodings::WIN_ANSI_ENCODING, text),
+				"UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.encode(text, EncoderTrap::Ignore).unwrap(),
+				"Identity-H" => vec![], // Unimplemented
+				_ => text.as_bytes().to_vec(),
+			}
+		} else {
+			string_to_bytes(encodings::STANDARD_ENCODING, text)
 		}
 	}
 }

@@ -81,6 +81,15 @@ fn main() {
 						.takes_value(true),
 				),
 		)
+		.subcommand(
+			SubCommand::with_name("replace_text")
+				.about("Replace text")
+				.arg(
+					Arg::with_name("text")
+						.value_name("page_number:old_text=>new_text")
+						.takes_value(true),
+				),
+		)
 		.subcommand(SubCommand::with_name("print_streams").about("Print streams"))
 		.subcommand(SubCommand::with_name("renumber_objects").about("Renumber objects"))
 		.subcommand(SubCommand::with_name("delete_zero_length_streams").about("Delete zero length stream objects"))
@@ -90,6 +99,7 @@ fn main() {
 		if let Some(input) = args.value_of("input") {
 			println!("Open {}", input);
 			let mut doc = Document::load(input).unwrap();
+			println!("{:?}", doc.get_pages());
 
 			println!("Do {}", cmd);
 			match cmd {
@@ -134,6 +144,14 @@ fn main() {
 						let page_numbers = compute_page_numbers(pages);
 						let text = doc.extract_text(&page_numbers);
 						println!("{}", text);
+					}
+				}
+				"replace_text" => {
+					if let Some(text) = args.value_of("text") {
+						let parts: Vec<&str> = text.splitn(2, ':').collect();
+						let page = u32::from_str(parts[0]).unwrap();
+						let words: Vec<&str> = parts[1].splitn(2, "=>").collect();
+						doc.replace_text(page, words[0], words[1]);
 					}
 				}
 				"print_streams" => for (_, object) in doc.objects.iter() {
