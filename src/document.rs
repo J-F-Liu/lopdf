@@ -195,7 +195,6 @@ impl Document {
 
 	/// Get fonts used by a page.
 	pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<String, &Dictionary> {
-		let mut fonts = BTreeMap::new();
 		fn collect_fonts_from_resources<'a>(page_node: &'a Dictionary, fonts: &mut BTreeMap<String, &'a Dictionary>, doc: &'a Document) {
 			if let Some(font_dict) = page_node
 				.get("Resources")
@@ -223,6 +222,7 @@ impl Document {
 			}
 		};
 
+		let mut fonts = BTreeMap::new();
 		if let Some(page) = self.get_dictionary(page_id) {
 			collect_fonts_from_resources(page, &mut fonts, self);
 		}

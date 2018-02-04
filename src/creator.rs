@@ -59,7 +59,7 @@ fn create_document() {
 	let page_id = doc.add_object(dictionary! {
 		"Type" => "Page",
 		"Parent" => pages_id,
-		"Contents" => vec![content_id.into()],
+		"Contents" => content_id,
 	});
 	let pages = dictionary! {
 		"Type" => "Pages",
