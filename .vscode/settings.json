@@ -1,4 +1,5 @@
 {
+	"editor.formatOnSave": true,
 	"search.exclude": {
 	  "target": true
 	}

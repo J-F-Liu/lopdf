@@ -1,6 +1,6 @@
 [package]
 name = "lopdf"
-version = "0.14.2"
+version = "0.15.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
 homepage = "https://github.com/J-F-Liu/lopdf"
 documentation = "https://docs.rs/crate/lopdf/"
@@ -16,6 +16,7 @@ flate2 = "0.2.14"
 linked-hash-map = "0.3.0"
 dtoa = "0.4.1"
 itoa = "0.3.1"
+encoding = "0.2"
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }

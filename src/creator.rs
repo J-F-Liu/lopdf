@@ -1,6 +1,13 @@
 use super::{Document, Object, ObjectId};
 
 impl Document {
+	/// Create new PDF document with version.
+	pub fn with_version<S: Into<String>>(version: S) -> Document {
+		let mut document = Self::new();
+		document.version = version.into();
+		document
+	}
+
 	/// Create an object ID.
 	pub fn new_object_id(&mut self) -> ObjectId {
 		self.max_id += 1;
@@ -22,8 +29,7 @@ fn create_document() {
 	use super::content::*;
 	use chrono::prelude::Local;
 
-	let mut doc = Document::new();
-	doc.version = "1.5".to_string();
+	let mut doc = Document::with_version("1.5");
 	let info_id = doc.add_object(dictionary! {
 		"Title" => Object::string_literal("Create PDF document example"),
 		"Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
@@ -40,14 +46,16 @@ fn create_document() {
 			"F1" => font_id,
 		},
 	});
-	let content = Content{operations: vec![
-		Operation::new("BT", vec![]),
-		Operation::new("Tf", vec!["F1".into(), 48.into()]),
-		Operation::new("Td", vec![100.into(), 600.into()]),
-		Operation::new("Tj", vec![Object::string_literal("Hello World!")]),
-		Operation::new("ET", vec![]),
-	]};
-	let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+	let content = Content {
+		operations: vec![
+			Operation::new("BT", vec![]),
+			Operation::new("Tf", vec!["F1".into(), 48.into()]),
+			Operation::new("Td", vec![100.into(), 600.into()]),
+			Operation::new("Tj", vec![Object::string_literal("Hello World!")]),
+			Operation::new("ET", vec![]),
+		],
+	};
+	let content_id = doc.add_object(Stream::new(dictionary!{}, content.encode().unwrap()));
 	let page_id = doc.add_object(dictionary! {
 		"Type" => "Page",
 		"Parent" => pages_id,

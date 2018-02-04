@@ -1,68 +1,93 @@
 extern crate lopdf;
 use lopdf::Document;
+use lopdf::Object;
 
 #[macro_use]
 extern crate clap;
 use clap::{App, Arg, SubCommand};
-
 use std::str::FromStr;
 
 fn main() {
 	let app = App::new("PDF utility program using lopdf library")
 		.version(crate_version!())
 		.author(crate_authors!())
-		.arg(Arg::with_name("input")
-			.short("i")
-			.long("input")
-			.value_name("input file")
-			.takes_value(true)
-			.global(true))
-		.arg(Arg::with_name("output")
-			.short("o")
-			.long("output")
-			.value_name("output file")
-			.takes_value(true)
-			.global(true))
-		.subcommand(SubCommand::with_name("process")
-			.about("Process PDF document with specified operations")
-			.arg(Arg::with_name("operations")
-				.value_name("operations")
-				.help("e.g. prune_objects delete_zero_length_streams renumber_objects")
+		.arg(
+			Arg::with_name("input")
+				.short("i")
+				.long("input")
+				.value_name("input file")
 				.takes_value(true)
-				.multiple(true)))
-		.subcommand(SubCommand::with_name("compress")
-			.about("Compress PDF document"))
-		.subcommand(SubCommand::with_name("decompress")
-			.about("Decompress PDF document"))
-		.subcommand(SubCommand::with_name("delete_pages")
-			.about("Delete pages")
-			.arg(Arg::with_name("pages")
-				.value_name("page numbers")
-				.help("e.g. 3,5,7-9")
-				.takes_value(true)))
-		.subcommand(SubCommand::with_name("extract_pages")
-			.about("Extract pages")
-			.arg(Arg::with_name("pages")
-				.value_name("page numbers")
-				.help("e.g. 3,5,7-9")
-				.takes_value(true)))
-		.subcommand(SubCommand::with_name("prune_objects")
-			.about("Prune unused objects"))
-		.subcommand(SubCommand::with_name("delete_objects")
-			.about("Delete objects")
-			.arg(Arg::with_name("ids")
-				.value_name("object ids")
-				.help("e.g. \"1 0,2 1,35,36\"")
-				.takes_value(true)))
-		.subcommand(SubCommand::with_name("renumber_objects")
-			.about("Renumber objects"))
-		.subcommand(SubCommand::with_name("delete_zero_length_streams")
-			.about("Delete zero length stream objects"))
+				.global(true),
+		)
+		.arg(
+			Arg::with_name("output")
+				.short("o")
+				.long("output")
+				.value_name("output file")
+				.takes_value(true)
+				.global(true),
+		)
+		.subcommand(
+			SubCommand::with_name("process")
+				.about("Process PDF document with specified operations")
+				.arg(
+					Arg::with_name("operations")
+						.value_name("operations")
+						.help("e.g. prune_objects delete_zero_length_streams renumber_objects")
+						.takes_value(true)
+						.multiple(true),
+				),
+		)
+		.subcommand(SubCommand::with_name("compress").about("Compress PDF document"))
+		.subcommand(SubCommand::with_name("decompress").about("Decompress PDF document"))
+		.subcommand(
+			SubCommand::with_name("delete_pages")
+				.about("Delete pages")
+				.arg(
+					Arg::with_name("pages")
+						.value_name("page numbers")
+						.help("e.g. 3,5,7-9")
+						.takes_value(true),
+				),
+		)
+		.subcommand(
+			SubCommand::with_name("extract_pages")
+				.about("Extract pages")
+				.arg(
+					Arg::with_name("pages")
+						.value_name("page numbers")
+						.help("e.g. 3,5,7-9")
+						.takes_value(true),
+				),
+		)
+		.subcommand(SubCommand::with_name("prune_objects").about("Prune unused objects"))
+		.subcommand(
+			SubCommand::with_name("delete_objects")
+				.about("Delete objects")
+				.arg(
+					Arg::with_name("ids")
+						.value_name("object ids")
+						.help("e.g. \"1 0,2 1,35,36\"")
+						.takes_value(true),
+				),
+		)
+		.subcommand(
+			SubCommand::with_name("extract_text")
+				.about("Extract text")
+				.arg(
+					Arg::with_name("pages")
+						.value_name("page numbers")
+						.help("e.g. 3,5,7-9")
+						.takes_value(true),
+				),
+		)
+		.subcommand(SubCommand::with_name("print_streams").about("Print streams"))
+		.subcommand(SubCommand::with_name("renumber_objects").about("Renumber objects"))
+		.subcommand(SubCommand::with_name("delete_zero_length_streams").about("Delete zero length stream objects"))
 		.get_matches();
 
 	if let (cmd, Some(args)) = app.subcommand() {
 		if let Some(input) = args.value_of("input") {
-
 			println!("Open {}", input);
 			let mut doc = Document::load(input).unwrap();
 
@@ -93,15 +118,30 @@ fn main() {
 				"delete_objects" => {
 					if let Some(ids) = args.value_of("ids") {
 						for id in ids.split(',') {
-							let nums: Vec<u32> = id.split(' ').map(|num|u32::from_str(num).unwrap()).collect();
+							let nums: Vec<u32> = id.split(' ')
+								.map(|num| u32::from_str(num).unwrap())
+								.collect();
 							match nums.len() {
 								1 => doc.delete_object(&(nums[0], 0)),
 								2 => doc.delete_object(&(nums[0], nums[1] as u16)),
-								_ => None
+								_ => None,
 							};
 						}
 					}
 				}
+				"extract_text" => {
+					if let Some(pages) = args.value_of("pages") {
+						let page_numbers = compute_page_numbers(pages);
+						let text = doc.extract_text(&page_numbers);
+						println!("{}", text);
+					}
+				}
+				"print_streams" => for (_, object) in doc.objects.iter() {
+					match *object {
+						Object::Stream(ref stream) => println!("{:?}", stream.dict),
+						_ => (),
+					}
+				},
 				operation @ _ => {
 					apply_operation(&mut doc, operation);
 				}
@@ -138,10 +178,12 @@ fn main() {
 	fn compute_page_numbers(pages: &str) -> Vec<u32> {
 		let mut page_numbers = vec![];
 		for page in pages.split(',') {
-			let nums: Vec<u32> = page.split('-').map(|num|u32::from_str(num).unwrap()).collect();
+			let nums: Vec<u32> = page.split('-')
+				.map(|num| u32::from_str(num).unwrap())
+				.collect();
 			match nums.len() {
 				1 => page_numbers.push(nums[0]),
-				2 => page_numbers.append(&mut (nums[0]..nums[1]+1).collect()),
+				2 => page_numbers.append(&mut (nums[0]..nums[1] + 1).collect()),
 				_ => {}
 			}
 		}

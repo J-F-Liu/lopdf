@@ -1,6 +1,6 @@
-use linked_hash_map::{self, LinkedHashMap, Iter, IterMut};
-use std::str;
+use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
 use std::fmt;
+use std::str;
 
 /// Object identifier consists of two parts: object number and generation number.
 pub type ObjectId = (u32, u16);
@@ -14,13 +14,13 @@ pub struct Dictionary(LinkedHashMap<String, Object>);
 /// the stream dictionary may be a direct object
 #[derive(Debug, Clone)]
 pub struct Stream {
-    /// Associated stream dictionary
+	/// Associated stream dictionary
 	pub dict: Dictionary,
-    /// Contents of the stream in bytes
+	/// Contents of the stream in bytes
 	pub content: Vec<u8>,
-    /// Can the stream be compressed by the `Document::compress()` function?
-    /// Font streams may not be compressed, for example
-    pub allows_compression: bool,
+	/// Can the stream be compressed by the `Document::compress()` function?
+	/// Font streams may not be compressed, for example
+	pub allows_compression: bool,
 }
 
 /// Basic PDF object types defined in an enum.
@@ -136,70 +136,77 @@ impl Object {
 	pub fn is_null(&self) -> bool {
 		match *self {
 			Object::Null => true,
-			_ => false
+			_ => false,
 		}
 	}
 
 	pub fn as_i64(&self) -> Option<i64> {
 		match *self {
 			Object::Integer(ref value) => Some(*value),
-			_ => None
+			_ => None,
 		}
 	}
 
 	pub fn as_f64(&self) -> Option<f64> {
 		match *self {
 			Object::Real(ref value) => Some(*value),
-			_ => None
+			_ => None,
 		}
 	}
 
 	pub fn as_name(&self) -> Option<&[u8]> {
 		match *self {
 			Object::Name(ref name) => Some(name),
-			_ => None
+			_ => None,
+		}
+	}
+
+	pub fn as_name_str(&self) -> Option<&str> {
+		match *self {
+			Object::Name(ref name) => str::from_utf8(name).ok(),
+			_ => None,
 		}
 	}
 
 	pub fn as_reference(&self) -> Option<ObjectId> {
 		match *self {
 			Object::Reference(ref id) => Some(*id),
-			_ => None
+			_ => None,
 		}
 	}
 
 	pub fn as_array(&self) -> Option<&Vec<Object>> {
 		match *self {
 			Object::Array(ref arr) => Some(arr),
-			_ => None
+			_ => None,
 		}
 	}
 
 	pub fn as_array_mut(&mut self) -> Option<&mut Vec<Object>> {
 		match *self {
 			Object::Array(ref mut arr) => Some(arr),
-			_ => None
+			_ => None,
 		}
 	}
 
 	pub fn as_dict(&self) -> Option<&Dictionary> {
 		match *self {
 			Object::Dictionary(ref dict) => Some(dict),
-			_ => None
+			_ => None,
 		}
 	}
 
 	pub fn as_dict_mut(&mut self) -> Option<&mut Dictionary> {
 		match *self {
 			Object::Dictionary(ref mut dict) => Some(dict),
-			_ => None
+			_ => None,
 		}
 	}
 
 	pub fn as_stream(&self) -> Option<&Stream> {
 		match *self {
 			Object::Stream(ref stream) => Some(stream),
-			_ => None
+			_ => None,
 		}
 	}
 
@@ -207,29 +214,36 @@ impl Object {
 		match *self {
 			Object::Dictionary(ref dict) => dict.type_name(),
 			Object::Stream(ref stream) => stream.dict.type_name(),
-			_ => None
+			_ => None,
 		}
 	}
 }
 
 impl fmt::Debug for Object {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			Object::Null => f.write_str("null"),
-			Object::Boolean(ref value) => if *value { f.write_str("true") } else { f.write_str("false") },
-            Object::Integer(ref value) => write!(f, "{}", *value),
-            Object::Real(ref value) => write!(f, "{}", *value),
-            Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
+			Object::Boolean(ref value) => if *value {
+				f.write_str("true")
+			} else {
+				f.write_str("false")
+			},
+			Object::Integer(ref value) => write!(f, "{}", *value),
+			Object::Real(ref value) => write!(f, "{}", *value),
+			Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
 			Object::String(ref text, _) => write!(f, "({})", String::from_utf8_lossy(text)),
 			Object::Array(ref array) => {
-				let items = array.into_iter().map(|item|format!("{:?}", item)).collect::<Vec<String>>();
+				let items = array
+					.into_iter()
+					.map(|item| format!("{:?}", item))
+					.collect::<Vec<String>>();
 				write!(f, "[{}]", items.join(" "))
-			},
+			}
 			Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
 			Object::Stream(ref stream) => write!(f, "{:?}stream...endstream", stream.dict),
 			Object::Reference(ref id) => write!(f, "{} {} R", id.0, id.1),
 		}
-    }
+	}
 }
 
 impl Dictionary {
@@ -238,20 +252,23 @@ impl Dictionary {
 	}
 
 	pub fn get<K>(&self, key: K) -> Option<&Object>
-		where K: Into<String>
+	where
+		K: Into<String>,
 	{
 		self.0.get(&key.into())
 	}
 
 	pub fn get_mut<K>(&mut self, key: K) -> Option<&mut Object>
-		where K: Into<String>
+	where
+		K: Into<String>,
 	{
 		self.0.get_mut(&key.into())
 	}
 
 	pub fn set<K, V>(&mut self, key: K, value: V)
-		where K: Into<String>,
-		      V: Into<Object>
+	where
+		K: Into<String>,
+		V: Into<Object>,
 	{
 		self.0.insert(key.into(), value.into());
 	}
@@ -260,18 +277,19 @@ impl Dictionary {
 		self.0.len()
 	}
 
-	pub fn remove(&mut self, key: &str) -> Option<Object>
-	{
+	pub fn remove(&mut self, key: &str) -> Option<Object> {
 		self.0.remove(key)
 	}
 
 	pub fn type_name(&self) -> Option<&str> {
-		self.0.get("Type").and_then(|obj|obj.as_name()).and_then(|name|str::from_utf8(name).ok())
-		.or(self.0.get("Linearized").and(Some("Linearized")))
+		self.0
+			.get("Type")
+			.and_then(|obj| obj.as_name_str())
+			.or(self.0.get("Linearized").and(Some("Linearized")))
 	}
 
 	pub fn type_is(&self, type_name: &[u8]) -> bool {
-		self.0.get("Type").and_then(|obj|obj.as_name()) == Some(type_name)
+		self.0.get("Type").and_then(|obj| obj.as_name()) == Some(type_name)
 	}
 
 	pub fn iter(&self) -> Iter<String, Object> {
@@ -301,10 +319,12 @@ macro_rules! dictionary {
 }
 
 impl fmt::Debug for Dictionary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let entries = self.into_iter().map(|(key, value)|format!("/{} {:?}", key, value)).collect::<Vec<String>>();
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		let entries = self.into_iter()
+			.map(|(key, value)| format!("/{} {:?}", key, value))
+			.collect::<Vec<String>>();
 		write!(f, "<<{}>>", entries.concat())
-    }
+	}
 }
 
 impl<'a> IntoIterator for &'a Dictionary {
@@ -318,7 +338,7 @@ impl<'a> IntoIterator for &'a Dictionary {
 
 use std::iter::FromIterator;
 impl<K: Into<String>> FromIterator<(K, Object)> for Dictionary {
-	fn from_iter<I: IntoIterator<Item=(K, Object)>>(iter: I) -> Self {
+	fn from_iter<I: IntoIterator<Item = (K, Object)>>(iter: I) -> Self {
 		let mut dict = Dictionary::new();
 		for (k, v) in iter.into_iter() {
 			dict.set(k, v);
@@ -333,17 +353,17 @@ impl Stream {
 		Stream {
 			dict: dict,
 			content: content,
-            allows_compression: true,
+			allows_compression: true,
 		}
 	}
 
-    /// Default is that the stream may be compressed. On font streams,
-    /// set this to false, otherwise the font will be corrupt
-    #[inline]
-    pub fn with_compression(mut self, allows_compression: bool) -> Stream {
-        self.allows_compression = allows_compression;
-        self
-    }
+	/// Default is that the stream may be compressed. On font streams,
+	/// set this to false, otherwise the font will be corrupt
+	#[inline]
+	pub fn with_compression(mut self, allows_compression: bool) -> Stream {
+		self.allows_compression = allows_compression;
+		self
+	}
 
 	pub fn filter(&self) -> Option<String> {
 		if let Some(filter) = self.dict.get("Filter") {
@@ -360,9 +380,9 @@ impl Stream {
 	}
 
 	pub fn compress(&mut self) {
-		use std::io::prelude::*;
 		use flate2::Compression;
 		use flate2::write::ZlibEncoder;
+		use std::io::prelude::*;
 
 		if self.dict.get("Filter").is_none() {
 			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::Best);
@@ -376,9 +396,9 @@ impl Stream {
 	}
 
 	pub fn decompressed_content(&self) -> Option<Vec<u8>> {
-		use std::io::prelude::*;
-		use flate2::read::ZlibDecoder;
 		use filters::png;
+		use flate2::read::ZlibDecoder;
+		use std::io::prelude::*;
 
 		if let Some(filter) = self.filter() {
 			match filter.as_str() {
@@ -391,18 +411,30 @@ impl Stream {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
 						decoder.read_to_end(&mut data).unwrap();
 					}
-					if let Some(params) = self.dict.get("DecodeParms").and_then(|obj|obj.as_dict()) {
-						let predictor = params.get("Predictor").and_then(|obj|obj.as_i64()).unwrap_or(1);
+					if let Some(params) = self.dict.get("DecodeParms").and_then(|obj| obj.as_dict()) {
+						let predictor = params
+							.get("Predictor")
+							.and_then(|obj| obj.as_i64())
+							.unwrap_or(1);
 						if predictor >= 10 && predictor <= 15 {
-							let pixels_per_row = params.get("Columns").and_then(|obj|obj.as_i64()).unwrap_or(1) as usize;
-							let colors = params.get("Colors").and_then(|obj|obj.as_i64()).unwrap_or(1) as usize;
-							let bits = params.get("BitsPerComponent").and_then(|obj|obj.as_i64()).unwrap_or(8) as usize;
+							let pixels_per_row = params
+								.get("Columns")
+								.and_then(|obj| obj.as_i64())
+								.unwrap_or(1) as usize;
+							let colors = params
+								.get("Colors")
+								.and_then(|obj| obj.as_i64())
+								.unwrap_or(1) as usize;
+							let bits = params
+								.get("BitsPerComponent")
+								.and_then(|obj| obj.as_i64())
+								.unwrap_or(8) as usize;
 							let bytes_per_pixel = colors * bits / 8;
 							data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
 						}
 					}
 					return Some(data);
-				},
+				}
 				_ => {}
 			}
 		}
