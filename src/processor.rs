@@ -187,7 +187,6 @@ impl Document {
 				.into_iter()
 				.map(|(name, font)| (name, self.get_font_encoding(font)))
 				.collect::<BTreeMap<String, &str>>();
-			println!("{:?}", encodings);
 			let content_data = self.get_page_content(page_id).unwrap();
 			let mut content = Content::decode(&content_data).unwrap();
 			let mut current_encoding = None;
