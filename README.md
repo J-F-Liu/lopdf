@@ -10,6 +10,7 @@ A Rust library for PDF document manipulation.
 * Create PDF document
 
 ```rust
+#[macro_use]
 extern crate lopdf;
 use lopdf::{Document, Object, Stream};
 use lopdf::content::{Content, Operation};
@@ -19,7 +20,7 @@ let pages_id = doc.new_object_id();
 let font_id = doc.add_object(dictionary! {
 	"Type" => "Font",
 	"Subtype" => "Type1",
-	"BaseFont" => "Courier",,
+	"BaseFont" => "Courier",
 });
 let resources_id = doc.add_object(dictionary! {
 	"Font" => dictionary! {
