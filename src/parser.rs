@@ -15,6 +15,10 @@ fn comment() -> Parser<u8, ()> {
 	sym(b'%') * none_of(b"\r\n").repeat(0..) * eol().discard()
 }
 
+fn white_space() -> Parser<u8, ()> {
+	one_of(b" \t\n\r\0\x0C").repeat(0..).discard()
+}
+
 fn space() -> Parser<u8, ()> {
 	( one_of(b" \t\n\r\0\x0C").repeat(1..).discard()
 	| comment()
@@ -92,7 +96,7 @@ fn literal_string() -> Parser<u8, Vec<u8>> {
 }
 
 fn hexadecimal_string() -> Parser<u8, Vec<u8>> {
-	sym(b'<') * hex_char().repeat(0..) - sym(b'>')
+	sym(b'<') * (white_space() * hex_char()).repeat(0..) - (white_space() * sym(b'>'))
 }
 
 fn array() -> Parser<u8, Vec<Object>> {
