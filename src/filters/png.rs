@@ -1,6 +1,6 @@
 #![allow(dead_code)] // false positive
+use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem;
-use std::io::{Result, Read, Write, Error, ErrorKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -119,7 +119,7 @@ pub fn encode_row(method: FilterType, bpp: usize, previous: &[u8], current: &mut
 		}
 		Avg => {
 			for i in (bpp..len).rev() {
-				current[i] = current[i].wrapping_sub((current[i - bpp].wrapping_add(previous[i]) / 2));
+				current[i] = current[i].wrapping_sub(current[i - bpp].wrapping_add(previous[i]) / 2);
 			}
 
 			for i in 0..bpp {
