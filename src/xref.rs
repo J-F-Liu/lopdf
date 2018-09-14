@@ -32,7 +32,11 @@ impl Xref {
 	}
 
 	pub fn extend(&mut self, xref: Xref) {
-		self.entries.extend(xref.entries);
+		for (id, entry) in xref.entries {
+			if !self.entries.contains_key(&id) {
+				self.entries.insert(id, entry);
+			}
+		}
 	}
 
 	pub fn clear(&mut self) {
