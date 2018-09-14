@@ -403,7 +403,7 @@ impl Stream {
 		if let Some(filter) = self.filter() {
 			match filter.as_str() {
 				"FlateDecode" => {
-					if self.dict.get("Subtype").is_some() {
+					if self.dict.get("Subtype").and_then(|v| v.as_name_str()) == Some("Image") {
 						return None;
 					}
 					let mut data = Vec::new();
