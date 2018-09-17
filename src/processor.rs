@@ -1,6 +1,8 @@
-use super::{Document, Object, ObjectId};
 use super::content::Content;
+use super::{Document, Object, ObjectId};
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{Result, Write};
 
 impl Document {
 	/// Change producer of document information dictionary.
@@ -284,5 +286,26 @@ impl Document {
 		}
 		let modified_contnet = content.encode().unwrap();
 		self.change_page_content(page_id, modified_contnet);
+	}
+
+	pub fn extract_stream(&self, stream_id: ObjectId, decompress: bool) -> Result<()> {
+		let mut file = File::create(format!("{:?}.bin", stream_id))?;
+		if let Some(stream_obj) = self.get_object(stream_id) {
+			match *stream_obj {
+				Object::Stream(ref stream) => {
+					if decompress {
+						if let Some(data) = stream.decompressed_content() {
+							file.write_all(&data)?;
+						} else {
+							file.write_all(&stream.content)?;
+						}
+					} else {
+						file.write_all(&stream.content)?;
+					}
+				}
+				_ => {}
+			}
+		}
+		Ok(())
 	}
 }
