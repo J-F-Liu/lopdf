@@ -1,5 +1,6 @@
-use super::{Dictionary, Object, ObjectId};
+use super::content::Content;
 use super::encodings::*;
+use super::{Dictionary, Object, ObjectId};
 use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use std::collections::BTreeMap;
@@ -110,19 +111,13 @@ impl Document {
 
 	/// Get catalog dictionary.
 	pub fn catalog(&self) -> Option<&Dictionary> {
-		self.trailer
-			.get("Root")
-			.and_then(|obj| obj.as_reference())
-			.and_then(|id| self.get_dictionary(id))
+		self.trailer.get("Root").and_then(|obj| obj.as_reference()).and_then(|id| self.get_dictionary(id))
 	}
 
 	/// Get page numbers and corresponding object ids.
 	pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
 		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>) {
-			if let Some(kids) = doc.get_dictionary(page_tree_id)
-				.and_then(|page_tree| page_tree.get("Kids"))
-				.and_then(|obj| obj.as_array())
-			{
+			if let Some(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get("Kids")).and_then(|obj| obj.as_array()) {
 				for kid in kids {
 					if let Some(kid_id) = kid.as_reference() {
 						if let Some(type_name) = doc.get_dictionary(kid_id).and_then(|dict| dict.type_name()) {
@@ -144,10 +139,7 @@ impl Document {
 
 		let mut pages = BTreeMap::new();
 		let mut page_number = 1;
-		if let Some(page_tree_id) = self.catalog()
-			.and_then(|cat| cat.get("Pages"))
-			.and_then(|pages| pages.as_reference())
-		{
+		if let Some(page_tree_id) = self.catalog().and_then(|cat| cat.get("Pages")).and_then(|pages| pages.as_reference()) {
 			collect_pages(self, page_tree_id, &mut page_number, &mut pages);
 		}
 		pages
@@ -193,6 +185,30 @@ impl Document {
 		Ok(content)
 	}
 
+	/// Get decoded page content;
+	pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Content {
+		let content_data = self.get_page_content(page_id).unwrap();
+		Content::decode(&content_data).unwrap()
+	}
+
+	/// Get resources used by a page.
+	pub fn get_page_resources(&self, page_id: ObjectId) -> Vec<ObjectId> {
+		fn collect_resources<'a>(page_node: &'a Dictionary, resources: &mut Vec<ObjectId>, doc: &'a Document) {
+			if let Some(resources_id) = page_node.get("Resources").and_then(|resources| resources.as_reference()) {
+				resources.push(resources_id);
+			}
+			if let Some(page_tree) = page_node.get("Parent").and_then(|parent| parent.as_reference()).and_then(|id| doc.get_dictionary(id)) {
+				collect_resources(page_tree, resources, doc);
+			}
+		};
+
+		let mut resources = Vec::new();
+		if let Some(page) = self.get_dictionary(page_id) {
+			collect_resources(page, &mut resources, self);
+		}
+		resources
+	}
+
 	/// Get fonts used by a page.
 	pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<String, &Dictionary> {
 		fn collect_fonts_from_resources<'a>(page_node: &'a Dictionary, fonts: &mut BTreeMap<String, &'a Dictionary>, doc: &'a Document) {
@@ -213,11 +229,7 @@ impl Document {
 					}
 				}
 			}
-			if let Some(page_tree) = page_node
-				.get("Parent")
-				.and_then(|parent| parent.as_reference())
-				.and_then(|id| doc.get_dictionary(id))
-			{
+			if let Some(page_tree) = page_node.get("Parent").and_then(|parent| parent.as_reference()).and_then(|id| doc.get_dictionary(id)) {
 				collect_fonts_from_resources(page_tree, fonts, doc);
 			}
 		};

@@ -11,16 +11,17 @@ mod object;
 mod datetime;
 pub use object::{Dictionary, Object, ObjectId, Stream, StringFormat};
 
-mod xref;
-mod object_stream;
 mod document;
+mod object_stream;
+mod xref;
 pub use document::Document;
 
 pub mod content;
-mod filters;
+mod creator;
 mod encodings;
+mod filters;
 mod parser;
+mod processor;
 mod reader;
 mod writer;
-mod creator;
-mod processor;
+pub mod xobject;

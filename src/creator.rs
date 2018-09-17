@@ -1,4 +1,4 @@
-use super::{Document, Object, ObjectId};
+use super::{Dictionary, Document, Object, ObjectId};
 
 impl Document {
 	/// Create new PDF document with version.
@@ -20,6 +20,18 @@ impl Document {
 		let id = (self.max_id, 0);
 		self.objects.insert(id, object.into());
 		id
+	}
+
+	pub fn add_xobject<N: Into<String>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) {
+		// let resources_id = self.get_or_create_resources(page_id);
+		let resources_ids = self.get_page_resources(page_id);
+		let resources_id = resources_ids[0];
+		let mut resources = self.get_object_mut(resources_id).and_then(|obj| obj.as_dict_mut()).unwrap();
+		if !resources.has("XObject") {
+			resources.set("XObject", Dictionary::new());
+		}
+		let mut xobjects = resources.get_mut("XObject").and_then(|obj| obj.as_dict_mut()).unwrap();
+		xobjects.set(xobject_name, Object::Reference(xobject_id));
 	}
 }
 

@@ -251,6 +251,13 @@ impl Dictionary {
 		Dictionary(LinkedHashMap::new())
 	}
 
+	pub fn has<K>(&self, key: K) -> bool
+	where
+		K: Into<String>,
+	{
+		self.0.contains_key(&key.into())
+	}
+
 	pub fn get<K>(&self, key: K) -> Option<&Object>
 	where
 		K: Into<String>,
