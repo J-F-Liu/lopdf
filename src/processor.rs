@@ -211,11 +211,12 @@ impl Document {
 		text
 	}
 
-	pub fn change_stream_content(&mut self, stream_id: ObjectId, content: Vec<u8>) {
+	pub fn change_content_stream(&mut self, stream_id: ObjectId, content: Vec<u8>) {
 		if let Some(content_stream) = self.objects.get_mut(&stream_id) {
 			match *content_stream {
 				Object::Stream(ref mut stream) => {
-					stream.set_content(content);
+					stream.set_plain_content(content);
+					stream.compress();
 				}
 				_ => (),
 			}
@@ -223,17 +224,12 @@ impl Document {
 	}
 
 	pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) {
-		let contents = self.get_dictionary(page_id)
-			.and_then(|page| page.get("Contents"))
-			.cloned()
-			.unwrap();
+		let contents = self.get_dictionary(page_id).and_then(|page| page.get("Contents")).cloned().unwrap();
 		match contents {
-			Object::Reference(id) => self.change_stream_content(id, content),
+			Object::Reference(id) => self.change_content_stream(id, content),
 			Object::Array(ref arr) => {
 				if arr.len() == 1 {
-					arr[0]
-						.as_reference()
-						.map(|id| self.change_stream_content(id, content));
+					arr[0].as_reference().map(|id| self.change_content_stream(id, content));
 				} else {
 					let new_stream = self.add_object(super::Stream::new(dictionary!{}, content));
 					if let Some(page) = self.get_object_mut(page_id) {

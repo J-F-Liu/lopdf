@@ -3,4 +3,4 @@ reorder_imports = true
 hard_tabs = true
 fn_args_layout = "Block"
 max_width = 200
-ideal_width = 160
+ideal_width = 120

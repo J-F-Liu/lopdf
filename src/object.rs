@@ -386,9 +386,16 @@ impl Stream {
 		self.dict.set("Length", self.content.len() as i64);
 	}
 
+	pub fn set_plain_content(&mut self, content: Vec<u8>) {
+		self.dict.remove("DecodeParms");
+		self.dict.remove("Filter");
+		self.dict.set("Length", content.len() as i64);
+		self.content = content;
+	}
+
 	pub fn compress(&mut self) {
-		use flate2::Compression;
 		use flate2::write::ZlibEncoder;
+		use flate2::Compression;
 		use std::io::prelude::*;
 
 		if self.dict.get("Filter").is_none() {
