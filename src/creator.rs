@@ -22,16 +22,43 @@ impl Document {
 		id
 	}
 
-	pub fn add_xobject<N: Into<String>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) {
-		// let resources_id = self.get_or_create_resources(page_id);
-		let resources_ids = self.get_page_resources(page_id);
-		let resources_id = resources_ids[0];
-		let mut resources = self.get_object_mut(resources_id).and_then(|obj| obj.as_dict_mut()).unwrap();
-		if !resources.has("XObject") {
-			resources.set("XObject", Dictionary::new());
+	fn get_or_create_resources_mut(&mut self, page_id: ObjectId) -> Option<&mut Object> {
+		let page = self.get_object_mut(page_id).and_then(|obj| obj.as_dict_mut()).unwrap();
+		if page.has("Resources") {
+			if let Some(_res_id) = page.get("Resources").and_then(|obj| obj.as_reference()) {
+				// self.get_object_mut(res_id)
+				None
+			} else {
+				page.get_mut("Resources")
+			}
+		} else {
+			page.set("Resources", Dictionary::new());
+			page.get_mut("Resources")
 		}
-		let mut xobjects = resources.get_mut("XObject").and_then(|obj| obj.as_dict_mut()).unwrap();
-		xobjects.set(xobject_name, Object::Reference(xobject_id));
+	}
+
+	pub fn get_or_create_resources(&mut self, page_id: ObjectId) -> Option<&mut Object> {
+		let mut resources_id = None;
+		{
+			let page = self.get_object(page_id).and_then(|obj| obj.as_dict()).unwrap();
+			if page.has("Resources") {
+				resources_id = page.get("Resources").and_then(|obj| obj.as_reference());
+			}
+		}
+		match resources_id {
+			Some(res_id) => self.get_object_mut(res_id),
+			None => self.get_or_create_resources_mut(page_id),
+		}
+	}
+
+	pub fn add_xobject<N: Into<String>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) {
+		if let Some(resources) = self.get_or_create_resources(page_id).and_then(|obj| obj.as_dict_mut()) {
+			if !resources.has("XObject") {
+				resources.set("XObject", Dictionary::new());
+			}
+			let mut xobjects = resources.get_mut("XObject").and_then(|obj| obj.as_dict_mut()).unwrap();
+			xobjects.set(xobject_name, Object::Reference(xobject_id));
+		}
 	}
 }
 
