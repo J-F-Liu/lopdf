@@ -192,32 +192,29 @@ impl Document {
 	}
 
 	/// Get resources used by a page.
-	pub fn get_page_resources(&self, page_id: ObjectId) -> Vec<ObjectId> {
-		fn collect_resources<'a>(page_node: &'a Dictionary, resources: &mut Vec<ObjectId>, doc: &'a Document) {
+	pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
+		fn collect_resources<'a>(page_node: &'a Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &'a Document) {
 			if let Some(resources_id) = page_node.get("Resources").and_then(|resources| resources.as_reference()) {
-				resources.push(resources_id);
+				resource_ids.push(resources_id);
 			}
 			if let Some(page_tree) = page_node.get("Parent").and_then(|parent| parent.as_reference()).and_then(|id| doc.get_dictionary(id)) {
-				collect_resources(page_tree, resources, doc);
+				collect_resources(page_tree, resource_ids, doc);
 			}
 		};
 
-		let mut resources = Vec::new();
+		let mut resource_dict = None;
+		let mut resource_ids = Vec::new();
 		if let Some(page) = self.get_dictionary(page_id) {
-			collect_resources(page, &mut resources, self);
+			resource_dict = page.get("Resources").and_then(|resources| resources.as_dict());
+			collect_resources(page, &mut resource_ids, self);
 		}
-		resources
+		(resource_dict, resource_ids)
 	}
 
 	/// Get fonts used by a page.
 	pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<String, &Dictionary> {
-		fn collect_fonts_from_resources<'a>(page_node: &'a Dictionary, fonts: &mut BTreeMap<String, &'a Dictionary>, doc: &'a Document) {
-			if let Some(font_dict) = page_node
-				.get("Resources")
-				.and_then(|resources| resources.as_dict())
-				.and_then(|resources| resources.get("Font"))
-				.and_then(|font| font.as_dict())
-			{
+		fn collect_fonts_from_resources<'a>(resources: &'a Dictionary, fonts: &mut BTreeMap<String, &'a Dictionary>, doc: &'a Document) {
+			if let Some(font_dict) = resources.get("Font").and_then(|font| font.as_dict()) {
 				for (name, value) in font_dict.iter() {
 					let font = match value {
 						&Object::Reference(id) => doc.get_dictionary(id),
@@ -229,14 +226,17 @@ impl Document {
 					}
 				}
 			}
-			if let Some(page_tree) = page_node.get("Parent").and_then(|parent| parent.as_reference()).and_then(|id| doc.get_dictionary(id)) {
-				collect_fonts_from_resources(page_tree, fonts, doc);
-			}
 		};
 
 		let mut fonts = BTreeMap::new();
-		if let Some(page) = self.get_dictionary(page_id) {
-			collect_fonts_from_resources(page, &mut fonts, self);
+		let (resource_dict, resource_ids) = self.get_page_resources(page_id);
+		if let Some(resources) = resource_dict {
+			collect_fonts_from_resources(resources, &mut fonts, self);
+		}
+		for resource_id in resource_ids {
+			if let Some(resources) = self.get_dictionary(resource_id) {
+				collect_fonts_from_resources(resources, &mut fonts, self);
+			}
 		}
 		fonts
 	}
