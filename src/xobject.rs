@@ -1,6 +1,6 @@
 use super::content::*;
 use super::Object::*;
-use super::{Dictionary, Document, Object, Stream};
+use super::{Dictionary, Document, Stream};
 
 pub fn form(boundingbox: Vec<f64>, matrix: Vec<f64>, content: Vec<u8>) -> Stream {
 	let mut dict = Dictionary::new();

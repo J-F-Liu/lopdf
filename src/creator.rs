@@ -66,13 +66,13 @@ impl Document {
 fn create_document() {
 	use super::Stream;
 	use super::content::*;
-	use chrono::prelude::Local;
+	use time::now;
 
 	let mut doc = Document::with_version("1.5");
 	let info_id = doc.add_object(dictionary! {
 		"Title" => Object::string_literal("Create PDF document example"),
 		"Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
-		"CreationDate" => Local::now(),
+		"CreationDate" => now(),
 	});
 	let pages_id = doc.new_object_id();
 	let font_id = doc.add_object(dictionary! {

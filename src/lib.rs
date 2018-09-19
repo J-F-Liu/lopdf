@@ -1,3 +1,4 @@
+#[cfg(feature = "chrono_time")]
 extern crate chrono;
 extern crate dtoa;
 extern crate encoding;
@@ -5,6 +6,7 @@ extern crate flate2;
 extern crate itoa;
 extern crate linked_hash_map;
 extern crate pom;
+extern crate time;
 
 #[macro_use]
 mod object;
