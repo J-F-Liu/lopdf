@@ -14,10 +14,7 @@ pub fn form(boundingbox: Vec<f64>, matrix: Vec<f64>, content: Vec<u8>) -> Stream
 }
 
 impl Document {
-	pub fn insert_form_object(&mut self, page_number: u32, form_obj: Stream) {
-		let pages = self.get_pages();
-		let page_id = *pages.get(&page_number).expect(&format!("Page {} not exist.", page_number));
-
+	pub fn insert_form_object(&mut self, page_id: ObjectId, form_obj: Stream) {
 		let form_id = self.add_object(form_obj);
 		let form_name = format!("X{}", form_id.0);
 
