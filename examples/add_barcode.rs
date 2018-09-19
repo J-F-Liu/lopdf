@@ -63,6 +63,7 @@ fn generate_operations(rects: Vec<(f64, f64, f64, f64, u8)>) -> String {
 	operations
 }
 
+#[allow(non_upper_case_globals)]
 const mm2pt: f64 = 2.834;
 
 fn main() {

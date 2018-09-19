@@ -60,12 +60,22 @@ impl Document {
 			xobjects.set(xobject_name, Object::Reference(xobject_id));
 		}
 	}
+
+	pub fn add_graphics_state<N: Into<String>>(&mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId) {
+		if let Some(resources) = self.get_or_create_resources(page_id).and_then(|obj| obj.as_dict_mut()) {
+			if !resources.has("ExtGState") {
+				resources.set("ExtGState", Dictionary::new());
+			}
+			let mut states = resources.get_mut("ExtGState").and_then(|obj| obj.as_dict_mut()).unwrap();
+			states.set(gs_name, Object::Reference(gs_id));
+		}
+	}
 }
 
 #[test]
 fn create_document() {
-	use super::Stream;
 	use super::content::*;
+	use super::Stream;
 	use time::now;
 
 	let mut doc = Document::with_version("1.5");

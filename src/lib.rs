@@ -3,6 +3,7 @@ extern crate chrono;
 extern crate dtoa;
 extern crate encoding;
 extern crate flate2;
+extern crate image;
 extern crate itoa;
 extern crate linked_hash_map;
 extern crate pom;
