@@ -1,9 +1,19 @@
 language: rust
 
+cache: cargo
+
 rust:
   - stable
   - beta
   - nightly
+
+script:
+  - cargo clean
+  - cargo check --verbose --no-default-features
+  - cargo check --verbose --features="chrono_time"
+  - cargo test --verbose
+  - cargo test --verbose --examples
+
 matrix:
   allow_failures:
     - rust: nightly

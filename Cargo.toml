@@ -11,12 +11,17 @@ description = "A Rust library for PDF document manipulation."
 
 [dependencies]
 pom = "1.1.0"
-chrono = "0.3.0"
+time = "0.1.40"
 flate2 = "0.2.14"
 linked-hash-map = "0.3.0"
 dtoa = "0.4.1"
 itoa = "0.3.1"
 encoding = "0.2"
+chrono = { version = "0.3.0", optional = true }
+
+[features]
+default = ["chrono_time"]
+chrono_time = ["chrono"]
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }
