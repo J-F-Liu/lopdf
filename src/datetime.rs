@@ -44,8 +44,7 @@ impl From<Tm> for Object {
 			// UTC offset in the form +HHMM or -HHMM (empty string if the the object is naive).
 			let timezone = strftime("%z", &date).unwrap();
 			let timezone_str_start = strftime("%Y%m%d%H%M%S", &date).unwrap();
-
-			let mut timezone_str = format!("D:{}:{}'", timezone_str_start, timezone).into_bytes();
+			let mut timezone_str = format!("D:{}{}:{}'", timezone_str_start, &timezone[..3], &timezone[3..]).into_bytes();
 			convert_utc_offset(&mut timezone_str);
 			timezone_str
 		} else {
