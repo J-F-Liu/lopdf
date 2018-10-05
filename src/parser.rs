@@ -113,16 +113,18 @@ fn dictionary() -> Parser<u8, Dictionary> {
 }
 
 fn stream<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Stream> {
-	dictionary() - space() - seq(b"stream") - eol() >>
-	move |dict: Dictionary| {
-		let length = dict.get("Length").and_then(|value| {
+	dictionary() - space() - seq(b"stream") - eol() >> move |dict: Dictionary| {
+		if let Some(length) = dict.get("Length").and_then(|value| {
 			if let Some(id) = value.as_reference() {
-				return reader.get_object(id).and_then(|value|value.as_i64());
+				return reader.get_object(id).and_then(|value| value.as_i64());
 			}
 			return value.as_i64();
-		}).expect("Stream Length should be an integer.");
-		let stream = take(length as usize) - eol().opt() - seq(b"endstream");
-		stream.map(move |data|Stream::new(dict.clone(), data))
+		}) {
+			let stream = take(length as usize) - eol().opt() - seq(b"endstream").expect("endstream");
+			stream.map(move |data| Stream::new(dict.clone(), data))
+		} else {
+			take(0).pos().map(move |pos| Stream::with_position(dict.clone(), pos))
+		}
 	}
 }
 
@@ -164,7 +166,7 @@ fn object<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Object> {
 }
 
 pub fn indirect_object<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, (ObjectId, Object)> {
-	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj") - space()
+	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
 }
 
 pub fn header() -> Parser<u8, String> {

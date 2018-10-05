@@ -21,6 +21,8 @@ pub struct Stream {
 	/// Can the stream be compressed by the `Document::compress()` function?
 	/// Font streams may not be compressed, for example
 	pub allows_compression: bool,
+	/// Stream data's position in PDF file.
+	pub start_position: Option<usize>,
 }
 
 /// Basic PDF object types defined in an enum.
@@ -361,6 +363,16 @@ impl Stream {
 			dict: dict,
 			content: content,
 			allows_compression: true,
+			start_position: None,
+		}
+	}
+
+	pub fn with_position(dict: Dictionary, position: usize) -> Stream {
+		Stream {
+			dict: dict,
+			content: vec![],
+			allows_compression: true,
+			start_position: Some(position),
 		}
 	}
 

@@ -85,9 +85,10 @@ impl Reader {
 		self.document.trailer = trailer;
 		self.document.reference_table = xref;
 
-		for entry in self.document.reference_table.entries.values().filter(|entry|entry.is_normal()) {
+		let mut zero_length_streams = vec![];
+		for entry in self.document.reference_table.entries.values().filter(|entry| entry.is_normal()) {
 			match *entry {
-				XrefEntry::Normal{offset, ..} => {
+				XrefEntry::Normal { offset, .. } => {
 					let read_result = self.read_object(offset as usize);
 					match read_result {
 						Ok((object_id, mut object)) => {
@@ -95,19 +96,50 @@ impl Reader {
 								Object::Stream(ref mut stream) => if stream.dict.type_is(b"ObjStm") {
 									let mut obj_stream = ObjectStream::new(stream);
 									self.document.objects.append(&mut obj_stream.objects);
+								} else if stream.content.len() == 0 {
+									zero_length_streams.push(object_id);
 								},
 								_ => {}
 							}
 							self.document.objects.insert(object_id, object);
-						},
-						Err(err) => { println!("{:?}", err); }
+						}
+						Err(err) => {
+							println!("{:?}", err);
+						}
 					}
-				},
-				_ => {},
+				}
+				_ => {}
 			};
 		}
 
+		for object_id in zero_length_streams {
+			if let Some(length) = self.get_stream_length(object_id) {
+				if let Some(ref mut object) = self.document.get_object_mut(object_id) {
+					match object {
+						Object::Stream(ref mut stream) => if let Some(start) = stream.start_position {
+							let end = start + length as usize;
+							stream.set_content(self.buffer[start..end].to_vec());
+						},
+						_ => {}
+					}
+				}
+			}
+		}
+
 		Ok(())
+	}
+
+	fn get_stream_length(&self, object_id: ObjectId) -> Option<i64> {
+		let object = self.document.get_object(object_id).unwrap();
+		match object {
+			Object::Stream(ref stream) => stream.dict.get("Length").and_then(|value| {
+				if let Some(id) = value.as_reference() {
+					return self.document.get_object(id).and_then(|value| value.as_i64());
+				}
+				return value.as_i64();
+			}),
+			_ => None,
+		}
 	}
 
 	/// Get object offset by object id.
