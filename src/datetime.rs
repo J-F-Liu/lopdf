@@ -1,9 +1,9 @@
+use super::Object;
 #[cfg(feature = "chrono_time")]
 use chrono::prelude::*;
 #[cfg(not(feature = "chrono_time"))]
 use time::strptime;
-use time::{Tm, strftime};
-use super::Object;
+use time::{strftime, Tm};
 
 const TIME_FMT_DECODE_STR: &str = "%Y%m%d%H%M%S%z";
 
@@ -54,13 +54,10 @@ impl From<Tm> for Object {
 }
 
 impl Object {
-
 	// Parses the `D`, `:` and `\` out of a `Object::String` to parse the date time
 	fn datetime_string(&self) -> Option<String> {
 		if let Object::String(ref bytes, _) = self {
-			String::from_utf8(bytes.iter().filter(|b| {
-				![b'D', b':', b'\''].contains(b)
-			}).map(|b|*b).collect()).ok()
+			String::from_utf8(bytes.iter().filter(|b| ![b'D', b':', b'\''].contains(b)).map(|b| *b).collect()).ok()
 		} else {
 			None
 		}
@@ -95,7 +92,6 @@ fn parse_datetime() {
 #[cfg(not(feature = "chrono_time"))]
 #[test]
 fn parse_datetime() {
-
 	// Tm-based: Ignore tm_wday, tm_yday, tm_isdst and tm_nsec
 	// - not important in the date parsing
 	let time = Tm {
@@ -103,7 +99,7 @@ fn parse_datetime() {
 		tm_yday: 0,
 		tm_isdst: 0,
 		tm_nsec: 0,
-		.. ::time::now()
+		..::time::now()
 	};
 
 	let text: Object = time.into();

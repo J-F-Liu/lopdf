@@ -37,10 +37,7 @@ fn replace_text() -> Result<Document> {
 
 #[test]
 fn test_replace() {
-	assert_eq!(
-		replace_text().unwrap().extract_text(&[1]),
-		"Modified text!\n"
-	);
+	assert_eq!(replace_text().unwrap().extract_text(&[1]), "Modified text!\n");
 }
 
 #[test]
@@ -51,10 +48,7 @@ fn test_get_object() {
 
 	let mut doc = Document::new();
 	let id = doc.add_object(Object::string_literal("test"));
-	let id2 = doc.add_object(Object::Stream(LoStream::new(
-		LoDictionary::new(),
-		"stream".as_bytes().to_vec(),
-	)));
+	let id2 = doc.add_object(Object::Stream(LoStream::new(LoDictionary::new(), "stream".as_bytes().to_vec())));
 
 	println!("{:?}", id);
 	println!("{:?}", id2);

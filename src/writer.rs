@@ -1,13 +1,12 @@
+use std::fs::File;
 use std::io::{Result, Write};
 use std::path::Path;
-use std::fs::File;
 
-use super::{Document, Object, Dictionary, Stream, StringFormat};
 use super::Object::*;
+use super::{Dictionary, Document, Object, Stream, StringFormat};
 use xref::*;
 
 impl Document {
-
 	/// Save PDF document to specified file path.
 	#[inline]
 	pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
@@ -18,15 +17,12 @@ impl Document {
 
 	/// Save PDF to arbitrary target
 	#[inline]
-	pub fn save_to<W: Write>(&mut self, target: &mut W) -> Result <()> {
+	pub fn save_to<W: Write>(&mut self, target: &mut W) -> Result<()> {
 		self.save_internal(target)
 	}
 
 	fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
-		let mut target = CountingWrite {
-			inner: target,
-			bytes_written: 0,
-		};
+		let mut target = CountingWrite { inner: target, bytes_written: 0 };
 		let mut xref = Xref::new(self.max_id + 1);
 		target.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
 
@@ -83,19 +79,17 @@ impl Writer {
 		file.write_all(b"xref\n")?;
 		file.write_all(format!("0 {}\n", xref.size).as_bytes())?;
 
-		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| {
-			file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes())
-		};
+		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes());
 		write_xref_entry(0, 65535, 'f')?;
 
 		let mut obj_id = 1;
 		while obj_id < xref.size {
 			if let Some(entry) = xref.get(obj_id) {
 				match *entry {
-					XrefEntry::Normal{offset, generation} => {
+					XrefEntry::Normal { offset, generation } => {
 						write_xref_entry(offset, generation, 'n')?;
-					},
-					_ => {},
+					}
+					_ => {}
 				};
 			} else {
 				write_xref_entry(0, 65535, 'f')?;
@@ -105,27 +99,35 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_indirect_object<'a, W: Write>(
-		file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &'a Object, xref: &mut Xref
-	) -> Result<()> {
+	fn write_indirect_object<'a, W: Write>(file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &'a Object, xref: &mut Xref) -> Result<()> {
 		let offset = file.bytes_written as u32;
-		xref.insert(id, XrefEntry::Normal{offset, generation});
-		file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) {" "} else {""}).as_bytes())?;
+		xref.insert(id, XrefEntry::Normal { offset, generation });
+		file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) { " " } else { "" }).as_bytes())?;
 		Writer::write_object(file, object)?;
-		file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) {" "} else {""}).as_bytes())?;
+		file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) { " " } else { "" }).as_bytes())?;
 		Ok(())
 	}
 
 	pub fn write_object<'a>(file: &mut Write, object: &'a Object) -> Result<()> {
-        use dtoa;
-        use itoa;
+		use dtoa;
+		use itoa;
 
 		match *object {
 			Null => file.write_all(b"null"),
-			Boolean(ref value) => if *value { file.write_all(b"true") } else { file.write_all(b"false") },
-            Integer(ref value) => { let _ = itoa::write(file, *value); Ok(()) },
-            Real(ref value) => { let _ = dtoa::write(file, *value); Ok(()) },
-            Name(ref name) => Writer::write_name(file, name),
+			Boolean(ref value) => if *value {
+				file.write_all(b"true")
+			} else {
+				file.write_all(b"false")
+			},
+			Integer(ref value) => {
+				let _ = itoa::write(file, *value);
+				Ok(())
+			}
+			Real(ref value) => {
+				let _ = dtoa::write(file, *value);
+				Ok(())
+			}
+			Name(ref name) => Writer::write_name(file, name),
 			String(ref text, ref format) => Writer::write_string(file, text, format),
 			Array(ref array) => Writer::write_array(file, array),
 			Object::Dictionary(ref dict) => Writer::write_dictionary(file, dict),
@@ -268,21 +270,21 @@ impl<W: Write> Write for CountingWrite<W> {
 #[test]
 fn save_document() {
 	let mut doc = Document::with_version("1.5");
-	doc.objects.insert((1,0), Null);
-	doc.objects.insert((2,0), Boolean(true));
-	doc.objects.insert((3,0), Integer(3));
-	doc.objects.insert((4,0), Real(0.5));
-	doc.objects.insert((5,0), String("text((\r)".as_bytes().to_vec(), StringFormat::Literal));
-	doc.objects.insert((6,0), String("text((\r)".as_bytes().to_vec(), StringFormat::Hexadecimal));
-	doc.objects.insert((7,0), Name(b"name \t".to_vec()));
-	doc.objects.insert((8,0), Reference((1,0)));
-	doc.objects.insert((9,2), Array(vec![Integer(1), Integer(2), Integer(3)]));
-	doc.objects.insert((11,0), Stream(Stream::new(Dictionary::new(), vec![0x41, 0x42, 0x43])));
+	doc.objects.insert((1, 0), Null);
+	doc.objects.insert((2, 0), Boolean(true));
+	doc.objects.insert((3, 0), Integer(3));
+	doc.objects.insert((4, 0), Real(0.5));
+	doc.objects.insert((5, 0), String("text((\r)".as_bytes().to_vec(), StringFormat::Literal));
+	doc.objects.insert((6, 0), String("text((\r)".as_bytes().to_vec(), StringFormat::Hexadecimal));
+	doc.objects.insert((7, 0), Name(b"name \t".to_vec()));
+	doc.objects.insert((8, 0), Reference((1, 0)));
+	doc.objects.insert((9, 2), Array(vec![Integer(1), Integer(2), Integer(3)]));
+	doc.objects.insert((11, 0), Stream(Stream::new(Dictionary::new(), vec![0x41, 0x42, 0x43])));
 	let mut dict = Dictionary::new();
 	dict.set("A", Null);
 	dict.set("B", false);
 	dict.set("C", Name(b"name".to_vec()));
-	doc.objects.insert((12,0), Object::Dictionary(dict));
+	doc.objects.insert((12, 0), Object::Dictionary(dict));
 	doc.max_id = 12;
 
 	doc.save("test_0_save.pdf").unwrap();

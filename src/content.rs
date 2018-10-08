@@ -1,7 +1,7 @@
+use super::parser;
+use super::{Object, Stream};
 use pom::{DataInput, Result};
 use std::io::{self, Write};
-use super::{Object, Stream};
-use super::parser;
 use writer::Writer;
 
 #[derive(Debug, Clone)]
@@ -12,7 +12,7 @@ pub struct Operation {
 
 impl Operation {
 	pub fn new(operator: &str, operands: Vec<Object>) -> Operation {
-		Operation{
+		Operation {
 			operator: operator.to_string(),
 			operands: operands,
 		}

@@ -46,24 +46,13 @@ impl Document {
 	pub fn delete_pages(&mut self, page_numbers: &[u32]) {
 		let pages = self.get_pages();
 		for page_number in page_numbers {
-			if let Some(page) = pages
-				.get(&page_number)
-				.and_then(|page_id| self.delete_object(page_id))
-			{
-				let mut page_tree_ref = page.as_dict()
-					.and_then(|dict| dict.get("Parent"))
-					.and_then(|obj| obj.as_reference());
+			if let Some(page) = pages.get(&page_number).and_then(|page_id| self.delete_object(page_id)) {
+				let mut page_tree_ref = page.as_dict().and_then(|dict| dict.get("Parent")).and_then(|obj| obj.as_reference());
 				while let Some(page_tree_id) = page_tree_ref {
-					if let Some(page_tree) = self.objects
-						.get_mut(&page_tree_id)
-						.and_then(|obj| obj.as_dict_mut())
-					{
-						page_tree
-							.get("Count")
-							.and_then(|obj| obj.as_i64())
-							.map(|count| {
-								page_tree.set("Count", count - 1);
-							});
+					if let Some(page_tree) = self.objects.get_mut(&page_tree_id).and_then(|obj| obj.as_dict_mut()) {
+						page_tree.get("Count").and_then(|obj| obj.as_i64()).map(|count| {
+							page_tree.set("Count", count - 1);
+						});
 						page_tree_ref = page_tree.get("Parent").and_then(|obj| obj.as_reference());
 					} else {
 						break;
@@ -98,12 +87,12 @@ impl Document {
 				}
 			}
 			Object::Dictionary(ref mut dict) => {
-				let keys: Vec<String> = dict.iter()
+				let keys: Vec<String> = dict
+					.iter()
 					.filter(|&(_, item): &(&String, &Object)| match *item {
 						Object::Reference(ref_id) => ref_id == *id,
 						_ => false,
-					})
-					.map(|(k, _)| k.clone())
+					}).map(|(k, _)| k.clone())
 					.collect();
 				for key in keys {
 					dict.remove(key.as_str());
@@ -119,11 +108,7 @@ impl Document {
 	pub fn delete_zero_length_streams(&mut self) -> Vec<ObjectId> {
 		let mut ids = vec![];
 		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
-			if self.objects
-				.get(&id)
-				.and_then(|obj| obj.as_stream())
-				.map(|stream| stream.content.len() == 0) == Some(true)
-			{
+			if self.objects.get(&id).and_then(|obj| obj.as_stream()).map(|stream| stream.content.len() == 0) == Some(true) {
 				self.delete_object(&id);
 				ids.push(id);
 			}
@@ -185,10 +170,7 @@ impl Document {
 		for page_number in page_numbers {
 			let page_id = *pages.get(page_number).unwrap();
 			let fonts = self.get_page_fonts(page_id);
-			let encodings = fonts
-				.into_iter()
-				.map(|(name, font)| (name, self.get_font_encoding(font)))
-				.collect::<BTreeMap<String, &str>>();
+			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<String, &str>>();
 			let content_data = self.get_page_content(page_id).unwrap();
 			let mut content = Content::decode(&content_data).unwrap();
 			let mut current_encoding = None;
@@ -248,10 +230,9 @@ impl Document {
 
 	pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) {
 		let pages = self.get_pages();
-		let page_id = *pages
-			.get(&page_number)
-			.expect(&format!("Page {} not exist.", page_number));
-		let encodings = self.get_page_fonts(page_id)
+		let page_id = *pages.get(&page_number).expect(&format!("Page {} not exist.", page_number));
+		let encodings = self
+			.get_page_fonts(page_id)
 			.into_iter()
 			.map(|(name, font)| (name, self.get_font_encoding(font).to_owned()))
 			.collect::<BTreeMap<String, String>>();

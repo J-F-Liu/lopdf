@@ -1,5 +1,5 @@
-mod glyphnames;
 pub mod encodings;
+mod glyphnames;
 
 pub fn bytes_to_string(encoding: [Option<u16>; 256], bytes: &[u8]) -> String {
 	let code_points = bytes
@@ -12,7 +12,8 @@ pub fn bytes_to_string(encoding: [Option<u16>; 256], bytes: &[u8]) -> String {
 }
 
 pub fn string_to_bytes(encoding: [Option<u16>; 256], text: &str) -> Vec<u8> {
-	let bytes = text.chars()
+	let bytes = text
+		.chars()
 		.map(|ch| encoding.iter().position(|&code| code == Some(ch as u16)))
 		.filter(|byte| byte.is_some())
 		.map(|byte| byte.unwrap() as u8)

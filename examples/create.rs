@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate lopdf;
-use lopdf::{Document, Object, Stream};
 use lopdf::content::{Content, Operation};
+use lopdf::{Document, Object, Stream};
 
 fn main() {
 	let mut doc = Document::with_version("1.5");

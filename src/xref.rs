@@ -1,6 +1,6 @@
+use super::{Dictionary, Stream};
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
-use super::{Dictionary, Stream};
 
 #[derive(Debug, Clone)]
 pub struct Xref {
@@ -48,15 +48,15 @@ use self::XrefEntry::*;
 impl XrefEntry {
 	pub fn is_normal(&self) -> bool {
 		match *self {
-			Normal{..} => true,
-			_ => false
+			Normal { .. } => true,
+			_ => false,
 		}
 	}
 
 	pub fn is_compressed(&self) -> bool {
 		match *self {
-			Compressed{..} => true,
-			_ => false
+			Compressed { .. } => true,
+			_ => false,
 		}
 	}
 }
@@ -68,11 +68,13 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 	let size = dict.get("Size").and_then(|size| size.as_i64()).expect("Size is absent in trailer.");
 	let mut xref = Xref::new(size as u32);
 	{
-		let section_indice = dict.get("Index")
+		let section_indice = dict
+			.get("Index")
 			.and_then(|obj| obj.as_array())
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap()).collect())
 			.unwrap_or(vec![0, size]);
-		let field_widths: Vec<usize> = dict.get("W")
+		let field_widths: Vec<usize> = dict
+			.get("W")
 			.and_then(|obj| obj.as_array())
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap() as usize).collect())
 			.expect("W is absent in trailer.");
@@ -85,30 +87,31 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 			let count = section_indice[2 * i + 1];
 
 			for j in 0..count {
-				let entry_type = if bytes1.len() > 0 {
-					read_big_endian_interger(&mut reader, bytes1.as_mut_slice())
-				} else {
-					1
-				};
+				let entry_type = if bytes1.len() > 0 { read_big_endian_interger(&mut reader, bytes1.as_mut_slice()) } else { 1 };
 				match entry_type {
-					0 => { //free object
+					0 => {
+						//free object
 						read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
 						read_big_endian_interger(&mut reader, bytes3.as_mut_slice());
-					},
-					1 => { //normal object
+					}
+					1 => {
+						//normal object
 						let offset = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
-						let generation = if bytes3.len() > 0 {
-							read_big_endian_interger(&mut reader, bytes3.as_mut_slice())
-						} else {
-							0
-						} as u16;
-						xref.insert((start + j) as u32, XrefEntry::Normal { offset: offset, generation: generation });
-					},
-					2 => { //compressed object
+						let generation = if bytes3.len() > 0 { read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) } else { 0 } as u16;
+						xref.insert(
+							(start + j) as u32,
+							XrefEntry::Normal {
+								offset: offset,
+								generation: generation,
+							},
+						);
+					}
+					2 => {
+						//compressed object
 						let container = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
 						let index = read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) as u16;
 						xref.insert((start + j) as u32, XrefEntry::Compressed { container: container, index: index });
-					},
+					}
 					_ => {}
 				}
 			}
@@ -128,4 +131,3 @@ fn read_big_endian_interger(reader: &mut Cursor<Vec<u8>>, buffer: &mut [u8]) -> 
 	}
 	value
 }
-

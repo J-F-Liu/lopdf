@@ -235,10 +235,7 @@ impl fmt::Debug for Object {
 			Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
 			Object::String(ref text, _) => write!(f, "({})", String::from_utf8_lossy(text)),
 			Object::Array(ref array) => {
-				let items = array
-					.into_iter()
-					.map(|item| format!("{:?}", item))
-					.collect::<Vec<String>>();
+				let items = array.into_iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
 				write!(f, "[{}]", items.join(" "))
 			}
 			Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
@@ -291,10 +288,7 @@ impl Dictionary {
 	}
 
 	pub fn type_name(&self) -> Option<&str> {
-		self.0
-			.get("Type")
-			.and_then(|obj| obj.as_name_str())
-			.or(self.0.get("Linearized").and(Some("Linearized")))
+		self.0.get("Type").and_then(|obj| obj.as_name_str()).or(self.0.get("Linearized").and(Some("Linearized")))
 	}
 
 	pub fn type_is(&self, type_name: &[u8]) -> bool {
@@ -329,9 +323,7 @@ macro_rules! dictionary {
 
 impl fmt::Debug for Dictionary {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let entries = self.into_iter()
-			.map(|(key, value)| format!("/{} {:?}", key, value))
-			.collect::<Vec<String>>();
+		let entries = self.into_iter().map(|(key, value)| format!("/{} {:?}", key, value)).collect::<Vec<String>>();
 		write!(f, "<<{}>>", entries.concat())
 	}
 }
@@ -438,23 +430,11 @@ impl Stream {
 						decoder.read_to_end(&mut data).unwrap();
 					}
 					if let Some(params) = self.dict.get("DecodeParms").and_then(|obj| obj.as_dict()) {
-						let predictor = params
-							.get("Predictor")
-							.and_then(|obj| obj.as_i64())
-							.unwrap_or(1);
+						let predictor = params.get("Predictor").and_then(|obj| obj.as_i64()).unwrap_or(1);
 						if predictor >= 10 && predictor <= 15 {
-							let pixels_per_row = params
-								.get("Columns")
-								.and_then(|obj| obj.as_i64())
-								.unwrap_or(1) as usize;
-							let colors = params
-								.get("Colors")
-								.and_then(|obj| obj.as_i64())
-								.unwrap_or(1) as usize;
-							let bits = params
-								.get("BitsPerComponent")
-								.and_then(|obj| obj.as_i64())
-								.unwrap_or(8) as usize;
+							let pixels_per_row = params.get("Columns").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
+							let colors = params.get("Colors").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
+							let bits = params.get("BitsPerComponent").and_then(|obj| obj.as_i64()).unwrap_or(8) as usize;
 							let bytes_per_pixel = colors * bits / 8;
 							data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
 						}
