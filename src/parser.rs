@@ -95,7 +95,7 @@ fn dictionary() -> Parser<u8, Dictionary> {
 	let entries = seq(b"<<") * space() * entry.repeat(0..) - seq(b">>");
 	entries.map(|entries| {
 		entries.into_iter().fold(Dictionary::new(), |mut dict: Dictionary, (key, value)| {
-			dict.set(String::from_utf8(key).unwrap(), value);
+			dict.set(key, value);
 			dict
 		})
 	})
@@ -103,7 +103,7 @@ fn dictionary() -> Parser<u8, Dictionary> {
 
 fn stream<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Stream> {
 	dictionary() - space() - seq(b"stream") - eol() >> move |dict: Dictionary| {
-		if let Some(length) = dict.get("Length").and_then(|value| {
+		if let Some(length) = dict.get(b"Length").and_then(|value| {
 			if let Some(id) = value.as_reference() {
 				return reader.get_object(id).and_then(|value| value.as_i64());
 			}
@@ -112,7 +112,7 @@ fn stream<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Stream> {
 			let stream = take(length as usize) - eol().opt() - seq(b"endstream").expect("endstream");
 			stream.map(move |data| Stream::new(dict.clone(), data))
 		} else {
-			take(0).pos().map(move |pos| Stream::with_position(dict.clone(), pos))
+			empty().pos().map(move |pos| Stream::with_position(dict.clone(), pos))
 		}
 	}
 }
@@ -186,7 +186,7 @@ fn trailer() -> Parser<u8, Dictionary> {
 
 pub fn xref_and_trailer<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, (Xref, Dictionary)> {
 	(xref() + trailer()).map(|(mut xref, trailer)| {
-		xref.size = trailer.get("Size").and_then(|value| value.as_i64()).expect("Size is absent in trailer.") as u32;
+		xref.size = trailer.get(b"Size").and_then(|value| value.as_i64()).expect("Size is absent in trailer.") as u32;
 		(xref, trailer)
 	}) | indirect_object(reader).convert(|(_, obj)| match obj {
 		Object::Stream(stream) => Ok(decode_xref_stream(stream)),

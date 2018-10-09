@@ -7,7 +7,7 @@ use std::io::{Result, Write};
 impl Document {
 	/// Change producer of document information dictionary.
 	pub fn change_producer(&mut self, producer: &str) {
-		if let Some(info) = self.trailer.get_mut("Info") {
+		if let Some(info) = self.trailer.get_mut(b"Info") {
 			if let Some(dict) = match *info {
 				Object::Dictionary(ref mut dict) => Some(dict),
 				Object::Reference(ref id) => self.objects.get_mut(id).and_then(|obj| obj.as_dict_mut()),
@@ -47,13 +47,13 @@ impl Document {
 		let pages = self.get_pages();
 		for page_number in page_numbers {
 			if let Some(page) = pages.get(&page_number).and_then(|page_id| self.delete_object(page_id)) {
-				let mut page_tree_ref = page.as_dict().and_then(|dict| dict.get("Parent")).and_then(|obj| obj.as_reference());
+				let mut page_tree_ref = page.as_dict().and_then(|dict| dict.get(b"Parent")).and_then(|obj| obj.as_reference());
 				while let Some(page_tree_id) = page_tree_ref {
 					if let Some(page_tree) = self.objects.get_mut(&page_tree_id).and_then(|obj| obj.as_dict_mut()) {
-						page_tree.get("Count").and_then(|obj| obj.as_i64()).map(|count| {
+						page_tree.get(b"Count").and_then(|obj| obj.as_i64()).map(|count| {
 							page_tree.set("Count", count - 1);
 						});
-						page_tree_ref = page_tree.get("Parent").and_then(|obj| obj.as_reference());
+						page_tree_ref = page_tree.get(b"Parent").and_then(|obj| obj.as_reference());
 					} else {
 						break;
 					}
@@ -87,15 +87,15 @@ impl Document {
 				}
 			}
 			Object::Dictionary(ref mut dict) => {
-				let keys: Vec<String> = dict
+				let keys: Vec<Vec<u8>> = dict
 					.iter()
-					.filter(|&(_, item): &(&String, &Object)| match *item {
+					.filter(|&(_, item): &(&Vec<u8>, &Object)| match *item {
 						Object::Reference(ref_id) => ref_id == *id,
 						_ => false,
 					}).map(|(k, _)| k.clone())
 					.collect();
 				for key in keys {
-					dict.remove(key.as_str());
+					dict.remove(&key);
 				}
 			}
 			_ => {}
@@ -170,14 +170,14 @@ impl Document {
 		for page_number in page_numbers {
 			let page_id = *pages.get(page_number).unwrap();
 			let fonts = self.get_page_fonts(page_id);
-			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<String, &str>>();
+			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<Vec<u8>, &str>>();
 			let content_data = self.get_page_content(page_id).unwrap();
 			let mut content = Content::decode(&content_data).unwrap();
 			let mut current_encoding = None;
 			for operation in content.operations.iter() {
 				match operation.operator.as_ref() {
 					"Tf" => {
-						let current_font = operation.operands[0].as_name_str().unwrap();
+						let current_font = operation.operands[0].as_name().unwrap();
 						current_encoding = encodings.get(current_font).cloned();
 					}
 					"Tj" | "TJ" => {
@@ -206,7 +206,7 @@ impl Document {
 	}
 
 	pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) {
-		let contents = self.get_dictionary(page_id).and_then(|page| page.get("Contents")).cloned().unwrap();
+		let contents = self.get_dictionary(page_id).and_then(|page| page.get(b"Contents")).cloned().unwrap();
 		match contents {
 			Object::Reference(id) => self.change_content_stream(id, content),
 			Object::Array(ref arr) => {
@@ -235,14 +235,14 @@ impl Document {
 			.get_page_fonts(page_id)
 			.into_iter()
 			.map(|(name, font)| (name, self.get_font_encoding(font).to_owned()))
-			.collect::<BTreeMap<String, String>>();
+			.collect::<BTreeMap<Vec<u8>, String>>();
 		let content_data = self.get_page_content(page_id).unwrap();
 		let mut content = Content::decode(&content_data).unwrap();
 		let mut current_encoding = None;
 		for operation in content.operations.iter_mut() {
 			match operation.operator.as_ref() {
 				"Tf" => {
-					let current_font = operation.operands[0].as_name_str().unwrap();
+					let current_font = operation.operands[0].as_name().unwrap();
 					current_encoding = encodings.get(current_font).map(|s| s.as_str());
 				}
 				"Tj" => for operand in operation.operands.iter_mut() {

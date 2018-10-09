@@ -13,8 +13,8 @@ pub struct ObjectStream {
 impl ObjectStream {
 	pub fn new(stream: &mut Stream) -> ObjectStream {
 		stream.decompress();
-		let first_offset = stream.dict.get("First").and_then(|obj| obj.as_i64()).unwrap() as usize;
-		let _count = stream.dict.get("N").and_then(|obj| obj.as_i64()).unwrap() as usize;
+		let first_offset = stream.dict.get(b"First").and_then(|obj| obj.as_i64()).unwrap() as usize;
+		let _count = stream.dict.get(b"N").and_then(|obj| obj.as_i64()).unwrap() as usize;
 
 		let mut index_block = vec![0_u8; first_offset];
 		stream.content.as_slice().read_exact(index_block.as_mut_slice()).unwrap();

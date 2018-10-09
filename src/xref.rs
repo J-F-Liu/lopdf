@@ -65,16 +65,16 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 	stream.decompress();
 	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
-	let size = dict.get("Size").and_then(|size| size.as_i64()).expect("Size is absent in trailer.");
+	let size = dict.get(b"Size").and_then(|size| size.as_i64()).expect("Size is absent in trailer.");
 	let mut xref = Xref::new(size as u32);
 	{
 		let section_indice = dict
-			.get("Index")
+			.get(b"Index")
 			.and_then(|obj| obj.as_array())
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap()).collect())
 			.unwrap_or(vec![0, size]);
 		let field_widths: Vec<usize> = dict
-			.get("W")
+			.get(b"W")
 			.and_then(|obj| obj.as_array())
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap() as usize).collect())
 			.expect("W is absent in trailer.");
@@ -117,9 +117,9 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 			}
 		}
 	}
-	dict.remove("Length");
-	dict.remove("W");
-	dict.remove("Index");
+	dict.remove(b"Length");
+	dict.remove(b"W");
+	dict.remove(b"Index");
 	(xref, dict)
 }
 

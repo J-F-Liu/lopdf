@@ -7,7 +7,7 @@ pub type ObjectId = (u32, u16);
 
 /// Dictionary object.
 #[derive(Clone)]
-pub struct Dictionary(LinkedHashMap<String, Object>);
+pub struct Dictionary(LinkedHashMap<Vec<u8>, Object>);
 
 /// Stream object
 /// Warning - all streams must be indirect objects, while
@@ -250,30 +250,21 @@ impl Dictionary {
 		Dictionary(LinkedHashMap::new())
 	}
 
-	pub fn has<K>(&self, key: K) -> bool
-	where
-		K: Into<String>,
-	{
-		self.0.contains_key(&key.into())
+	pub fn has(&self, key: &[u8]) -> bool {
+		self.0.contains_key(key)
 	}
 
-	pub fn get<K>(&self, key: K) -> Option<&Object>
-	where
-		K: Into<String>,
-	{
-		self.0.get(&key.into())
+	pub fn get(&self, key: &[u8]) -> Option<&Object> {
+		self.0.get(key)
 	}
 
-	pub fn get_mut<K>(&mut self, key: K) -> Option<&mut Object>
-	where
-		K: Into<String>,
-	{
-		self.0.get_mut(&key.into())
+	pub fn get_mut(&mut self, key: &[u8]) -> Option<&mut Object> {
+		self.0.get_mut(key)
 	}
 
 	pub fn set<K, V>(&mut self, key: K, value: V)
 	where
-		K: Into<String>,
+		K: Into<Vec<u8>>,
 		V: Into<Object>,
 	{
 		self.0.insert(key.into(), value.into());
@@ -283,23 +274,23 @@ impl Dictionary {
 		self.0.len()
 	}
 
-	pub fn remove(&mut self, key: &str) -> Option<Object> {
+	pub fn remove(&mut self, key: &[u8]) -> Option<Object> {
 		self.0.remove(key)
 	}
 
 	pub fn type_name(&self) -> Option<&str> {
-		self.0.get("Type").and_then(|obj| obj.as_name_str()).or(self.0.get("Linearized").and(Some("Linearized")))
+		self.get(b"Type").and_then(|obj| obj.as_name_str()).or(self.get(b"Linearized").and(Some("Linearized")))
 	}
 
 	pub fn type_is(&self, type_name: &[u8]) -> bool {
-		self.0.get("Type").and_then(|obj| obj.as_name()) == Some(type_name)
+		self.get(b"Type").and_then(|obj| obj.as_name()) == Some(type_name)
 	}
 
-	pub fn iter(&self) -> Iter<String, Object> {
+	pub fn iter(&self) -> Iter<Vec<u8>, Object> {
 		self.0.iter()
 	}
 
-	pub fn iter_mut(&mut self) -> IterMut<String, Object> {
+	pub fn iter_mut(&mut self) -> IterMut<Vec<u8>, Object> {
 		self.0.iter_mut()
 	}
 }
@@ -323,14 +314,14 @@ macro_rules! dictionary {
 
 impl fmt::Debug for Dictionary {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let entries = self.into_iter().map(|(key, value)| format!("/{} {:?}", key, value)).collect::<Vec<String>>();
+		let entries = self.into_iter().map(|(key, value)| format!("/{} {:?}", String::from_utf8_lossy(key), value)).collect::<Vec<String>>();
 		write!(f, "<<{}>>", entries.concat())
 	}
 }
 
 impl<'a> IntoIterator for &'a Dictionary {
-	type Item = (&'a String, &'a Object);
-	type IntoIter = linked_hash_map::Iter<'a, String, Object>;
+	type Item = (&'a Vec<u8>, &'a Object);
+	type IntoIter = linked_hash_map::Iter<'a, Vec<u8>, Object>;
 
 	fn into_iter(self) -> Self::IntoIter {
 		self.0.iter()
@@ -338,7 +329,7 @@ impl<'a> IntoIterator for &'a Dictionary {
 }
 
 use std::iter::FromIterator;
-impl<K: Into<String>> FromIterator<(K, Object)> for Dictionary {
+impl<K: Into<Vec<u8>>> FromIterator<(K, Object)> for Dictionary {
 	fn from_iter<I: IntoIterator<Item = (K, Object)>>(iter: I) -> Self {
 		let mut dict = Dictionary::new();
 		for (k, v) in iter.into_iter() {
@@ -377,7 +368,7 @@ impl Stream {
 	}
 
 	pub fn filter(&self) -> Option<String> {
-		if let Some(filter) = self.dict.get("Filter") {
+		if let Some(filter) = self.dict.get(b"Filter") {
 			if let Some(filter) = filter.as_name() {
 				return Some(String::from_utf8(filter.to_vec()).unwrap()); // so as to pass borrow checker
 			}
@@ -391,8 +382,8 @@ impl Stream {
 	}
 
 	pub fn set_plain_content(&mut self, content: Vec<u8>) {
-		self.dict.remove("DecodeParms");
-		self.dict.remove("Filter");
+		self.dict.remove(b"DecodeParms");
+		self.dict.remove(b"Filter");
 		self.dict.set("Length", content.len() as i64);
 		self.content = content;
 	}
@@ -402,7 +393,7 @@ impl Stream {
 		use flate2::Compression;
 		use std::io::prelude::*;
 
-		if self.dict.get("Filter").is_none() {
+		if self.dict.get(b"Filter").is_none() {
 			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::Best);
 			encoder.write(self.content.as_slice()).unwrap();
 			let compressed = encoder.finish().unwrap();
@@ -421,7 +412,7 @@ impl Stream {
 		if let Some(filter) = self.filter() {
 			match filter.as_str() {
 				"FlateDecode" => {
-					if self.dict.get("Subtype").and_then(|v| v.as_name_str()) == Some("Image") {
+					if self.dict.get(b"Subtype").and_then(|v| v.as_name_str()) == Some("Image") {
 						return None;
 					}
 					let mut data = Vec::new();
@@ -429,12 +420,12 @@ impl Stream {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
 						decoder.read_to_end(&mut data).unwrap();
 					}
-					if let Some(params) = self.dict.get("DecodeParms").and_then(|obj| obj.as_dict()) {
-						let predictor = params.get("Predictor").and_then(|obj| obj.as_i64()).unwrap_or(1);
+					if let Some(params) = self.dict.get(b"DecodeParms").and_then(|obj| obj.as_dict()) {
+						let predictor = params.get(b"Predictor").and_then(|obj| obj.as_i64()).unwrap_or(1);
 						if predictor >= 10 && predictor <= 15 {
-							let pixels_per_row = params.get("Columns").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
-							let colors = params.get("Colors").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
-							let bits = params.get("BitsPerComponent").and_then(|obj| obj.as_i64()).unwrap_or(8) as usize;
+							let pixels_per_row = params.get(b"Columns").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
+							let colors = params.get(b"Colors").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
+							let bits = params.get(b"BitsPerComponent").and_then(|obj| obj.as_i64()).unwrap_or(8) as usize;
 							let bytes_per_pixel = colors * bits / 8;
 							data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
 						}
@@ -449,8 +440,8 @@ impl Stream {
 
 	pub fn decompress(&mut self) {
 		if let Some(data) = self.decompressed_content() {
-			self.dict.remove("DecodeParms");
-			self.dict.remove("Filter");
+			self.dict.remove(b"DecodeParms");
+			self.dict.remove(b"Filter");
 			self.set_content(data);
 		}
 	}

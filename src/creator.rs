@@ -24,16 +24,16 @@ impl Document {
 
 	fn get_or_create_resources_mut(&mut self, page_id: ObjectId) -> Option<&mut Object> {
 		let page = self.get_object_mut(page_id).and_then(|obj| obj.as_dict_mut()).unwrap();
-		if page.has("Resources") {
-			if let Some(_res_id) = page.get("Resources").and_then(|obj| obj.as_reference()) {
+		if page.has(b"Resources") {
+			if let Some(_res_id) = page.get(b"Resources").and_then(|obj| obj.as_reference()) {
 				// self.get_object_mut(res_id)
 				None
 			} else {
-				page.get_mut("Resources")
+				page.get_mut(b"Resources")
 			}
 		} else {
 			page.set("Resources", Dictionary::new());
-			page.get_mut("Resources")
+			page.get_mut(b"Resources")
 		}
 	}
 
@@ -41,8 +41,8 @@ impl Document {
 		let mut resources_id = None;
 		{
 			let page = self.get_object(page_id).and_then(|obj| obj.as_dict()).unwrap();
-			if page.has("Resources") {
-				resources_id = page.get("Resources").and_then(|obj| obj.as_reference());
+			if page.has(b"Resources") {
+				resources_id = page.get(b"Resources").and_then(|obj| obj.as_reference());
 			}
 		}
 		match resources_id {
@@ -51,22 +51,22 @@ impl Document {
 		}
 	}
 
-	pub fn add_xobject<N: Into<String>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) {
+	pub fn add_xobject<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) {
 		if let Some(resources) = self.get_or_create_resources(page_id).and_then(|obj| obj.as_dict_mut()) {
-			if !resources.has("XObject") {
+			if !resources.has(b"XObject") {
 				resources.set("XObject", Dictionary::new());
 			}
-			let mut xobjects = resources.get_mut("XObject").and_then(|obj| obj.as_dict_mut()).unwrap();
+			let mut xobjects = resources.get_mut(b"XObject").and_then(|obj| obj.as_dict_mut()).unwrap();
 			xobjects.set(xobject_name, Object::Reference(xobject_id));
 		}
 	}
 
-	pub fn add_graphics_state<N: Into<String>>(&mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId) {
+	pub fn add_graphics_state<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId) {
 		if let Some(resources) = self.get_or_create_resources(page_id).and_then(|obj| obj.as_dict_mut()) {
-			if !resources.has("ExtGState") {
+			if !resources.has(b"ExtGState") {
 				resources.set("ExtGState", Dictionary::new());
 			}
-			let mut states = resources.get_mut("ExtGState").and_then(|obj| obj.as_dict_mut()).unwrap();
+			let mut states = resources.get_mut(b"ExtGState").and_then(|obj| obj.as_dict_mut()).unwrap();
 			states.set(gs_name, Object::Reference(gs_id));
 		}
 	}

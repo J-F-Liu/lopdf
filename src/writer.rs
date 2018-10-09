@@ -140,7 +140,8 @@ impl Writer {
 		file.write_all(b"/")?;
 		for &byte in name {
 			// white-space and delimiter chars are encoded to # sequences
-			if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) {
+			// also encode bytes outside of the range 33 (!) to 126 (~)
+			if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) || byte < 33 || byte > 126 {
 				file.write_all(format!("#{:02X}", byte).as_bytes())?;
 			} else {
 				file.write_all(&[byte])?;
@@ -219,7 +220,7 @@ impl Writer {
 	fn write_dictionary<'a>(file: &mut Write, dictionary: &'a Dictionary) -> Result<()> {
 		file.write_all(b"<<")?;
 		for (key, value) in dictionary {
-			Writer::write_name(file, key.as_bytes())?;
+			Writer::write_name(file, key)?;
 			if Writer::need_separator(value) {
 				file.write_all(b" ")?;
 			}

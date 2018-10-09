@@ -111,13 +111,13 @@ impl Document {
 
 	/// Get catalog dictionary.
 	pub fn catalog(&self) -> Option<&Dictionary> {
-		self.trailer.get("Root").and_then(|obj| obj.as_reference()).and_then(|id| self.get_dictionary(id))
+		self.trailer.get(b"Root").and_then(|obj| obj.as_reference()).and_then(|id| self.get_dictionary(id))
 	}
 
 	/// Get page numbers and corresponding object ids.
 	pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
 		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>) {
-			if let Some(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get("Kids")).and_then(|obj| obj.as_array()) {
+			if let Some(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get(b"Kids")).and_then(|obj| obj.as_array()) {
 				for kid in kids {
 					if let Some(kid_id) = kid.as_reference() {
 						if let Some(type_name) = doc.get_dictionary(kid_id).and_then(|dict| dict.type_name()) {
@@ -139,7 +139,7 @@ impl Document {
 
 		let mut pages = BTreeMap::new();
 		let mut page_number = 1;
-		if let Some(page_tree_id) = self.catalog().and_then(|cat| cat.get("Pages")).and_then(|pages| pages.as_reference()) {
+		if let Some(page_tree_id) = self.catalog().and_then(|cat| cat.get(b"Pages")).and_then(|pages| pages.as_reference()) {
 			collect_pages(self, page_tree_id, &mut page_number, &mut pages);
 		}
 		pages
@@ -149,7 +149,7 @@ impl Document {
 	pub fn get_page_contents(&self, page_id: ObjectId) -> Vec<ObjectId> {
 		let mut streams = vec![];
 		if let Some(page) = self.get_dictionary(page_id) {
-			if let Some(contents) = page.get("Contents") {
+			if let Some(contents) = page.get(b"Contents") {
 				match *contents {
 					Object::Reference(ref id) => {
 						streams.push(*id);
@@ -194,10 +194,10 @@ impl Document {
 	/// Get resources used by a page.
 	pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
 		fn collect_resources<'a>(page_node: &'a Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &'a Document) {
-			if let Some(resources_id) = page_node.get("Resources").and_then(|resources| resources.as_reference()) {
+			if let Some(resources_id) = page_node.get(b"Resources").and_then(|resources| resources.as_reference()) {
 				resource_ids.push(resources_id);
 			}
-			if let Some(page_tree) = page_node.get("Parent").and_then(|parent| parent.as_reference()).and_then(|id| doc.get_dictionary(id)) {
+			if let Some(page_tree) = page_node.get(b"Parent").and_then(|parent| parent.as_reference()).and_then(|id| doc.get_dictionary(id)) {
 				collect_resources(page_tree, resource_ids, doc);
 			}
 		};
@@ -205,16 +205,16 @@ impl Document {
 		let mut resource_dict = None;
 		let mut resource_ids = Vec::new();
 		if let Some(page) = self.get_dictionary(page_id) {
-			resource_dict = page.get("Resources").and_then(|resources| resources.as_dict());
+			resource_dict = page.get(b"Resources").and_then(|resources| resources.as_dict());
 			collect_resources(page, &mut resource_ids, self);
 		}
 		(resource_dict, resource_ids)
 	}
 
 	/// Get fonts used by a page.
-	pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<String, &Dictionary> {
-		fn collect_fonts_from_resources<'a>(resources: &'a Dictionary, fonts: &mut BTreeMap<String, &'a Dictionary>, doc: &'a Document) {
-			if let Some(font_dict) = resources.get("Font").and_then(|font| font.as_dict()) {
+	pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<Vec<u8>, &Dictionary> {
+		fn collect_fonts_from_resources<'a>(resources: &'a Dictionary, fonts: &mut BTreeMap<Vec<u8>, &'a Dictionary>, doc: &'a Document) {
+			if let Some(font_dict) = resources.get(b"Font").and_then(|font| font.as_dict()) {
 				for (name, value) in font_dict.iter() {
 					let font = match value {
 						&Object::Reference(id) => doc.get_dictionary(id),
@@ -242,7 +242,7 @@ impl Document {
 	}
 
 	pub fn get_font_encoding<'a>(&'a self, font: &'a Dictionary) -> &str {
-		if let Some(encoding) = font.get("Encoding") {
+		if let Some(encoding) = font.get(b"Encoding") {
 			return match *encoding {
 				Object::Name(ref name) => str::from_utf8(name).unwrap(),
 				_ => "StandardEncoding",

@@ -59,7 +59,7 @@ impl Reader {
 			.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (xref_and_trailer).\n{:?}", err)))?;
 
 		// Read previous Xrefs of linearized or incremental updated document.
-		let mut prev_xref_start = trailer.remove("Prev");
+		let mut prev_xref_start = trailer.remove(b"Prev");
 		while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
 			input.jump_to(prev as usize);
 			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self)
@@ -68,7 +68,7 @@ impl Reader {
 			xref.extend(prev_xref);
 
 			// Read xref stream in hybrid-reference file
-			let prev_xref_stream_start = trailer.remove("XRefStm");
+			let prev_xref_stream_start = trailer.remove(b"XRefStm");
 			if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64()) {
 				input.jump_to(prev as usize);
 				let (prev_xref, _) = parser::xref_and_trailer(&self)
@@ -77,7 +77,7 @@ impl Reader {
 				xref.extend(prev_xref);
 			}
 
-			prev_xref_start = prev_trailer.remove("Prev");
+			prev_xref_start = prev_trailer.remove(b"Prev");
 		}
 
 		self.document.version = version;
@@ -132,7 +132,7 @@ impl Reader {
 	fn get_stream_length(&self, object_id: ObjectId) -> Option<i64> {
 		let object = self.document.get_object(object_id).unwrap();
 		match object {
-			Object::Stream(ref stream) => stream.dict.get("Length").and_then(|value| {
+			Object::Stream(ref stream) => stream.dict.get(b"Length").and_then(|value| {
 				if let Some(id) = value.as_reference() {
 					return self.document.get_object(id).and_then(|value| value.as_i64());
 				}
