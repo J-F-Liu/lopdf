@@ -30,7 +30,7 @@ fn integer() -> Parser<u8, i64> {
 
 fn real() -> Parser<u8, f64> {
 	let number = one_of(b"+-").opt() + (one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..) | sym(b'.') - one_of(b"0123456789").repeat(1..));
-	number.collect().convert(|v| String::from_utf8(v)).convert(|s| f64::from_str(&s))
+	number.collect().convert(String::from_utf8).convert(|s| f64::from_str(&s))
 }
 
 fn hex_char() -> Parser<u8, u8> {
@@ -127,14 +127,14 @@ pub fn direct_object() -> Parser<u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
-		| object_id().map(|id| Object::Reference(id)) - sym(b'R')
-		| real().map(|num| Object::Real(num))
-		| integer().map(|num| Object::Integer(num))
-		| name().map(|bytes| Object::Name(bytes))
+		| object_id().map(Object::Reference) - sym(b'R')
+		| real().map(Object::Real)
+		| integer().map(Object::Integer)
+		| name().map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
-		| array().map(|items| Object::Array(items))
-		| dictionary().map(|dict| Object::Dictionary(dict)))
+		| array().map(Object::Array)
+		| dictionary().map(Object::Dictionary))
 		- space()
 }
 
@@ -142,15 +142,15 @@ fn object<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
-		| object_id().map(|id| Object::Reference(id)) - sym(b'R')
-		| real().map(|num| Object::Real(num))
-		| integer().map(|num| Object::Integer(num))
-		| name().map(|text| Object::Name(text))
+		| object_id().map(Object::Reference) - sym(b'R')
+		| real().map(Object::Real)
+		| integer().map(Object::Integer)
+		| name().map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
-		| array().map(|items| Object::Array(items))
-		| stream(reader).map(|stream| Object::Stream(stream))
-		| dictionary().map(|dict| Object::Dictionary(dict)))
+		| array().map(Object::Array)
+		| stream(reader).map(Object::Stream)
+		| dictionary().map(Object::Dictionary))
 		- space()
 }
 
@@ -159,7 +159,7 @@ pub fn indirect_object<'a>(reader: &'a Reader) -> parser::Parser<'a, u8, (Object
 }
 
 pub fn header() -> Parser<u8, String> {
-	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(|v| String::from_utf8(v)) - eol() - comment().repeat(0..)
+	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(String::from_utf8) - eol() - comment().repeat(0..)
 }
 
 fn xref() -> Parser<u8, Xref> {
@@ -205,20 +205,20 @@ fn content_space() -> Parser<u8, ()> {
 }
 
 fn operator() -> Parser<u8, String> {
-	(is_a(alpha) | one_of(b"*'\"")).repeat(1..).convert(|v| String::from_utf8(v))
+	(is_a(alpha) | one_of(b"*'\"")).repeat(1..).convert(String::from_utf8)
 }
 
 fn operand() -> Parser<u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
-		| real().map(|num| Object::Real(num))
-		| integer().map(|num| Object::Integer(num))
-		| name().map(|text| Object::Name(text))
+		| real().map(Object::Real)
+		| integer().map(Object::Integer)
+		| name().map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
-		| array().map(|items| Object::Array(items))
-		| dictionary().map(|dict| Object::Dictionary(dict)))
+		| array().map(Object::Array)
+		| dictionary().map(Object::Dictionary))
 		- content_space()
 }
 

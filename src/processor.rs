@@ -20,7 +20,7 @@ impl Document {
 
 	/// Compress PDF stream objects.
 	pub fn compress(&mut self) {
-		for (_, object) in self.objects.iter_mut() {
+		for object in self.objects.values_mut() {
 			match *object {
 				Object::Stream(ref mut stream) => {
 					if stream.allows_compression {
@@ -34,7 +34,7 @@ impl Document {
 
 	/// Decompress PDF stream objects.
 	pub fn decompress(&mut self) {
-		for (_, object) in self.objects.iter_mut() {
+		for object in self.objects.values_mut() {
 			match *object {
 				Object::Stream(ref mut stream) => stream.decompress(),
 				_ => (),
@@ -108,7 +108,7 @@ impl Document {
 	pub fn delete_zero_length_streams(&mut self) -> Vec<ObjectId> {
 		let mut ids = vec![];
 		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
-			if self.objects.get(&id).and_then(|obj| obj.as_stream()).map(|stream| stream.content.len() == 0) == Some(true) {
+			if self.objects.get(&id).and_then(|obj| obj.as_stream()).map(|stream| stream.content.is_empty()) == Some(true) {
 				self.delete_object(&id);
 				ids.push(id);
 			}
@@ -131,7 +131,7 @@ impl Document {
 		}
 
 		// replace order is from small to big
-		for (old, new) in replace.iter() {
+		for (old, new) in &replace {
 			if let Some(object) = self.objects.remove(old) {
 				self.objects.insert(new.clone(), object);
 			}
@@ -140,7 +140,7 @@ impl Document {
 		let action = |object: &mut Object| match *object {
 			Object::Reference(ref mut id) => {
 				if replace.contains_key(&id) {
-					*id = replace.get(id).unwrap().clone();
+					*id = replace[id];
 				}
 			}
 			_ => {}
@@ -168,13 +168,13 @@ impl Document {
 		let mut text = String::new();
 		let pages = self.get_pages();
 		for page_number in page_numbers {
-			let page_id = *pages.get(page_number).unwrap();
+			let page_id = pages[page_number];
 			let fonts = self.get_page_fonts(page_id);
 			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<Vec<u8>, &str>>();
 			let content_data = self.get_page_content(page_id).unwrap();
 			let mut content = Content::decode(&content_data).unwrap();
 			let mut current_encoding = None;
-			for operation in content.operations.iter() {
+			for operation in &content.operations {
 				match operation.operator.as_ref() {
 					"Tf" => {
 						let current_font = operation.operands[0].as_name().unwrap();
@@ -230,7 +230,7 @@ impl Document {
 
 	pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) {
 		let pages = self.get_pages();
-		let page_id = *pages.get(&page_number).expect(&format!("Page {} not exist.", page_number));
+		let page_id = *pages.get(&page_number).unwrap_or_else(|| panic!("Page {} not exist.", page_number));
 		let encodings = self
 			.get_page_fonts(page_id)
 			.into_iter()
@@ -239,13 +239,13 @@ impl Document {
 		let content_data = self.get_page_content(page_id).unwrap();
 		let mut content = Content::decode(&content_data).unwrap();
 		let mut current_encoding = None;
-		for operation in content.operations.iter_mut() {
+		for operation in &mut content.operations {
 			match operation.operator.as_ref() {
 				"Tf" => {
 					let current_font = operation.operands[0].as_name().unwrap();
 					current_encoding = encodings.get(current_font).map(|s| s.as_str());
 				}
-				"Tj" => for operand in operation.operands.iter_mut() {
+				"Tj" => for operand in &mut operation.operands {
 					match *operand {
 						Object::String(ref mut bytes, _) => {
 							let decoded_text = Document::decode_text(current_encoding, bytes);

@@ -164,7 +164,7 @@ impl Writer {
 					match byte {
 						b'(' => parentheses.push(index),
 						b')' => {
-							if parentheses.len() > 0 {
+							if !parentheses.is_empty() {
 								parentheses.pop();
 							} else {
 								escape_indice.push(index);
@@ -177,7 +177,7 @@ impl Writer {
 				escape_indice.append(&mut parentheses);
 
 				file.write_all(b"(")?;
-				if escape_indice.len() > 0 {
+				if !escape_indice.is_empty() {
 					for (index, &byte) in text.into_iter().enumerate() {
 						if escape_indice.contains(&index) {
 							file.write_all(b"\\")?;
