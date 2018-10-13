@@ -96,7 +96,7 @@ impl Reader {
 								Object::Stream(ref mut stream) => if stream.dict.type_is(b"ObjStm") {
 									let mut obj_stream = ObjectStream::new(stream);
 									self.document.objects.append(&mut obj_stream.objects);
-								} else if stream.content.len() == 0 {
+								} else if stream.content.is_empty() {
 									zero_length_streams.push(object_id);
 								},
 								_ => {}
@@ -166,7 +166,7 @@ impl Reader {
 				return Some(obj);
 			}
 		}
-		return None;
+		None
 	}
 
 	fn read_object(&self, offset: usize) -> Result<(ObjectId, Object)> {
@@ -187,7 +187,7 @@ impl Reader {
 					Ok(startxref) => Some(startxref as usize),
 					_ => None,
 				}
-			}).ok_or(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)."))
+			}).ok_or_else(|| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)."))
 	}
 
 	fn search_substring(buffer: &[u8], pattern: &[u8], start_pos: usize) -> Option<usize> {
@@ -208,7 +208,7 @@ impl Reader {
 			}
 		}
 
-		return None;
+		None
 	}
 }
 

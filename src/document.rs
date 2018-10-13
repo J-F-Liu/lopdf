@@ -48,7 +48,7 @@ impl Document {
 				return Some(object);
 			}
 		}
-		return None;
+		None
 	}
 
 	/// Get mutable reference to object by object id, will recursively dereference a referenced object.
@@ -68,7 +68,7 @@ impl Document {
 
 	/// Get dictionary object by id.
 	pub fn get_dictionary(&self, id: ObjectId) -> Option<&Dictionary> {
-		return self.get_object(id).and_then(|obj| obj.as_dict());
+		self.get_object(id).and_then(|obj| obj.as_dict())
 	}
 
 	/// Traverse objects from trailer recursively, return all referenced object IDs.
@@ -248,7 +248,7 @@ impl Document {
 				_ => "StandardEncoding",
 			};
 		}
-		return "StandardEncoding";
+		"StandardEncoding"
 	}
 
 	pub fn decode_text<'a>(encoding: Option<&'a str>, bytes: &'a [u8]) -> String {

@@ -57,7 +57,7 @@ impl Object {
 	// Parses the `D`, `:` and `\` out of a `Object::String` to parse the date time
 	fn datetime_string(&self) -> Option<String> {
 		if let Object::String(ref bytes, _) = self {
-			String::from_utf8(bytes.iter().filter(|b| ![b'D', b':', b'\''].contains(b)).map(|b| *b).collect()).ok()
+			String::from_utf8(bytes.iter().filter(|b| ![b'D', b':', b'\''].contains(b)).cloned().collect()).ok()
 		} else {
 			None
 		}

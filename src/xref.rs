@@ -33,9 +33,7 @@ impl Xref {
 
 	pub fn extend(&mut self, xref: Xref) {
 		for (id, entry) in xref.entries {
-			if !self.entries.contains_key(&id) {
-				self.entries.insert(id, entry);
-			}
+			self.entries.entry(id).or_insert(entry);
 		}
 	}
 
@@ -72,7 +70,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 			.get(b"Index")
 			.and_then(|obj| obj.as_array())
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap()).collect())
-			.unwrap_or(vec![0, size]);
+			.unwrap_or_else(|| vec![0, size]);
 		let field_widths: Vec<usize> = dict
 			.get(b"W")
 			.and_then(|obj| obj.as_array())
@@ -87,7 +85,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 			let count = section_indice[2 * i + 1];
 
 			for j in 0..count {
-				let entry_type = if bytes1.len() > 0 { read_big_endian_interger(&mut reader, bytes1.as_mut_slice()) } else { 1 };
+				let entry_type = if !bytes1.is_empty() { read_big_endian_interger(&mut reader, bytes1.as_mut_slice()) } else { 1 };
 				match entry_type {
 					0 => {
 						//free object

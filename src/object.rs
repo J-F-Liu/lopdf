@@ -279,7 +279,7 @@ impl Dictionary {
 	}
 
 	pub fn type_name(&self) -> Option<&str> {
-		self.get(b"Type").and_then(|obj| obj.as_name_str()).or(self.get(b"Linearized").and(Some("Linearized")))
+		self.get(b"Type").and_then(|obj| obj.as_name_str()).or_else(|| self.get(b"Linearized").and(Some("Linearized")))
 	}
 
 	pub fn type_is(&self, type_name: &[u8]) -> bool {
@@ -332,7 +332,7 @@ use std::iter::FromIterator;
 impl<K: Into<Vec<u8>>> FromIterator<(K, Object)> for Dictionary {
 	fn from_iter<I: IntoIterator<Item = (K, Object)>>(iter: I) -> Self {
 		let mut dict = Dictionary::new();
-		for (k, v) in iter.into_iter() {
+		for (k, v) in iter {
 			dict.set(k, v);
 		}
 		dict
@@ -373,7 +373,7 @@ impl Stream {
 				return Some(String::from_utf8(filter.to_vec()).unwrap()); // so as to pass borrow checker
 			}
 		}
-		return None;
+		None
 	}
 
 	pub fn set_content(&mut self, content: Vec<u8>) {
@@ -395,7 +395,7 @@ impl Stream {
 
 		if self.dict.get(b"Filter").is_none() {
 			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::Best);
-			encoder.write(self.content.as_slice()).unwrap();
+			encoder.write_all(self.content.as_slice()).unwrap();
 			let compressed = encoder.finish().unwrap();
 			if compressed.len() + 19 < self.content.len() {
 				self.dict.set("Filter", "FlateDecode");
@@ -416,7 +416,7 @@ impl Stream {
 						return None;
 					}
 					let mut data = Vec::new();
-					if self.content.len() > 0 {
+					if !self.content.is_empty() {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
 						decoder.read_to_end(&mut data).unwrap();
 					}
