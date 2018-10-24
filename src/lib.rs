@@ -3,6 +3,7 @@ extern crate chrono;
 extern crate dtoa;
 extern crate encoding;
 extern crate flate2;
+#[cfg(feature = "embed_image")]
 extern crate image;
 extern crate itoa;
 extern crate linked_hash_map;

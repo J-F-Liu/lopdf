@@ -1,9 +1,10 @@
 use super::content::*;
 use super::Object::*;
 use super::{Dictionary, Document, ObjectId, Stream};
-use image::{self, ColorType, GenericImage, ImageFormat};
-use std::fs::File;
-use std::io::prelude::*;
+
+#[cfg(feature = "embed_image")]
+use image::{self, ColorType, GenericImageView, ImageFormat};
+#[cfg(feature = "embed_image")]
 use std::path::Path;
 
 pub fn form(boundingbox: Vec<f64>, matrix: Vec<f64>, content: Vec<u8>) -> Stream {
@@ -17,7 +18,10 @@ pub fn form(boundingbox: Vec<f64>, matrix: Vec<f64>, content: Vec<u8>) -> Stream
 	xobject
 }
 
+#[cfg(feature = "embed_image")]
 pub fn image<P: AsRef<Path>>(path: P) -> Stream {
+	use std::fs::File;
+	use std::io::prelude::*;
 	let img = image::open(&path).unwrap();
 	let (width, height) = img.dimensions();
 	let (color_space, bits) = match img.color() {
@@ -26,6 +30,8 @@ pub fn image<P: AsRef<Path>>(path: P) -> Stream {
 		ColorType::Palette(bits) => (b"Indexed".to_vec(), bits),
 		ColorType::GrayA(bits) => (b"DeviceN".to_vec(), bits),
 		ColorType::RGBA(bits) => (b"DeviceN".to_vec(), bits),
+		ColorType::BGR(bits) => (b"DeviceN".to_vec(), bits),
+		ColorType::BGRA(bits) => (b"DeviceN".to_vec(), bits),
 	};
 
 	let mut dict = Dictionary::new();
@@ -59,6 +65,7 @@ pub fn image<P: AsRef<Path>>(path: P) -> Stream {
 }
 
 impl Document {
+	#[cfg(feature = "embed_image")]
 	pub fn insert_image(&mut self, page_id: ObjectId, img_object: Stream, position: (f64, f64), size: (f64, f64)) {
 		let img_id = self.add_object(img_object);
 		let img_name = format!("X{}", img_id.0);
@@ -88,10 +95,12 @@ impl Document {
 		content.operations.push(Operation::new("Do", vec![Name(form_name.as_bytes().to_vec())]));
 		// content.operations.push(Operation::new("Q", vec![]));
 		let modified_contnet = content.encode().unwrap();
-		self.change_page_content(page_id, modified_contnet);
 		self.add_xobject(page_id, form_name, form_id);
+		self.change_page_content(page_id, modified_contnet);
 	}
 }
+
+#[cfg(feature = "embed_image")]
 #[test]
 fn insert_image() {
 	use super::xobject;

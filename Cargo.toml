@@ -17,12 +17,13 @@ linked-hash-map = "0.3.0"
 dtoa = "0.4.1"
 itoa = "0.3.1"
 encoding = "0.2"
-image = "0.19.0"
+image = { version = "0.20.0", optional = true }
 chrono = { version = "0.3.0", optional = true }
 
 [features]
 default = ["chrono_time"]
 chrono_time = ["chrono"]
+embed_image = ["image"]
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }
