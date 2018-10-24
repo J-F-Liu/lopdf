@@ -225,11 +225,13 @@ impl fmt::Debug for Object {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			Object::Null => f.write_str("null"),
-			Object::Boolean(ref value) => if *value {
-				f.write_str("true")
-			} else {
-				f.write_str("false")
-			},
+			Object::Boolean(ref value) => {
+				if *value {
+					f.write_str("true")
+				} else {
+					f.write_str("false")
+				}
+			}
 			Object::Integer(ref value) => write!(f, "{}", *value),
 			Object::Real(ref value) => write!(f, "{}", *value),
 			Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
@@ -394,7 +396,7 @@ impl Stream {
 		use std::io::prelude::*;
 
 		if self.dict.get(b"Filter").is_none() {
-			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::Best);
+			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
 			encoder.write_all(self.content.as_slice()).unwrap();
 			let compressed = encoder.finish().unwrap();
 			if compressed.len() + 19 < self.content.len() {
@@ -418,7 +420,10 @@ impl Stream {
 					let mut data = Vec::new();
 					if !self.content.is_empty() {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
-						decoder.read_to_end(&mut data).unwrap();
+						decoder.read_to_end(&mut data).unwrap_or_else(|err| {
+							println!("Warning: {}", err);
+							0
+						});
 					}
 					if let Some(params) = self.dict.get(b"DecodeParms").and_then(|obj| obj.as_dict()) {
 						let predictor = params.get(b"Predictor").and_then(|obj| obj.as_i64()).unwrap_or(1);
