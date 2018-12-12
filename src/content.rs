@@ -1,6 +1,6 @@
 use super::parser;
 use super::{Object, Stream};
-use pom::{DataInput, Result};
+use pom::Result;
 use std::io::{self, Write};
 use writer::Writer;
 
@@ -41,8 +41,7 @@ impl Content {
 
 	/// Decode content operations.
 	pub fn decode(data: &[u8]) -> Result<Content> {
-		let mut input = DataInput::new(data);
-		parser::content().parse(&mut input)
+		parser::content().parse(data)
 	}
 }
 

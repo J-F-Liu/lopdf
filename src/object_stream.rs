@@ -1,6 +1,5 @@
 use super::parser;
 use super::{Object, ObjectId, Stream};
-use pom::{DataInput, Input};
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::str::FromStr;
@@ -27,9 +26,7 @@ impl ObjectStream {
 
 			while let Some(id) = numbers.next() {
 				let offset = first_offset + numbers.next().unwrap() as usize;
-				let mut data = DataInput::new(stream.content.as_slice());
-				data.jump_to(offset);
-				if let Ok(object) = parser::direct_object().parse(&mut data) {
+				if let Ok(object) = parser::direct_object().parse(&stream.content[offset..]) {
 					objects.insert((id, 0), object);
 				}
 			}

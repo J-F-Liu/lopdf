@@ -10,7 +10,7 @@ readme = "README.md"
 description = "A Rust library for PDF document manipulation."
 
 [dependencies]
-pom = "1.1.0"
+pom = "3.0.0"
 time = "0.1.40"
 flate2 = "1.0.3"
 linked-hash-map = "0.3.0"
