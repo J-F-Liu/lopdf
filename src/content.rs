@@ -2,7 +2,7 @@ use super::parser;
 use super::{Object, Stream};
 use pom::Result;
 use std::io::{self, Write};
-use writer::Writer;
+use crate::writer::Writer;
 
 #[derive(Debug, Clone)]
 pub struct Operation {

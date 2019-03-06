@@ -5,8 +5,8 @@ use std::path::Path;
 
 use super::parser;
 use super::{Document, Object, ObjectId};
-use object_stream::ObjectStream;
-use xref::XrefEntry;
+use crate::object_stream::ObjectStream;
+use crate::xref::XrefEntry;
 
 impl Document {
 	/// Load PDF document from specified file path.

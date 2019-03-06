@@ -6,7 +6,7 @@ use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::str;
-use xref::Xref;
+use crate::xref::Xref;
 
 /// PDF document.
 #[derive(Debug, Clone)]

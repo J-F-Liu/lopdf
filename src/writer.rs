@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::Object::*;
 use super::{Dictionary, Document, Object, Stream, StringFormat};
-use xref::*;
+use crate::xref::*;
 
 impl Document {
 	/// Save PDF document to specified file path.

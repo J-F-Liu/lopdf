@@ -1,10 +1,10 @@
 use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
-use content::*;
+use crate::content::*;
 use pom::char_class::{alpha, hex_digit, multispace, oct_digit};
 use pom::parser::*;
-use reader::Reader;
+use crate::reader::Reader;
 use std::str::{self, FromStr};
-use xref::*;
+use crate::xref::*;
 
 fn eol<'a>() -> Parser<'a, u8, u8> {
 	sym(b'\r') * sym(b'\n') | sym(b'\n') | sym(b'\r')

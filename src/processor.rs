@@ -172,7 +172,7 @@ impl Document {
 			let fonts = self.get_page_fonts(page_id);
 			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<Vec<u8>, &str>>();
 			let content_data = self.get_page_content(page_id).unwrap();
-			let mut content = Content::decode(&content_data).unwrap();
+			let content = Content::decode(&content_data).unwrap();
 			let mut current_encoding = None;
 			for operation in &content.operations {
 				match operation.operator.as_ref() {

@@ -407,7 +407,7 @@ impl Stream {
 	}
 
 	pub fn decompressed_content(&self) -> Option<Vec<u8>> {
-		use filters::png;
+		use crate::filters::png;
 		use flate2::read::ZlibDecoder;
 		use std::io::prelude::*;
 

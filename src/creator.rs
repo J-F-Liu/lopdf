@@ -56,7 +56,7 @@ impl Document {
 			if !resources.has(b"XObject") {
 				resources.set("XObject", Dictionary::new());
 			}
-			let mut xobjects = resources.get_mut(b"XObject").and_then(|obj| obj.as_dict_mut()).unwrap();
+			let xobjects = resources.get_mut(b"XObject").and_then(|obj| obj.as_dict_mut()).unwrap();
 			xobjects.set(xobject_name, Object::Reference(xobject_id));
 		}
 	}
@@ -66,7 +66,7 @@ impl Document {
 			if !resources.has(b"ExtGState") {
 				resources.set("ExtGState", Dictionary::new());
 			}
-			let mut states = resources.get_mut(b"ExtGState").and_then(|obj| obj.as_dict_mut()).unwrap();
+			let states = resources.get_mut(b"ExtGState").and_then(|obj| obj.as_dict_mut()).unwrap();
 			states.set(gs_name, Object::Reference(gs_id));
 		}
 	}
