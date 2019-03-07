@@ -1,3 +1,4 @@
+use log::error;
 use std::cmp;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result};
@@ -101,7 +102,7 @@ impl Reader {
 							self.document.objects.insert(object_id, object);
 						}
 						Err(err) => {
-							println!("{:?}", err);
+							error!("{:?}", err);
 						}
 					}
 				}

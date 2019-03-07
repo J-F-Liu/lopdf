@@ -1,12 +1,13 @@
 use super::content::Content;
 use super::encodings::*;
 use super::{Dictionary, Object, ObjectId};
+use crate::xref::Xref;
 use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
+use log::info;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::str;
-use crate::xref::Xref;
 
 /// PDF document.
 #[derive(Debug, Clone)]
@@ -154,9 +155,11 @@ impl Document {
 					Object::Reference(ref id) => {
 						streams.push(*id);
 					}
-					Object::Array(ref arr) => for content in arr {
-						content.as_reference().map(|id| streams.push(id));
-					},
+					Object::Array(ref arr) => {
+						for content in arr {
+							content.as_reference().map(|id| streams.push(id));
+						}
+					}
 					_ => {}
 				}
 			}
@@ -253,13 +256,14 @@ impl Document {
 
 	pub fn decode_text<'a>(encoding: Option<&'a str>, bytes: &'a [u8]) -> String {
 		if let Some(encoding) = encoding {
+			info!("{}", encoding);
 			match encoding {
 				"StandardEncoding" => bytes_to_string(encodings::STANDARD_ENCODING, bytes),
 				"MacRomanEncoding" => bytes_to_string(encodings::MAC_ROMAN_ENCODING, bytes),
 				"MacExpertEncoding" => bytes_to_string(encodings::MAC_EXPERT_ENCODING, bytes),
 				"WinAnsiEncoding" => bytes_to_string(encodings::WIN_ANSI_ENCODING, bytes),
 				"UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.decode(bytes, DecoderTrap::Ignore).unwrap(),
-				"Identity-H" => "".to_string(), // Unimplemented
+				"Identity-H" => "?Identity-H Unimplemented?".to_string(), // Unimplemented
 				_ => String::from_utf8_lossy(bytes).to_string(),
 			}
 		} else {

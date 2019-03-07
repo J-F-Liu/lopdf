@@ -1,4 +1,5 @@
 use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
+use log::warn;
 use std::fmt;
 use std::str;
 
@@ -421,7 +422,7 @@ impl Stream {
 					if !self.content.is_empty() {
 						let mut decoder = ZlibDecoder::new(self.content.as_slice());
 						decoder.read_to_end(&mut data).unwrap_or_else(|err| {
-							println!("Warning: {}", err);
+							warn!("{}", err);
 							0
 						});
 					}

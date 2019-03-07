@@ -1,5 +1,6 @@
 use super::content::Content;
 use super::{Document, Object, ObjectId};
+use log::info;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Result, Write};
@@ -92,7 +93,8 @@ impl Document {
 					.filter(|&(_, item): &(&Vec<u8>, &Object)| match *item {
 						Object::Reference(ref_id) => ref_id == *id,
 						_ => false,
-					}).map(|(k, _)| k.clone())
+					})
+					.map(|(k, _)| k.clone())
 					.collect();
 				for key in keys {
 					dict.remove(&key);
@@ -183,9 +185,11 @@ impl Document {
 					"Tj" | "TJ" => {
 						collect_text(&mut text, current_encoding, &operation.operands);
 					}
-					"ET" => if !text.ends_with('\n') {
-						text.push('\n')
-					},
+					"ET" => {
+						if !text.ends_with('\n') {
+							text.push('\n')
+						}
+					}
 					_ => {}
 				}
 			}
@@ -245,19 +249,21 @@ impl Document {
 					let current_font = operation.operands[0].as_name().unwrap();
 					current_encoding = encodings.get(current_font).map(|s| s.as_str());
 				}
-				"Tj" => for operand in &mut operation.operands {
-					match *operand {
-						Object::String(ref mut bytes, _) => {
-							let decoded_text = Document::decode_text(current_encoding, bytes);
-							println!("{}", decoded_text);
-							if decoded_text == text {
-								let encoded_bytes = Document::encode_text(current_encoding, other_text);
-								*bytes = encoded_bytes;
+				"Tj" => {
+					for operand in &mut operation.operands {
+						match *operand {
+							Object::String(ref mut bytes, _) => {
+								let decoded_text = Document::decode_text(current_encoding, bytes);
+								info!("{}", decoded_text);
+								if decoded_text == text {
+									let encoded_bytes = Document::encode_text(current_encoding, other_text);
+									*bytes = encoded_bytes;
+								}
 							}
+							_ => {}
 						}
-						_ => {}
 					}
-				},
+				}
 				_ => {}
 			}
 		}
