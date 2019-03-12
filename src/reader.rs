@@ -1,4 +1,4 @@
-use log::error;
+use log::{error, warn};
 use std::cmp;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result};
@@ -74,6 +74,12 @@ impl Reader {
 			}
 
 			prev_xref_start = prev_trailer.remove(b"Prev");
+		}
+
+		let xref_entry_count = xref.max_id() + 1;
+		if xref.size != xref_entry_count {
+			warn!("Size entry of trailer dictionary is {}, correct value is {}.", xref.size, xref_entry_count);
+			xref.size = xref_entry_count;
 		}
 
 		self.document.version = version;

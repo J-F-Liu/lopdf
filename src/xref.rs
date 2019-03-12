@@ -40,6 +40,13 @@ impl Xref {
 	pub fn clear(&mut self) {
 		self.entries.clear()
 	}
+
+	pub fn max_id(&self) -> u32 {
+		match self.entries.keys().max() {
+			Some(&id) => id,
+			None => 0,
+		}
+	}
 }
 
 use self::XrefEntry::*;
