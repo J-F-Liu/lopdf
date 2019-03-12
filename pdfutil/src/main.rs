@@ -1,6 +1,6 @@
-extern crate lopdf;
 use lopdf::Document;
 use lopdf::Object;
+use log::info;
 
 #[macro_use]
 extern crate clap;
@@ -8,6 +8,8 @@ use clap::{App, Arg, SubCommand};
 use std::str::FromStr;
 
 fn main() {
+	env_logger::init();
+
 	let app = App::new("PDF utility program using lopdf library")
 		.version(crate_version!())
 		.author(crate_authors!())
@@ -62,16 +64,16 @@ fn main() {
 
 	if let (cmd, Some(args)) = app.subcommand() {
 		if let Some(input) = args.value_of("input") {
-			println!("Open {}", input);
+			info!("Open {}", input);
 			let mut doc = Document::load(input).unwrap();
-			//println!("{:?}", doc.get_pages());
+			//info!("{:?}", doc.get_pages());
 
-			println!("Do {}", cmd);
+			info!("Do {}", cmd);
 			match cmd {
 				"process" => {
 					if let Some(operations) = args.values_of("operations") {
 						for operation in operations {
-							println!("Do {}", operation);
+							info!("Do {}", operation);
 							apply_operation(&mut doc, operation);
 						}
 					}
@@ -106,7 +108,7 @@ fn main() {
 					if let Some(pages) = args.value_of("pages") {
 						let page_numbers = compute_page_numbers(pages);
 						let text = doc.extract_text(&page_numbers);
-						println!("{}", text);
+						info!("{}", text);
 					}
 				}
 				"replace_text" => {
@@ -119,7 +121,7 @@ fn main() {
 				}
 				"print_streams" => for (_, object) in doc.objects.iter() {
 					match *object {
-						Object::Stream(ref stream) => println!("{:?}", stream.dict),
+						Object::Stream(ref stream) => info!("{:?}", stream.dict),
 						_ => (),
 					}
 				},
@@ -143,7 +145,7 @@ fn main() {
 			doc.change_producer("https://crates.io/crates/lopdf");
 
 			if let Some(output) = args.value_of("output") {
-				println!("Save to {}", output);
+				info!("Save to {}", output);
 				doc.save(output).unwrap();
 			}
 		}
@@ -156,12 +158,12 @@ fn main() {
 			"renumber_objects" => doc.renumber_objects(),
 			"prune_objects" => {
 				let ids = doc.prune_objects();
-				println!("Deleted {:?}", ids);
+				info!("Deleted {:?}", ids);
 			}
 			"delete_zero_length_streams" => {
 				let streams = doc.delete_zero_length_streams();
 				if streams.len() > 0 {
-					println!("Deleted {:?}", streams);
+					info!("Deleted {:?}", streams);
 				}
 			}
 			_ => {}

@@ -1,6 +1,6 @@
 ```
 USAGE:
-    pdfutil [OPTIONS] [SUBCOMMAND]
+    RUST_LOG=info pdfutil [OPTIONS] [SUBCOMMAND]
 
 FLAGS:
     -h, --help       Prints help information
