@@ -8,6 +8,8 @@ repository = "https://github.com/J-F-Liu/lopdf.git"
 license = "MIT"
 readme = "README.md"
 description = "A Rust library for PDF document manipulation."
+categories = ["text-processing"]
+keywords = ["pdf", "editing"]
 edition = "2018"
 
 [dependencies]
