@@ -71,7 +71,7 @@ doc.save("modified.pdf")?;
 
 ## FAQ
 
-* Why keeping everything in memory as high-level objects until finallay serializing the entire document?
+* Why keeping everything in memory as high-level objects until finally serializing the entire document?
 
 	Normally a PDF document won't be very large, ranging form tens of KB to hundreds of MB. Memory size is not a bottle neck for today's computer.
 	By keep the whole document in memory, stream length can be pre-calculated, no need to use a reference object for the Length entry,
