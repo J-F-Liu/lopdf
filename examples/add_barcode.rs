@@ -12,8 +12,8 @@ fn convert_number_to_bits<T: std::fmt::Binary>(num: T, size: usize) -> Vec<u8> {
 }
 
 fn generate_barcode(page: u32, code: u16) -> Vec<(f64, f64, f64, f64, u8)> {
-	assert!(page > 0 && page <= 255, "页码超出了取值范围1-255");
-	assert!(code <= 511, "代码超出了取值范围0-511");
+	assert!(page > 0 && page <= 255, "Page number should within range: 1-255");
+	assert!(code <= 511, "Bar code should within range: 0-511");
 	let page_bits = convert_number_to_bits(page, 8);
 	let code_bits = convert_number_to_bits(code, 9);
 	let mut rects = vec![];
@@ -68,7 +68,7 @@ const mm2pt: f64 = 2.834;
 
 fn main() {
 	let args: Vec<String> = std::env::args().collect();
-	assert!(args.len() == 4, "缺少命令行参数");
+	assert!(args.len() == 4, "Not enough arguments: pdf_file bar_code output_file");
 	let pdf_file = &args[1];
 	let code = u16::from_str(&args[2]).expect("error in parsing code argument");
 	let output_file = &args[3];
