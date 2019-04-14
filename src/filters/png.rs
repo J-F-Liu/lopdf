@@ -23,9 +23,9 @@ impl FilterType {
 }
 
 fn paeth_predict(left: u8, above: u8, upperleft: u8) -> u8 {
-	let expand_left = left as i16;
-	let expand_above = above as i16;
-	let expand_upperleft = upperleft as i16;
+	let expand_left = i16::from(left);
+	let expand_above = i16::from(above);
+	let expand_upperleft = i16::from(upperleft);
 
 	let initial_estimate = expand_left + expand_above - expand_upperleft;
 
@@ -64,7 +64,7 @@ pub fn decode_row(filter: FilterType, bpp: usize, previous: &[u8], current: &mut
 			}
 
 			for i in bpp..len {
-				current[i] = current[i].wrapping_add(((current[i - bpp] as i16 + previous[i] as i16) / 2) as u8);
+				current[i] = current[i].wrapping_add((i16::from(current[i - bpp]) + i16::from(previous[i]) / 2) as u8);
 			}
 		}
 		Paeth => {

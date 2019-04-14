@@ -7,7 +7,7 @@ use std::str;
 pub type ObjectId = (u32, u16);
 
 /// Dictionary object.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Dictionary(LinkedHashMap<Vec<u8>, Object>);
 
 /// Stream object
@@ -71,7 +71,7 @@ macro_rules! from_smaller_ints {
 		$(
 			impl From<$Int> for Object {
 				fn from(number: $Int) -> Self {
-					Object::Integer(number as i64)
+					Object::Integer(i64::from(number))
 				}
 			}
 		)+
@@ -91,7 +91,7 @@ impl From<f64> for Object {
 
 impl From<f32> for Object {
 	fn from(number: f32) -> Self {
-		Object::Real(number as f64)
+		Object::Real(f64::from(number))
 	}
 }
 
@@ -238,7 +238,7 @@ impl fmt::Debug for Object {
 			Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
 			Object::String(ref text, _) => write!(f, "({})", String::from_utf8_lossy(text)),
 			Object::Array(ref array) => {
-				let items = array.into_iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
+				let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
 				write!(f, "[{}]", items.join(" "))
 			}
 			Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
@@ -277,16 +277,20 @@ impl Dictionary {
 		self.0.len()
 	}
 
+	pub fn is_empty(&self) -> bool {
+		self.0.len() == 0
+	}
+
 	pub fn remove(&mut self, key: &[u8]) -> Option<Object> {
 		self.0.remove(key)
 	}
 
 	pub fn type_name(&self) -> Option<&str> {
-		self.get(b"Type").and_then(|obj| obj.as_name_str()).or_else(|| self.get(b"Linearized").and(Some("Linearized")))
+		self.get(b"Type").and_then(Object::as_name_str).or_else(|| self.get(b"Linearized").and(Some("Linearized")))
 	}
 
 	pub fn type_is(&self, type_name: &[u8]) -> bool {
-		self.get(b"Type").and_then(|obj| obj.as_name()) == Some(type_name)
+		self.get(b"Type").and_then(Object::as_name) == Some(type_name)
 	}
 
 	pub fn iter(&self) -> Iter<Vec<u8>, Object> {
@@ -346,8 +350,8 @@ impl Stream {
 	pub fn new(mut dict: Dictionary, content: Vec<u8>) -> Stream {
 		dict.set("Length", content.len() as i64);
 		Stream {
-			dict: dict,
-			content: content,
+			dict,
+			content,
 			allows_compression: true,
 			start_position: None,
 		}
@@ -355,7 +359,7 @@ impl Stream {
 
 	pub fn with_position(dict: Dictionary, position: usize) -> Stream {
 		Stream {
-			dict: dict,
+			dict,
 			content: vec![],
 			allows_compression: true,
 			start_position: Some(position),
@@ -413,35 +417,32 @@ impl Stream {
 		use std::io::prelude::*;
 
 		if let Some(filter) = self.filter() {
-			match filter.as_str() {
-				"FlateDecode" => {
-					if self.dict.get(b"Subtype").and_then(|v| v.as_name_str()) == Some("Image") {
-						return None;
-					}
-					let mut data = Vec::new();
-					if !self.content.is_empty() {
-						let mut decoder = ZlibDecoder::new(self.content.as_slice());
-						decoder.read_to_end(&mut data).unwrap_or_else(|err| {
-							warn!("{}", err);
-							0
-						});
-					}
-					if let Some(params) = self.dict.get(b"DecodeParms").and_then(|obj| obj.as_dict()) {
-						let predictor = params.get(b"Predictor").and_then(|obj| obj.as_i64()).unwrap_or(1);
-						if predictor >= 10 && predictor <= 15 {
-							let pixels_per_row = params.get(b"Columns").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
-							let colors = params.get(b"Colors").and_then(|obj| obj.as_i64()).unwrap_or(1) as usize;
-							let bits = params.get(b"BitsPerComponent").and_then(|obj| obj.as_i64()).unwrap_or(8) as usize;
-							let bytes_per_pixel = colors * bits / 8;
-							data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
-						}
-					}
-					return Some(data);
+			if let "FlateDecode" = filter.as_str() {
+				if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
+					return None;
 				}
-				_ => {}
+				let mut data = Vec::new();
+				if !self.content.is_empty() {
+					let mut decoder = ZlibDecoder::new(self.content.as_slice());
+					decoder.read_to_end(&mut data).unwrap_or_else(|err| {
+						warn!("{}", err);
+						0
+					});
+				}
+				if let Some(params) = self.dict.get(b"DecodeParms").and_then(Object::as_dict) {
+					let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
+					if predictor >= 10 && predictor <= 15 {
+						let pixels_per_row = params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1) as usize;
+						let colors = params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1) as usize;
+						let bits = params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8) as usize;
+						let bytes_per_pixel = colors * bits / 8;
+						data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
+					}
+				}
+				return Some(data);
 			}
 		}
-		return None;
+		None
 	}
 
 	pub fn decompress(&mut self) {

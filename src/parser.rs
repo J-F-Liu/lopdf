@@ -7,7 +7,7 @@ use pom::parser::*;
 use std::str::{self, FromStr};
 
 fn eol<'a>() -> Parser<'a, u8, u8> {
-	sym(b'\r') * sym(b'\n') | sym(b'\n') | sym(b'\r')
+	(sym(b'\r') * sym(b'\n')) | sym(b'\n') | sym(b'\r')
 }
 
 fn comment<'a>() -> Parser<'a, u8, ()> {
@@ -28,7 +28,7 @@ fn integer<'a>() -> Parser<'a, u8, i64> {
 }
 
 fn real<'a>() -> Parser<'a, u8, f64> {
-	let number = one_of(b"+-").opt() + (one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..) | sym(b'.') - one_of(b"0123456789").repeat(1..));
+	let number = one_of(b"+-").opt() + ((one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..)) | (sym(b'.') - one_of(b"0123456789").repeat(1..)));
 	number.collect().convert(str::from_utf8).convert(|s| f64::from_str(&s))
 }
 
@@ -43,7 +43,7 @@ fn oct_char<'a>() -> Parser<'a, u8, u8> {
 }
 
 fn name<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | sym(b'#') * hex_char()).repeat(0..)
+	sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | (sym(b'#') * hex_char())).repeat(0..)
 }
 
 fn escape_sequence<'a>() -> Parser<'a, u8, Vec<u8>> {
@@ -100,14 +100,14 @@ fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
 	})
 }
 
-fn stream<'a>(reader: &'a Reader) -> Parser<'a, u8, Stream> {
-	dictionary() - space() - seq(b"stream") - eol()
+fn stream(reader: &Reader) -> Parser<u8, Stream> {
+	(dictionary() - space() - seq(b"stream") - eol())
 		>> move |dict: Dictionary| {
 			if let Some(length) = dict.get(b"Length").and_then(|value| {
 				if let Some(id) = value.as_reference() {
 					return reader.get_object(id).and_then(|value| value.as_i64());
 				}
-				return value.as_i64();
+				value.as_i64()
 			}) {
 				let stream = take(length as usize) - eol().opt() - seq(b"endstream").expect("endstream");
 				stream.map(move |data| Stream::new(dict.clone(), data.to_vec()))
@@ -127,7 +127,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
-		| object_id().map(Object::Reference) - sym(b'R')
+		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
 		| integer().map(Object::Integer)
 		| name().map(Object::Name)
@@ -138,11 +138,11 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 		- space()
 }
 
-fn object<'a>(reader: &'a Reader) -> Parser<'a, u8, Object> {
+fn object(reader: &Reader) -> Parser<u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
-		| object_id().map(Object::Reference) - sym(b'R')
+		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
 		| integer().map(Object::Integer)
 		| name().map(Object::Name)
@@ -154,7 +154,7 @@ fn object<'a>(reader: &'a Reader) -> Parser<'a, u8, Object> {
 		- space()
 }
 
-pub fn indirect_object<'a>(reader: &'a Reader) -> Parser<'a, u8, (ObjectId, Object)> {
+pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
 	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
 }
 
@@ -169,7 +169,7 @@ fn xref<'a>() -> Parser<'a, u8, Xref> {
 	xref.map(|sections| {
 		sections
 			.into_iter()
-			.fold(Xref::new(0), |mut xref: Xref, ((start, _count), entries): ((usize, i64), Vec<((u32, u16), bool)>)| {
+			.fold(Xref::new(0), |mut xref: Xref, ((start, _count), entries): _| {
 				for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
 					if is_normal {
 						xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
@@ -184,9 +184,9 @@ fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
 	seq(b"trailer") * space() * dictionary() - space()
 }
 
-pub fn xref_and_trailer<'a>(reader: &'a Reader) -> Parser<'a, u8, (Xref, Dictionary)> {
+pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
 	(xref() + trailer()).map(|(mut xref, trailer)| {
-		xref.size = trailer.get(b"Size").and_then(|value| value.as_i64()).expect("Size is absent in trailer.") as u32;
+		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
 		(xref, trailer)
 	}) | indirect_object(reader).convert(|(_, obj)| match obj {
 		Object::Stream(stream) => Ok(decode_xref_stream(stream)),

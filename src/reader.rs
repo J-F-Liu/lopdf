@@ -29,7 +29,7 @@ impl Document {
 		source.read_to_end(&mut buffer)?;
 
 		let mut reader = Reader {
-			buffer: buffer,
+			buffer,
 			document: Document::new(),
 		};
 
@@ -89,44 +89,35 @@ impl Reader {
 
 		let mut zero_length_streams = vec![];
 		for entry in self.document.reference_table.entries.values().filter(|entry| entry.is_normal()) {
-			match *entry {
-				XrefEntry::Normal { offset, .. } => {
-					let read_result = self.read_object(offset as usize);
-					match read_result {
-						Ok((object_id, mut object)) => {
-							match object {
-								Object::Stream(ref mut stream) => {
-									if stream.dict.type_is(b"ObjStm") {
-										let mut obj_stream = ObjectStream::new(stream);
-										self.document.objects.append(&mut obj_stream.objects);
-									} else if stream.content.is_empty() {
-										zero_length_streams.push(object_id);
-									}
-								}
-								_ => {}
+			if let XrefEntry::Normal { offset, .. } = *entry {
+				let read_result = self.read_object(offset as usize);
+				match read_result {
+					Ok((object_id, mut object)) => {
+						if let Object::Stream(ref mut stream) = object {
+							if stream.dict.type_is(b"ObjStm") {
+								let mut obj_stream = ObjectStream::new(stream);
+								self.document.objects.append(&mut obj_stream.objects);
+							} else if stream.content.is_empty() {
+								zero_length_streams.push(object_id);
 							}
-							self.document.objects.insert(object_id, object);
 						}
-						Err(err) => {
-							error!("{:?}", err);
-						}
+						self.document.objects.insert(object_id, object);
+					}
+					Err(err) => {
+						error!("{:?}", err);
 					}
 				}
-				_ => {}
 			};
 		}
 
 		for object_id in zero_length_streams {
 			if let Some(length) = self.get_stream_length(object_id) {
 				if let Some(ref mut object) = self.document.get_object_mut(object_id) {
-					match object {
-						Object::Stream(ref mut stream) => {
-							if let Some(start) = stream.start_position {
-								let end = start + length as usize;
-								stream.set_content(self.buffer[start..end].to_vec());
-							}
+					if let Object::Stream(ref mut stream) = object {
+						if let Some(start) = stream.start_position {
+							let end = start + length as usize;
+							stream.set_content(self.buffer[start..end].to_vec());
 						}
-						_ => {}
 					}
 				}
 			}
@@ -140,9 +131,9 @@ impl Reader {
 		match object {
 			Object::Stream(ref stream) => stream.dict.get(b"Length").and_then(|value| {
 				if let Some(id) = value.as_reference() {
-					return self.document.get_object(id).and_then(|value| value.as_i64());
+					return self.document.get_object(id).and_then(Object::as_i64);
 				}
-				return value.as_i64();
+				value.as_i64()
 			}),
 			_ => None,
 		}
