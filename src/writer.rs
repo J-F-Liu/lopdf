@@ -41,7 +41,7 @@ impl Document {
 	}
 
 	fn write_trailer(&mut self, file: &mut Write) -> Result<()> {
-		self.trailer.set("Size", (self.max_id + 1) as i64);
+		self.trailer.set("Size", i64::from(self.max_id + 1));
 		file.write_all(b"trailer\n")?;
 		Writer::write_dictionary(file, &self.trailer)?;
 		Ok(())
@@ -85,11 +85,8 @@ impl Writer {
 		let mut obj_id = 1;
 		while obj_id < xref.size {
 			if let Some(entry) = xref.get(obj_id) {
-				match *entry {
-					XrefEntry::Normal { offset, generation } => {
-						write_xref_entry(offset, generation, 'n')?;
-					}
-					_ => {}
+				if let XrefEntry::Normal { offset, generation } = *entry {
+					write_xref_entry(offset, generation, 'n')?;
 				};
 			} else {
 				write_xref_entry(0, 65535, 'f')?;
@@ -160,7 +157,7 @@ impl Writer {
 			StringFormat::Literal => {
 				let mut escape_indice = Vec::new();
 				let mut parentheses = Vec::new();
-				for (index, &byte) in text.into_iter().enumerate() {
+				for (index, &byte) in text.iter().enumerate() {
 					match byte {
 						b'(' => parentheses.push(index),
 						b')' => {
@@ -178,7 +175,7 @@ impl Writer {
 
 				file.write_all(b"(")?;
 				if !escape_indice.is_empty() {
-					for (index, &byte) in text.into_iter().enumerate() {
+					for (index, &byte) in text.iter().enumerate() {
 						if escape_indice.contains(&index) {
 							file.write_all(b"\\")?;
 							file.write_all(&[if byte == b'\r' { b'r' } else { byte }])?;
@@ -202,7 +199,7 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_array<'a>(file: &mut Write, array: &'a Vec<Object>) -> Result<()> {
+	fn write_array<'a>(file: &mut Write, array: &'a [Object]) -> Result<()> {
 		file.write_all(b"[")?;
 		let mut first = true;
 		for object in array {

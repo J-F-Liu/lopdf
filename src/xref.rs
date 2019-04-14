@@ -49,6 +49,7 @@ impl Xref {
 	}
 }
 
+use crate::object::Object;
 use self::XrefEntry::*;
 impl XrefEntry {
 	pub fn is_normal(&self) -> bool {
@@ -70,17 +71,17 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 	stream.decompress();
 	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
-	let size = dict.get(b"Size").and_then(|size| size.as_i64()).expect("Size is absent in trailer.");
+	let size = dict.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.");
 	let mut xref = Xref::new(size as u32);
 	{
 		let section_indice = dict
 			.get(b"Index")
-			.and_then(|obj| obj.as_array())
+			.and_then(Object::as_array)
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap()).collect())
 			.unwrap_or_else(|| vec![0, size]);
 		let field_widths: Vec<usize> = dict
 			.get(b"W")
-			.and_then(|obj| obj.as_array())
+			.and_then(Object::as_array)
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap() as usize).collect())
 			.expect("W is absent in trailer.");
 		let mut bytes1 = vec![0_u8; field_widths[0]];
@@ -102,12 +103,12 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 					1 => {
 						//normal object
 						let offset = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
-						let generation = if bytes3.len() > 0 { read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) } else { 0 } as u16;
+						let generation = if !bytes3.is_empty() { read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) } else { 0 } as u16;
 						xref.insert(
 							(start + j) as u32,
 							XrefEntry::Normal {
-								offset: offset,
-								generation: generation,
+								offset,
+								generation,
 							},
 						);
 					}
@@ -115,7 +116,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 						//compressed object
 						let container = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
 						let index = read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) as u16;
-						xref.insert((start + j) as u32, XrefEntry::Compressed { container: container, index: index });
+						xref.insert((start + j) as u32, XrefEntry::Compressed { container, index });
 					}
 					_ => {}
 				}
@@ -132,7 +133,7 @@ fn read_big_endian_interger(reader: &mut Cursor<Vec<u8>>, buffer: &mut [u8]) -> 
 	reader.read_exact(buffer).unwrap();
 	let mut value = 0;
 	for &mut byte in buffer {
-		value = (value << 8) + byte as u32;
+		value = (value << 8) + u32::from(byte);
 	}
 	value
 }

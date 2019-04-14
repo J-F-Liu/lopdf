@@ -14,7 +14,7 @@ impl Operation {
 	pub fn new(operator: &str, operands: Vec<Object>) -> Operation {
 		Operation {
 			operator: operator.to_string(),
-			operands: operands,
+			operands,
 		}
 	}
 }
