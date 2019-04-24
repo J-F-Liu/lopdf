@@ -118,8 +118,8 @@ fn stream(reader: &Reader) -> Parser<u8, Stream> {
 }
 
 fn object_id<'a>() -> Parser<'a, u8, ObjectId> {
-	let id = one_of(b"0123456789").repeat(1..).convert(|v| u32::from_str(&String::from_utf8(v).unwrap()));
-	let gen = one_of(b"0123456789").repeat(1..).convert(|v| u16::from_str(&String::from_utf8(v).unwrap()));
+	let id = one_of(b"0123456789").repeat(1..).convert(|v| u32::from_str(&str::from_utf8(&v).unwrap()));
+	let gen = one_of(b"0123456789").repeat(1..).convert(|v| u16::from_str(&str::from_utf8(&v).unwrap()));
 	id - space() + gen - space()
 }
 
