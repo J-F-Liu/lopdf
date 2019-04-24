@@ -106,9 +106,6 @@ impl Writer {
 	}
 
 	pub fn write_object<'a>(file: &mut Write, object: &'a Object) -> Result<()> {
-		use dtoa;
-		use itoa;
-
 		match *object {
 			Null => file.write_all(b"null"),
 			Boolean(ref value) => if *value {
