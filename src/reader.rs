@@ -3,6 +3,9 @@ use std::cmp;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result};
 use std::path::Path;
+use std::sync::Mutex;
+
+use rayon::prelude::*;
 
 use super::parser;
 use super::{Document, Object, ObjectId};
@@ -98,30 +101,39 @@ impl Reader {
 		self.document.trailer = trailer;
 		self.document.reference_table = xref;
 
-		let mut zero_length_streams = vec![];
-		for entry in self.document.reference_table.entries.values().filter(|entry| entry.is_normal()) {
+		let zero_length_streams = Mutex::new(vec![]);
+		let object_streams = Mutex::new(vec![]);
+
+		self.document.objects = self.document.reference_table.entries.par_iter().filter_map(|(_, entry)| {
 			if let XrefEntry::Normal { offset, .. } = *entry {
 				let read_result = self.read_object(offset as usize);
 				match read_result {
 					Ok((object_id, mut object)) => {
 						if let Object::Stream(ref mut stream) = object {
 							if stream.dict.type_is(b"ObjStm") {
-								let mut obj_stream = ObjectStream::new(stream);
-								self.document.objects.append(&mut obj_stream.objects);
+								let obj_stream = ObjectStream::new(stream);
+								let mut object_streams = object_streams.lock().unwrap();
+								object_streams.extend(obj_stream.objects);
 							} else if stream.content.is_empty() {
+								let mut zero_length_streams = zero_length_streams.lock().unwrap();
 								zero_length_streams.push(object_id);
 							}
 						}
-						self.document.objects.insert(object_id, object);
+						Some((object_id, object))
 					}
 					Err(err) => {
 						error!("{:?}", err);
+						None
 					}
 				}
-			};
-		}
+			} else {
+				None
+			}
+		}).collect();
 
-		for object_id in zero_length_streams {
+		self.document.objects.extend(object_streams.into_inner().unwrap());
+
+		for object_id in zero_length_streams.into_inner().unwrap() {
 			if let Some(length) = self.get_stream_length(object_id) {
 				if let Some(ref mut object) = self.document.get_object_mut(object_id) {
 					if let Object::Stream(ref mut stream) = object {
