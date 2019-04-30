@@ -113,7 +113,7 @@ impl Reader {
 							if stream.dict.type_is(b"ObjStm") {
 								let obj_stream = ObjectStream::new(stream);
 								let mut object_streams = object_streams.lock().unwrap();
-								object_streams.extend(obj_stream.objects);
+								object_streams.extend(obj_stream?.objects);
 							} else if stream.content.is_empty() {
 								let mut zero_length_streams = zero_length_streams.lock().unwrap();
 								zero_length_streams.push(object_id);
