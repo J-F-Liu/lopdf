@@ -24,7 +24,7 @@ impl ObjectStream {
 		let index_block = stream.content.get(..first_offset)?;
 
 		let numbers_str = std::str::from_utf8(index_block).ok()?;
-		let numbers: Vec<_> = numbers_str.par_split_whitespace().map(|number| u32::from_str(number).ok()).collect();
+		let numbers: Vec<_> = numbers_str.split_whitespace().map(|number| u32::from_str(number).ok()).collect();
 		let len = numbers.len() / 2 * 2; // Ensure only pairs.
 
 		let objects = numbers[..len].par_chunks(2).filter_map(|chunk| {
