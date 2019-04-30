@@ -1,8 +1,9 @@
 use super::parser;
 use super::{Object, ObjectId, Stream};
 use std::collections::BTreeMap;
-use std::io::Read;
 use std::str::FromStr;
+
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct ObjectStream {
@@ -10,26 +11,31 @@ pub struct ObjectStream {
 }
 
 impl ObjectStream {
-	pub fn new(stream: &mut Stream) -> ObjectStream {
-		let mut objects = BTreeMap::new();
+	pub fn new(stream: &mut Stream) -> Option<ObjectStream> {
 		stream.decompress();
-		if !stream.content.is_empty() {
-			let first_offset = stream.dict.get(b"First").and_then(Object::as_i64).unwrap() as usize;
-			let _count = stream.dict.get(b"N").and_then(Object::as_i64).unwrap() as usize;
 
-			let mut index_block = vec![0_u8; first_offset];
-			stream.content.as_slice().read_exact(index_block.as_mut_slice()).unwrap();
-
-			let numbers = String::from_utf8(index_block).unwrap();
-			let mut numbers = numbers.split_whitespace().map(|number| u32::from_str(number).unwrap());
-
-			while let Some(id) = numbers.next() {
-				let offset = first_offset + numbers.next().unwrap() as usize;
-				if let Ok(object) = parser::direct_object().parse(&stream.content[offset..]) {
-					objects.insert((id, 0), object);
-				}
-			}
+		if stream.content.is_empty() {
+			return Some(ObjectStream { objects: BTreeMap::new() });
 		}
-		ObjectStream { objects }
+
+		let first_offset = stream.dict.get(b"First").and_then(Object::as_i64)? as usize;
+		let _count = stream.dict.get(b"N").and_then(Object::as_i64)? as usize;
+
+		let index_block = stream.content.get(..first_offset)?;
+
+		let numbers_str = std::str::from_utf8(index_block).ok()?;
+		let numbers: Vec<_> = numbers_str.par_split_whitespace().map(|number| u32::from_str(number).ok()).collect();
+		let len = numbers.len() / 2 * 2; // Ensure only pairs.
+
+		let objects = numbers[..len].par_chunks(2).filter_map(|chunk| {
+			let id = chunk[0]?;
+			let offset = first_offset + chunk[1]? as usize;
+
+			let object = parser::direct_object().parse(&stream.content[offset..]).ok()?;
+
+			Some(((id, 0), object))
+		}).collect();
+
+		Some(ObjectStream{ objects })
 	}
 }
