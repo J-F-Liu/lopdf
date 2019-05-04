@@ -97,8 +97,8 @@ fn main() {
 						for id in ids.split(',') {
 							let nums: Vec<u32> = id.split(' ').map(|num| u32::from_str(num).unwrap()).collect();
 							match nums.len() {
-								1 => doc.delete_object(&(nums[0], 0)),
-								2 => doc.delete_object(&(nums[0], nums[1] as u16)),
+								1 => doc.delete_object((nums[0], 0)),
+								2 => doc.delete_object((nums[0], nums[1] as u16)),
 								_ => None,
 							};
 						}
