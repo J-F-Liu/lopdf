@@ -2,15 +2,15 @@ use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use crate::content::*;
 use crate::reader::Reader;
 use crate::xref::*;
-use pom::char_class::{alpha, hex_digit, multispace, oct_digit};
+use pom::char_class::{alpha, multispace};
 use pom::parser::*;
 use std::str::{self, FromStr};
 
 use nom::IResult;
-use nom::bytes::complete::{tag, take_while, take_while1};
+use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::ParseError;
-use nom::multi::{many0, many1, many0_count, many1_count};
+use nom::multi::many0_count;
 use nom::combinator::{opt, map_res};
 use nom::character::complete::{one_of as nom_one_of};
 
@@ -82,18 +82,21 @@ fn real<'a>() -> Parser<'a, u8, f64> {
 	number.collect().convert(str::from_utf8).convert(|s| f64::from_str(&s))
 }
 
-fn hex_char<'a>() -> Parser<'a, u8, u8> {
-	let number = is_a(hex_digit).repeat(2);
-	number.collect().convert(|v| u8::from_str_radix(str::from_utf8(v).unwrap(), 16))
+fn hex_char<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u8, E> {
+	map_res(take_while_m_n(2, 2, |c: u8| c.is_ascii_hexdigit()),
+			|x| u8::from_str_radix(str::from_utf8(x).unwrap(), 16)
+	)(input)
 }
 
-fn oct_char<'a>() -> Parser<'a, u8, u8> {
-	let number = is_a(oct_digit).repeat(1..4);
-	number.collect().convert(|v| u8::from_str_radix(str::from_utf8(v).unwrap(), 8))
+fn oct_char<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u8, E> {
+	map_res(take_while_m_n(1, 3, |c: u8| c.is_ascii_hexdigit()),
+			// Spec requires us to ignore any overflow.
+			|x| u16::from_str_radix(str::from_utf8(x).unwrap(), 8).map(|o| o as u8)
+	)(input)
 }
 
 fn name<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | (sym(b'#') * hex_char())).repeat(0..)
+	sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | (sym(b'#') * nom_to_pom(hex_char))).repeat(0..)
 }
 
 fn escape_sequence<'a>() -> Parser<'a, u8, Vec<u8>> {
@@ -106,7 +109,7 @@ fn escape_sequence<'a>() -> Parser<'a, u8, Vec<u8>> {
 			| sym(b't').map(|_| vec![b'\t'])
 			| sym(b'b').map(|_| vec![b'\x08'])
 			| sym(b'f').map(|_| vec![b'\x0C'])
-			| oct_char().map(|c| vec![c])
+			| nom_to_pom(oct_char).map(|c| vec![c])
 			| nom_to_pom(eol).map(|_| vec![])
 			| empty().map(|_| vec![]))
 }
@@ -132,7 +135,7 @@ fn literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 }
 
 fn hexadecimal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'<') * (nom_to_pom(white_space) * hex_char()).repeat(0..) - (nom_to_pom(white_space) * sym(b'>'))
+	sym(b'<') * (nom_to_pom(white_space) * nom_to_pom(hex_char)).repeat(0..) - (nom_to_pom(white_space) * sym(b'>'))
 }
 
 fn array<'a>() -> Parser<'a, u8, Vec<Object>> {
