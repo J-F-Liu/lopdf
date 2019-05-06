@@ -6,25 +6,75 @@ use pom::char_class::{alpha, hex_digit, multispace, oct_digit};
 use pom::parser::*;
 use std::str::{self, FromStr};
 
-fn eol<'a>() -> Parser<'a, u8, u8> {
-	(sym(b'\r') * sym(b'\n')) | sym(b'\n') | sym(b'\r')
+use nom::IResult;
+use nom::bytes::complete::{tag, take_while, take_while1};
+use nom::branch::alt;
+use nom::error::ParseError;
+use nom::multi::{many0, many1, many0_count, many1_count};
+use nom::combinator::{opt, map_res};
+use nom::character::complete::{one_of as nom_one_of};
+
+fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
+	where NP: Fn(&'a [u8]) -> IResult<&'a [u8], O, ()> + 'a
+{
+	Parser::new(move |input, inpos| {
+		let nom_input = &input[inpos..];
+
+		match f(nom_input) {
+			Ok((rem, out)) => {
+				let parsed_len = nom_input.len() - rem.len();
+				let outpos = inpos + parsed_len;
+
+				Ok((out, outpos))
+			},
+			Err(nom_err) => Err(match nom_err {
+				nom::Err::Incomplete(_) => pom::Error::Incomplete,
+				_ => pom::Error::Mismatch{ message: "nom error".into(), position: inpos },
+			}),
+		}
+	})
 }
 
-fn comment<'a>() -> Parser<'a, u8, ()> {
-	sym(b'%') * none_of(b"\r\n").repeat(0..) * eol().discard()
+fn eol<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u8, E> {
+	alt((|i| tag(b"\r\n")(i).map(|(i, _)| (i, b'\n')),
+		 |i| tag(b"\n")(i).map(|(i, _)| (i, b'\n')),
+		 |i| tag(b"\r")(i).map(|(i, _)| (i, b'\r')))
+	)(input)
 }
 
-fn white_space<'a>() -> Parser<'a, u8, ()> {
-	one_of(b" \t\n\r\0\x0C").repeat(0..).discard()
+fn comment<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+	tag(b"%")(input)
+		.and_then(|(i, _)| take_while(|c: u8| !b"\r\n".contains(&c))(i))
+		.and_then(|(i, _)| eol(i))
+		.map(|(i, _)| (i, ()))
 }
 
-fn space<'a>() -> Parser<'a, u8, ()> {
-	(one_of(b" \t\n\r\0\x0C").repeat(1..).discard() | comment()).repeat(0..).discard()
+#[inline]
+fn is_whitespace(c: u8) -> bool {
+	b" \t\n\r\0\x0C".contains(&c)
 }
 
-fn integer<'a>() -> Parser<'a, u8, i64> {
-	let number = one_of(b"+-").opt() + one_of(b"0123456789").repeat(1..);
-	number.collect().convert(str::from_utf8).convert(|s| i64::from_str(&s))
+fn white_space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+	take_while(is_whitespace)(input)
+		.map(|(i, _)| (i, ()))
+}
+
+fn space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+	many0_count(alt((
+		|i| take_while1(is_whitespace)(i).map(|(i, _)| (i, ())),
+		comment
+	)))(input).map(|(i, _)| (i, ()))
+}
+
+fn integer<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], i64, E> {
+	opt(nom_one_of("+-"))(input)
+		.and_then(|(i, sign)| {
+			map_res(take_while1(|c: u8| c.is_ascii_digit()),
+					|m: &[u8]| {
+						let len = sign.map(|_| 1).unwrap_or(0) + m.len();
+						i64::from_str(str::from_utf8(&input[..len]).unwrap())
+					})(i)
+		})
 }
 
 fn real<'a>() -> Parser<'a, u8, f64> {
@@ -57,7 +107,7 @@ fn escape_sequence<'a>() -> Parser<'a, u8, Vec<u8>> {
 			| sym(b'b').map(|_| vec![b'\x08'])
 			| sym(b'f').map(|_| vec![b'\x0C'])
 			| oct_char().map(|c| vec![c])
-			| eol().map(|_| vec![])
+			| nom_to_pom(eol).map(|_| vec![])
 			| empty().map(|_| vec![]))
 }
 
@@ -82,16 +132,16 @@ fn literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 }
 
 fn hexadecimal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'<') * (white_space() * hex_char()).repeat(0..) - (white_space() * sym(b'>'))
+	sym(b'<') * (nom_to_pom(white_space) * hex_char()).repeat(0..) - (nom_to_pom(white_space) * sym(b'>'))
 }
 
 fn array<'a>() -> Parser<'a, u8, Vec<Object>> {
-	sym(b'[') * space() * call(direct_object).repeat(0..) - sym(b']')
+	sym(b'[') * nom_to_pom(space) * call(direct_object).repeat(0..) - sym(b']')
 }
 
 fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
-	let entry = name() - space() + call(direct_object);
-	let entries = seq(b"<<") * space() * entry.repeat(0..) - seq(b">>");
+	let entry = name() - nom_to_pom(space) + call(direct_object);
+	let entries = seq(b"<<") * nom_to_pom(space) * entry.repeat(0..) - seq(b">>");
 	entries.map(|entries| {
 		entries.into_iter().fold(Dictionary::new(), |mut dict: Dictionary, (key, value)| {
 			dict.set(key, value);
@@ -101,7 +151,7 @@ fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
 }
 
 fn stream(reader: &Reader) -> Parser<u8, Stream> {
-	(dictionary() - space() - seq(b"stream") - eol())
+	(dictionary() - nom_to_pom(space) - seq(b"stream") - nom_to_pom(eol))
 		>> move |dict: Dictionary| {
 			if let Some(length) = dict.get(b"Length").and_then(|value| {
 				if let Some(id) = value.as_reference() {
@@ -109,7 +159,7 @@ fn stream(reader: &Reader) -> Parser<u8, Stream> {
 				}
 				value.as_i64()
 			}) {
-				let stream = take(length as usize) - eol().opt() - seq(b"endstream").expect("endstream");
+				let stream = take(length as usize) - nom_to_pom(eol).opt() - seq(b"endstream").expect("endstream");
 				stream.map(move |data| Stream::new(dict.clone(), data.to_vec()))
 			} else {
 				empty().pos().map(move |pos| Stream::with_position(dict.clone(), pos))
@@ -120,7 +170,7 @@ fn stream(reader: &Reader) -> Parser<u8, Stream> {
 fn object_id<'a>() -> Parser<'a, u8, ObjectId> {
 	let id = one_of(b"0123456789").repeat(1..).convert(|v| u32::from_str(&str::from_utf8(&v).unwrap()));
 	let gen = one_of(b"0123456789").repeat(1..).convert(|v| u16::from_str(&str::from_utf8(&v).unwrap()));
-	id - space() + gen - space()
+	id - nom_to_pom(space) + gen - nom_to_pom(space)
 }
 
 pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
@@ -129,13 +179,13 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 		| seq(b"false").map(|_| Object::Boolean(false))
 		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
-		| integer().map(Object::Integer)
+		| nom_to_pom(integer).map(Object::Integer)
 		| name().map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 		| array().map(Object::Array)
 		| dictionary().map(Object::Dictionary))
-		- space()
+		- nom_to_pom(space)
 }
 
 fn object(reader: &Reader) -> Parser<u8, Object> {
@@ -144,28 +194,28 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 		| seq(b"false").map(|_| Object::Boolean(false))
 		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
-		| integer().map(Object::Integer)
+		| nom_to_pom(integer).map(Object::Integer)
 		| name().map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 		| array().map(Object::Array)
 		| stream(reader).map(Object::Stream)
 		| dictionary().map(Object::Dictionary))
-		- space()
+		- nom_to_pom(space)
 }
 
 pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
-	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
+	object_id() - seq(b"obj") - nom_to_pom(space) + object(reader) - nom_to_pom(space) - seq(b"endobj").opt() - nom_to_pom(space)
 }
 
 pub fn header<'a>() -> Parser<'a, u8, String> {
-	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(String::from_utf8) - eol() - comment().repeat(0..)
+	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(String::from_utf8) - nom_to_pom(eol) - nom_to_pom(comment).repeat(0..)
 }
 
 fn xref<'a>() -> Parser<'a, u8, Xref> {
-	let xref_entry = integer().map(|i| i as u32) - sym(b' ') + integer().map(|i| i as u16) - sym(b' ') + one_of(b"nf").map(|k| k == b'n') - take(2);
-	let xref_section = integer().map(|i| i as usize) - sym(b' ') + integer() - sym(b' ').opt() - eol() + xref_entry.repeat(0..);
-	let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
+	let xref_entry = nom_to_pom(integer).map(|i| i as u32) - sym(b' ') + nom_to_pom(integer).map(|i| i as u16) - sym(b' ') + one_of(b"nf").map(|k| k == b'n') - take(2);
+	let xref_section = nom_to_pom(integer).map(|i| i as usize) - sym(b' ') + nom_to_pom(integer) - sym(b' ').opt() - nom_to_pom(eol) + xref_entry.repeat(0..);
+	let xref = seq(b"xref") * nom_to_pom(eol) * xref_section.repeat(1..) - nom_to_pom(space);
 	xref.map(|sections| {
 		sections
 			.into_iter()
@@ -181,7 +231,7 @@ fn xref<'a>() -> Parser<'a, u8, Xref> {
 }
 
 fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
-	seq(b"trailer") * space() * dictionary() - space()
+	seq(b"trailer") * nom_to_pom(space) * dictionary() - nom_to_pom(space)
 }
 
 pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
@@ -195,7 +245,7 @@ pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
 }
 
 pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
-	seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()
+	seq(b"startxref") * nom_to_pom(eol) * nom_to_pom(integer) - nom_to_pom(eol) - seq(b"%%EOF") - nom_to_pom(space)
 }
 
 // The following code create parser to parse content stream.
@@ -213,7 +263,7 @@ fn operand<'a>() -> Parser<'a, u8, Object> {
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
 		| real().map(Object::Real)
-		| integer().map(Object::Integer)
+		| nom_to_pom(integer).map(Object::Integer)
 		| name().map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
