@@ -7,11 +7,11 @@ use pom::parser::*;
 use std::str::{self, FromStr};
 
 use nom::IResult;
-use nom::bytes::complete::{tag, take_while, take_while1, take_while_m_n};
+use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::ParseError;
-use nom::multi::many0_count;
-use nom::combinator::{opt, map_res};
+use nom::multi::{many0, many0_count};
+use nom::combinator::{opt, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
 
 fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
@@ -52,6 +52,16 @@ fn comment<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], ()
 #[inline]
 fn is_whitespace(c: u8) -> bool {
 	b" \t\n\r\0\x0C".contains(&c)
+}
+
+#[inline]
+fn is_delimiter(c: u8) -> bool {
+	b"()<>[]{}/%".contains(&c)
+}
+
+#[inline]
+fn is_regular(c: u8) -> bool {
+	!is_whitespace(c) && !is_delimiter(c)
 }
 
 fn white_space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
@@ -95,8 +105,20 @@ fn oct_char<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u
 	)(input)
 }
 
-fn name<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | (sym(b'#') * nom_to_pom(hex_char))).repeat(0..)
+fn name<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+	tag(b"/")(input).and_then(|(i, _)| {
+		many0(alt((
+			|i| tag(b"#")(i).and_then(|(i, _)| hex_char(i)),
+
+			map_opt(nom_take(1usize), |c: &[u8]| {
+				if c[0] != b'#' && is_regular(c[0]) {
+					Some(c[0])
+				} else {
+					None
+				}
+			})
+		)))(i)
+	})
 }
 
 fn escape_sequence<'a>() -> Parser<'a, u8, Vec<u8>> {
@@ -143,7 +165,7 @@ fn array<'a>() -> Parser<'a, u8, Vec<Object>> {
 }
 
 fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
-	let entry = name() - nom_to_pom(space) + call(direct_object);
+	let entry = nom_to_pom(name) - nom_to_pom(space) + call(direct_object);
 	let entries = seq(b"<<") * nom_to_pom(space) * entry.repeat(0..) - seq(b">>");
 	entries.map(|entries| {
 		entries.into_iter().fold(Dictionary::new(), |mut dict: Dictionary, (key, value)| {
@@ -183,7 +205,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
-		| name().map(Object::Name)
+		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 		| array().map(Object::Array)
@@ -198,7 +220,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
-		| name().map(Object::Name)
+		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 		| array().map(Object::Array)
@@ -267,7 +289,7 @@ fn operand<'a>() -> Parser<'a, u8, Object> {
 		| seq(b"false").map(|_| Object::Boolean(false))
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
-		| name().map(Object::Name)
+		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
 		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
 		| array().map(Object::Array)
@@ -305,13 +327,13 @@ mod tests {
 		assert_eq!(literal_string().parse(b"(text\r\n\\\\(nested\\t\\b\\f))"), Ok(b"text\r\n\\(nested\t\x08\x0C)".to_vec()));
 		assert_eq!(literal_string().parse(b"(text\\0\\53\\053\\0053)"), Ok(b"text\0++\x053".to_vec()));
 		assert_eq!(literal_string().parse(b"(text line\\\n())"), Ok(b"text line()".to_vec()));
-		assert_eq!(name().parse(b"/ABC#5f"), Ok(b"ABC\x5F".to_vec()));
+		assert_eq!(nom_to_pom(name).parse(b"/ABC#5f"), Ok(b"ABC\x5F".to_vec()));
 	}
 
 	#[test]
 	fn parse_name() {
 		let text = b"/#cb#ce#cc#e5";
-		let name = name().parse(text);
+		let name = nom_to_pom(name).parse(text);
 		println!("{:?}", name);
 		assert_eq!(name.is_ok(), true);
 	}
