@@ -11,7 +11,7 @@ use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_
 use nom::branch::alt;
 use nom::error::ParseError;
 use nom::multi::{many0, many0_count};
-use nom::combinator::{opt, map_res, map_opt};
+use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
 
 fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
@@ -121,24 +121,38 @@ fn name<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u
 	})
 }
 
-fn escape_sequence<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'\\')
-		* (sym(b'\\').map(|_| vec![b'\\'])
-			| sym(b'(').map(|_| vec![b'('])
-			| sym(b')').map(|_| vec![b')'])
-			| sym(b'n').map(|_| vec![b'\n'])
-			| sym(b'r').map(|_| vec![b'\r'])
-			| sym(b't').map(|_| vec![b'\t'])
-			| sym(b'b').map(|_| vec![b'\x08'])
-			| sym(b'f').map(|_| vec![b'\x0C'])
-			| nom_to_pom(oct_char).map(|c| vec![c])
-			| nom_to_pom(eol).map(|_| vec![])
-			| empty().map(|_| vec![]))
+fn _escape_sequence<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Option<u8>, E> {
+	tag(b"\\")(input).and_then(|(i, _)| {
+		alt((
+			map(|i| map_opt(nom_take(1usize), |c: &[u8]| {
+				match c[0] {
+					b'(' | b')' => Some(c[0]),
+					b'n' => Some(b'\n'),
+					b'r' => Some(b'\r'),
+					b't' => Some(b'\t'),
+					b'b' => Some(b'\x08'),
+					b'f' => Some(b'\x0C'),
+					b'\\' => Some(b'\\'),
+					_ => None,
+				}
+			})(i), Some),
+
+			map(oct_char, Some),
+			map(eol, |_| None),
+		))(i)
+	})
+}
+
+fn escape_sequence<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+	map(_escape_sequence, |c| match c {
+		Some(c) => vec![c],
+		None => vec![],
+	})(input)
 }
 
 fn nested_literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 	sym(b'(')
-		* (none_of(b"\\()").repeat(1..) | escape_sequence() | call(nested_literal_string)).repeat(0..).map(|segments| {
+		* (none_of(b"\\()").repeat(1..) | nom_to_pom(escape_sequence) | call(nested_literal_string)).repeat(0..).map(|segments| {
 			let mut bytes = segments.into_iter().fold(vec![b'('], |mut bytes, mut segment| {
 				bytes.append(&mut segment);
 				bytes
@@ -150,7 +164,7 @@ fn nested_literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 
 fn literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 	sym(b'(')
-		* (none_of(b"\\()").repeat(1..) | escape_sequence() | nested_literal_string())
+		* (none_of(b"\\()").repeat(1..) | nom_to_pom(escape_sequence) | nested_literal_string())
 			.repeat(0..)
 			.map(|segments| segments.concat())
 		- sym(b')')
