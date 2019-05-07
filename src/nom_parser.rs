@@ -9,7 +9,7 @@ use std::str::{self, FromStr};
 use nom::IResult;
 use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
-use nom::error::ParseError;
+use nom::error::{ParseError, ErrorKind};
 use nom::multi::{many0, many0_count};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
@@ -222,16 +222,32 @@ fn stream(reader: &Reader) -> Parser<u8, Stream> {
 		}
 }
 
-fn object_id<'a>() -> Parser<'a, u8, ObjectId> {
-	let id = one_of(b"0123456789").repeat(1..).convert(|v| u32::from_str(&str::from_utf8(&v).unwrap()));
-	let gen = one_of(b"0123456789").repeat(1..).convert(|v| u16::from_str(&str::from_utf8(&v).unwrap()));
-	id - nom_to_pom(space) + gen - nom_to_pom(space)
+fn unsigned_int<'a, E: ParseError<&'a [u8]>, I: FromStr>(input: &'a [u8]) -> IResult<&'a [u8], I, E> {
+	let (i, digits) = take_while1(|c: u8| c.is_ascii_digit())(input)?;
+
+	I::from_str(str::from_utf8(&digits).unwrap()).map(|v| (i, v)).map_err(|_| nom::Err::Error(E::from_error_kind(i, ErrorKind::Digit)))
+}
+
+fn object_id<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], ObjectId, E> {
+	let (i, id) = unsigned_int(input)?;
+	let (i, _) = space(i)?;
+	let (i, gen) = unsigned_int(i)?;
+	let (i, _) = space(i)?;
+
+	Ok((i, (id, gen)))
+}
+
+fn reference<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+	let (i, id) = object_id(input)?;
+	let (i, _) = tag(b"R")(i)?;
+
+	Ok((i, Object::Reference(id)))
 }
 
 pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 	(nom_to_pom(null)
 		| nom_to_pom(boolean)
-		| (object_id().map(Object::Reference) - sym(b'R'))
+		| nom_to_pom(reference)
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
@@ -245,7 +261,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 fn object(reader: &Reader) -> Parser<u8, Object> {
 	(nom_to_pom(null)
 		| nom_to_pom(boolean)
-		| (object_id().map(Object::Reference) - sym(b'R'))
+		| nom_to_pom(reference)
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
@@ -258,7 +274,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 }
 
 pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
-	object_id() - seq(b"obj") - nom_to_pom(space) + object(reader) - nom_to_pom(space) - seq(b"endobj").opt() - nom_to_pom(space)
+	nom_to_pom(object_id) - seq(b"obj") - nom_to_pom(space) + object(reader) - nom_to_pom(space) - seq(b"endobj").opt() - nom_to_pom(space)
 }
 
 pub fn header<'a>() -> Parser<'a, u8, String> {
