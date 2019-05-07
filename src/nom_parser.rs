@@ -170,8 +170,13 @@ fn literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 		- sym(b')')
 }
 
-fn hexadecimal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'<') * (nom_to_pom(white_space) * nom_to_pom(hex_char)).repeat(0..) - (nom_to_pom(white_space) * sym(b'>'))
+fn hexadecimal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+	let (i, _) = tag(b"<")(input)?;
+	let (i, bytes) = many0(|i| white_space(i).and_then(|(i, _)| hex_char(i)))(i)?;
+	let (i, _) = white_space(i)?;
+	let (i, _) = tag(b">")(i)?;
+
+	Ok((i, Object::String(bytes, StringFormat::Hexadecimal)))
 }
 
 fn boolean<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
@@ -231,7 +236,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
-		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
+		| nom_to_pom(hexadecimal_string)
 		| array().map(Object::Array)
 		| dictionary().map(Object::Dictionary))
 		- nom_to_pom(space)
@@ -245,7 +250,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
-		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
+		| nom_to_pom(hexadecimal_string)
 		| array().map(Object::Array)
 		| stream(reader).map(Object::Stream)
 		| dictionary().map(Object::Dictionary))
@@ -313,7 +318,7 @@ fn operand<'a>() -> Parser<'a, u8, Object> {
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
-		| hexadecimal_string().map(|bytes| Object::String(bytes, StringFormat::Hexadecimal))
+		| nom_to_pom(hexadecimal_string)
 		| array().map(Object::Array)
 		| dictionary().map(Object::Dictionary))
 		- content_space()
