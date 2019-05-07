@@ -174,6 +174,17 @@ fn hexadecimal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 	sym(b'<') * (nom_to_pom(white_space) * nom_to_pom(hex_char)).repeat(0..) - (nom_to_pom(white_space) * sym(b'>'))
 }
 
+fn boolean<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+	alt((
+		map(tag(b"true"), |_| Object::Boolean(true)),
+		map(tag(b"false"), |_| Object::Boolean(false))
+	))(input)
+}
+
+fn null<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+	map(tag(b"null"), |_| Object::Null)(input)
+}
+
 fn array<'a>() -> Parser<'a, u8, Vec<Object>> {
 	sym(b'[') * nom_to_pom(space) * call(direct_object).repeat(0..) - sym(b']')
 }
@@ -213,9 +224,8 @@ fn object_id<'a>() -> Parser<'a, u8, ObjectId> {
 }
 
 pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
-	(seq(b"null").map(|_| Object::Null)
-		| seq(b"true").map(|_| Object::Boolean(true))
-		| seq(b"false").map(|_| Object::Boolean(false))
+	(nom_to_pom(null)
+		| nom_to_pom(boolean)
 		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
@@ -228,9 +238,8 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 }
 
 fn object(reader: &Reader) -> Parser<u8, Object> {
-	(seq(b"null").map(|_| Object::Null)
-		| seq(b"true").map(|_| Object::Boolean(true))
-		| seq(b"false").map(|_| Object::Boolean(false))
+	(nom_to_pom(null)
+		| nom_to_pom(boolean)
 		| (object_id().map(Object::Reference) - sym(b'R'))
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
@@ -298,9 +307,8 @@ fn operator<'a>() -> Parser<'a, u8, String> {
 }
 
 fn operand<'a>() -> Parser<'a, u8, Object> {
-	(seq(b"null").map(|_| Object::Null)
-		| seq(b"true").map(|_| Object::Boolean(true))
-		| seq(b"false").map(|_| Object::Boolean(false))
+	(nom_to_pom(null)
+		| nom_to_pom(boolean)
 		| real().map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
