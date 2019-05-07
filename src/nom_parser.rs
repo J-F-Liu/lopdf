@@ -87,9 +87,20 @@ fn integer<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], i6
 		})
 }
 
-fn real<'a>() -> Parser<'a, u8, f64> {
-	let number = one_of(b"+-").opt() + ((one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..)) | (sym(b'.') - one_of(b"0123456789").repeat(1..)));
-	number.collect().convert(str::from_utf8).convert(|s| f64::from_str(&s))
+fn real<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], f64, E> {
+	let (i, _) = opt(nom_one_of("+-"))(input)?;
+	let (i, _) = alt((
+		|i| take_while1(|c: u8| c.is_ascii_digit())(i)
+			.and_then(|(i, _)| tag(b".")(i))
+			.and_then(|(i, _)| take_while(|c: u8| c.is_ascii_digit())(i)),
+		|i| tag(b".")(i)
+			.and_then(|(i, _)| take_while1(|c: u8| c.is_ascii_digit())(i)),
+	))(i)?;
+
+	let float_input = &input[..input.len()-i.len()];
+	let float_str = str::from_utf8(float_input).unwrap();
+
+	f64::from_str(float_str).map(|v| (i, v)).map_err(|_| nom::Err::Error(E::from_error_kind(i, ErrorKind::Digit)))
 }
 
 fn hex_char<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u8, E> {
@@ -248,7 +259,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 	(nom_to_pom(null)
 		| nom_to_pom(boolean)
 		| nom_to_pom(reference)
-		| real().map(Object::Real)
+		| nom_to_pom(real).map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
@@ -262,7 +273,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 	(nom_to_pom(null)
 		| nom_to_pom(boolean)
 		| nom_to_pom(reference)
-		| real().map(Object::Real)
+		| nom_to_pom(real).map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
@@ -330,7 +341,7 @@ fn operator<'a>() -> Parser<'a, u8, String> {
 fn operand<'a>() -> Parser<'a, u8, Object> {
 	(nom_to_pom(null)
 		| nom_to_pom(boolean)
-		| real().map(Object::Real)
+		| nom_to_pom(real).map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
 		| literal_string().map(Object::string_literal)
@@ -355,11 +366,11 @@ mod tests {
 
 	#[test]
 	fn parse_real_number() {
-		let r0 = real().parse(b"0.12");
+		let r0 = nom_to_pom(real).parse(b"0.12");
 		assert_eq!(r0, Ok(0.12));
-		let r1 = real().parse(b"-.12");
+		let r1 = nom_to_pom(real).parse(b"-.12");
 		assert_eq!(r1, Ok(-0.12));
-		let r2 = real().parse(b"10.");
+		let r2 = nom_to_pom(real).parse(b"10.");
 		assert_eq!(r2, Ok(10.0));
 	}
 
