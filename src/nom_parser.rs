@@ -13,6 +13,11 @@ use nom::multi::{many0, many0_count, fold_many0};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
 
+// Change this to something else that implements ParseError to get a
+// different error type out of nom.
+type NomError = ();
+type NomResult<'a, O, E=NomError> = IResult<&'a [u8], O, E>;
+
 fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
 	where NP: Fn(&'a [u8]) -> IResult<&'a [u8], O, ()> + 'a
 {
@@ -34,14 +39,14 @@ fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
 	})
 }
 
-fn eol<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u8, E> {
+fn eol<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
 	alt((|i| tag(b"\r\n")(i).map(|(i, _)| (i, b'\n')),
 		 |i| tag(b"\n")(i).map(|(i, _)| (i, b'\n')),
 		 |i| tag(b"\r")(i).map(|(i, _)| (i, b'\r')))
 	)(input)
 }
 
-fn comment<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+fn comment<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
 	tag(b"%")(input)
 		.and_then(|(i, _)| take_while(|c: u8| !b"\r\n".contains(&c))(i))
 		.and_then(|(i, _)| eol(i))
@@ -68,19 +73,19 @@ fn is_direct_literal_string(c: u8) -> bool {
 	!b"()\\\r\n".contains(&c)
 }
 
-fn white_space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+fn white_space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
 	take_while(is_whitespace)(input)
 		.map(|(i, _)| (i, ()))
 }
 
-fn space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+fn space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
 	many0_count(alt((
 		|i| take_while1(is_whitespace)(i).map(|(i, _)| (i, ())),
 		comment
 	)))(input).map(|(i, _)| (i, ()))
 }
 
-fn integer<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], i64, E> {
+fn integer<'a>(input: &'a [u8]) -> NomResult<'a, i64> {
 	opt(nom_one_of("+-"))(input)
 		.and_then(|(i, sign)| {
 			map_res(take_while1(|c: u8| c.is_ascii_digit()),
@@ -91,7 +96,7 @@ fn integer<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], i6
 		})
 }
 
-fn real<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], f64, E> {
+fn real<'a>(input: &'a [u8]) -> NomResult<'a, f64> {
 	let (i, _) = opt(nom_one_of("+-"))(input)?;
 	let (i, _) = alt((
 		|i| take_while1(|c: u8| c.is_ascii_digit())(i)
@@ -104,23 +109,23 @@ fn real<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], f64, 
 	let float_input = &input[..input.len()-i.len()];
 	let float_str = str::from_utf8(float_input).unwrap();
 
-	f64::from_str(float_str).map(|v| (i, v)).map_err(|_| nom::Err::Error(E::from_error_kind(i, ErrorKind::Digit)))
+	f64::from_str(float_str).map(|v| (i, v)).map_err(|_| nom::Err::Error(NomError::from_error_kind(i, ErrorKind::Digit)))
 }
 
-fn hex_char<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u8, E> {
+fn hex_char<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
 	map_res(take_while_m_n(2, 2, |c: u8| c.is_ascii_hexdigit()),
 			|x| u8::from_str_radix(str::from_utf8(x).unwrap(), 16)
 	)(input)
 }
 
-fn oct_char<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], u8, E> {
+fn oct_char<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
 	map_res(take_while_m_n(1, 3, |c: u8| c.is_ascii_hexdigit()),
 			// Spec requires us to ignore any overflow.
 			|x| u16::from_str_radix(str::from_utf8(x).unwrap(), 8).map(|o| o as u8)
 	)(input)
 }
 
-fn name<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+fn name<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 	tag(b"/")(input).and_then(|(i, _)| {
 		many0(alt((
 			|i| tag(b"#")(i).and_then(|(i, _)| hex_char(i)),
@@ -136,7 +141,7 @@ fn name<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u
 	})
 }
 
-fn escape_sequence<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Option<u8>, E> {
+fn escape_sequence<'a>(input: &'a [u8]) -> NomResult<'a, Option<u8>> {
 	tag(b"\\")(input).and_then(|(i, _)| {
 		alt((
 			map(|i| map_opt(nom_take(1usize), |c: &[u8]| {
@@ -176,7 +181,7 @@ impl <'a> ILS<'a> {
 	}
 }
 
-fn inner_literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+fn inner_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 	fold_many0(
 		alt((
 			map(take_while1(is_direct_literal_string), ILS::Direct),
@@ -190,7 +195,7 @@ fn inner_literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult
 	)(input)
 }
 
-fn nested_literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+fn nested_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 	let (i, _) = tag(b"(")(input)?;
 	let (i, mut content) = inner_literal_string(i)?;
 	let (i, _) = tag(b")")(i)?;
@@ -201,7 +206,7 @@ fn nested_literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResul
 	Ok((i, content))
 }
 
-fn literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+fn literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 	let (i, _) = tag(b"(")(input)?;
 	let (i, content) = inner_literal_string(i)?;
 	let (i, _) = tag(b")")(i)?;
@@ -209,7 +214,7 @@ fn literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [
 	Ok((i, content))
 }
 
-fn hexadecimal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+fn hexadecimal_string<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	let (i, _) = tag(b"<")(input)?;
 	let (i, bytes) = many0(|i| white_space(i).and_then(|(i, _)| hex_char(i)))(i)?;
 	let (i, _) = white_space(i)?;
@@ -218,18 +223,18 @@ fn hexadecimal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&
 	Ok((i, Object::String(bytes, StringFormat::Hexadecimal)))
 }
 
-fn boolean<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+fn boolean<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	alt((
 		map(tag(b"true"), |_| Object::Boolean(true)),
 		map(tag(b"false"), |_| Object::Boolean(false))
 	))(input)
 }
 
-fn null<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+fn null<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	map(tag(b"null"), |_| Object::Null)(input)
 }
 
-fn array<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<Object>, E> {
+fn array<'a>(input: &'a [u8]) -> NomResult<'a, Vec<Object>> {
 	let (i, _) = tag(b"[")(input)?;
 	let (i, _) = space(i)?;
 	let (i, objects) = many0(_direct_object)(i)?;
@@ -238,7 +243,7 @@ fn array<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<
 	Ok((i, objects))
 }
 
-fn dict_entry<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (Vec<u8>, Object), E> {
+fn dict_entry<'a>(input: &'a [u8]) -> NomResult<'a, (Vec<u8>, Object)> {
 	let (i, name) = name(input)?;
 	let (i, _) = space(i)?;
 	let (i, object) = _direct_object(i)?;
@@ -246,7 +251,7 @@ fn dict_entry<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8],
 	Ok((i, (name, object)))
 }
 
-fn dictionary<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Dictionary, E> {
+fn dictionary<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
 	let (i, _) = tag(b"<<")(input)?;
 	let (i, _) = space(i)?;
 	let (i, dict) = fold_many0(dict_entry, Dictionary::new(),
@@ -259,7 +264,7 @@ fn dictionary<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8],
 	Ok((i, dict))
 }
 
-fn stream<'a, E: ParseError<&'a [u8]>>(input: &'a [u8], reader: &Reader) -> IResult<&'a [u8], Object, E> {
+fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	let (i, dict) = dictionary(input)?;
 	let (i, _) = space(i)?;
 	let (i, _) = tag(b"stream")(i)?;
@@ -283,13 +288,13 @@ fn stream<'a, E: ParseError<&'a [u8]>>(input: &'a [u8], reader: &Reader) -> IRes
 	}
 }
 
-fn unsigned_int<'a, E: ParseError<&'a [u8]>, I: FromStr>(input: &'a [u8]) -> IResult<&'a [u8], I, E> {
+fn unsigned_int<'a, I: FromStr>(input: &'a [u8]) -> NomResult<'a, I> {
 	let (i, digits) = take_while1(|c: u8| c.is_ascii_digit())(input)?;
 
-	I::from_str(str::from_utf8(&digits).unwrap()).map(|v| (i, v)).map_err(|_| nom::Err::Error(E::from_error_kind(i, ErrorKind::Digit)))
+	I::from_str(str::from_utf8(&digits).unwrap()).map(|v| (i, v)).map_err(|_| nom::Err::Error(NomError::from_error_kind(i, ErrorKind::Digit)))
 }
 
-fn object_id<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], ObjectId, E> {
+fn object_id<'a>(input: &'a [u8]) -> NomResult<'a, ObjectId> {
 	let (i, id) = unsigned_int(input)?;
 	let (i, _) = space(i)?;
 	let (i, gen) = unsigned_int(i)?;
@@ -298,14 +303,14 @@ fn object_id<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], 
 	Ok((i, (id, gen)))
 }
 
-fn reference<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+fn reference<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	let (i, id) = object_id(input)?;
 	let (i, _) = tag(b"R")(i)?;
 
 	Ok((i, Object::Reference(id)))
 }
 
-fn _direct_objects<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+fn _direct_objects<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	alt((
 		null,
 		boolean,
@@ -320,7 +325,7 @@ fn _direct_objects<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a 
 	))(input)
 }
 
-fn _direct_object<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+fn _direct_object<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	let (i, object) = _direct_objects(input)?;
 	let (i, _) = space(i)?;
 
@@ -331,7 +336,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 	nom_to_pom(_direct_object)
 }
 
-fn object<'a, E: ParseError<&'a [u8]>>(input: &'a [u8], reader: &Reader) -> IResult<&'a [u8], Object, E> {
+fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	let (i, object) = alt((|input| stream(input, reader), _direct_objects))(input)?;
 	let (i, _) = space(i)?;
 
@@ -342,7 +347,7 @@ pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
 	nom_to_pom(move |input| _indirect_object(input, reader))
 }
 
-fn _indirect_object<'a, E: ParseError<&'a [u8]>>(input: &'a [u8], reader: &Reader) -> IResult<&'a [u8], (ObjectId, Object), E> {
+fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (ObjectId, Object)> {
 	let (i, object_id) = object_id(input)?;
 	let (i, _) = tag(b"obj")(i)?;
 	let (i, _) = space(i)?;
@@ -402,17 +407,17 @@ pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
 
 // The following code create parser to parse content stream.
 
-fn content_space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+fn content_space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
 	take_while(|c| b" \t\r\n".contains(&c))(input)
 		.map(|(i, _)| (i, ()))
 }
 
-fn operator<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], String, E> {
+fn operator<'a>(input: &'a [u8]) -> NomResult<'a, String> {
 	map_res(take_while1(|c: u8| c.is_ascii_alphabetic() || b"*'\"".contains(&c)),
 			|op| str::from_utf8(op).map(Into::into))(input)
 }
 
-fn operand<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+fn operand<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	let (i, object) = alt((
 		null,
 		boolean,
@@ -430,7 +435,7 @@ fn operand<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Ob
 	Ok((i, object))
 }
 
-fn operation<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Operation, E> {
+fn operation<'a>(input: &'a [u8]) -> NomResult<'a, Operation> {
 	let (i, operands) = many0(operand)(input)?;
 	let (i, operator) = operator(i)?;
 	let (i, _) = content_space(i)?;
@@ -438,7 +443,7 @@ fn operation<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], 
 	Ok((i, Operation { operator, operands }))
 }
 
-fn _content<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Content, E> {
+fn _content<'a>(input: &'a [u8]) -> NomResult<'a, Content> {
 	let (i, _) = content_space(input)?;
 
 	map(many0(operation), |operations| Content { operations })(i)
