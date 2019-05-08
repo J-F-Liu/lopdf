@@ -2,7 +2,6 @@ use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use crate::content::*;
 use crate::reader::Reader;
 use crate::xref::*;
-use pom::char_class::{alpha, multispace};
 use pom::parser::*;
 use std::str::{self, FromStr};
 
@@ -403,34 +402,51 @@ pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
 
 // The following code create parser to parse content stream.
 
-fn content_space<'a>() -> Parser<'a, u8, ()> {
-	is_a(multispace).repeat(0..).discard()
+fn content_space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
+	take_while(|c| b" \t\r\n".contains(&c))(input)
+		.map(|(i, _)| (i, ()))
 }
 
-fn operator<'a>() -> Parser<'a, u8, String> {
-	(is_a(alpha) | one_of(b"*'\"")).repeat(1..).convert(String::from_utf8)
+fn operator<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], String, E> {
+	map_res(take_while1(|c: u8| c.is_ascii_alphabetic() || b"*'\"".contains(&c)),
+			|op| str::from_utf8(op).map(Into::into))(input)
 }
 
-fn operand<'a>() -> Parser<'a, u8, Object> {
-	(nom_to_pom(null)
-		| nom_to_pom(boolean)
-		| nom_to_pom(real).map(Object::Real)
-		| nom_to_pom(integer).map(Object::Integer)
-		| nom_to_pom(name).map(Object::Name)
-		| nom_to_pom(literal_string).map(Object::string_literal)
-		| nom_to_pom(hexadecimal_string)
-		| nom_to_pom(array).map(Object::Array)
-		| nom_to_pom(dictionary).map(Object::Dictionary))
-		- content_space()
+fn operand<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+	let (i, object) = alt((
+		null,
+		boolean,
+		map(real, Object::Real),
+		map(integer, Object::Integer),
+		map(name, Object::Name),
+		map(literal_string, Object::string_literal),
+		hexadecimal_string,
+		map(array, Object::Array),
+		map(dictionary, Object::Dictionary),
+	))(input)?;
+
+	let (i, _) = content_space(i)?;
+
+	Ok((i, object))
 }
 
-fn operation<'a>() -> Parser<'a, u8, Operation> {
-	let operation = operand().repeat(0..) + operator() - content_space();
-	operation.map(|(operands, operator)| Operation { operator, operands })
+fn operation<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Operation, E> {
+	let (i, operands) = many0(operand)(input)?;
+	let (i, operator) = operator(i)?;
+	let (i, _) = content_space(i)?;
+
+	Ok((i, Operation { operator, operands }))
 }
+
+fn _content<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Content, E> {
+	let (i, _) = content_space(input)?;
+
+	map(many0(operation), |operations| Content { operations })(i)
+}
+
 
 pub fn content<'a>() -> Parser<'a, u8, Content> {
-	content_space() * operation().repeat(0..).map(|operations| Content { operations })
+	nom_to_pom(_content)
 }
 
 #[cfg(test)]
