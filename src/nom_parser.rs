@@ -230,23 +230,38 @@ fn null<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Objec
 	map(tag(b"null"), |_| Object::Null)(input)
 }
 
-fn array<'a>() -> Parser<'a, u8, Vec<Object>> {
-	sym(b'[') * nom_to_pom(space) * call(direct_object).repeat(0..) - sym(b']')
+fn array<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<Object>, E> {
+	let (i, _) = tag(b"[")(input)?;
+	let (i, _) = space(i)?;
+	let (i, objects) = many0(_direct_object)(i)?;
+	let (i, _) = tag(b"]")(i)?;
+
+	Ok((i, objects))
 }
 
-fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
-	let entry = nom_to_pom(name) - nom_to_pom(space) + call(direct_object);
-	let entries = seq(b"<<") * nom_to_pom(space) * entry.repeat(0..) - seq(b">>");
-	entries.map(|entries| {
-		entries.into_iter().fold(Dictionary::new(), |mut dict: Dictionary, (key, value)| {
-			dict.set(key, value);
-			dict
-		})
-	})
+fn dict_entry<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (Vec<u8>, Object), E> {
+	let (i, name) = name(input)?;
+	let (i, _) = space(i)?;
+	let (i, object) = _direct_object(i)?;
+
+	Ok((i, (name, object)))
+}
+
+fn dictionary<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Dictionary, E> {
+	let (i, _) = tag(b"<<")(input)?;
+	let (i, _) = space(i)?;
+	let (i, dict) = fold_many0(dict_entry, Dictionary::new(),
+							   |mut dict, (key, value)| {
+								   dict.set(key, value);
+								   dict
+							   })(i)?;
+	let (i, _) = tag(b">>")(i)?;
+
+	Ok((i, dict))
 }
 
 fn stream(reader: &Reader) -> Parser<u8, Stream> {
-	(dictionary() - nom_to_pom(space) - seq(b"stream") - nom_to_pom(eol))
+	(nom_to_pom(dictionary) - nom_to_pom(space) - seq(b"stream") - nom_to_pom(eol))
 		>> move |dict: Dictionary| {
 			if let Some(length) = dict.get(b"Length").and_then(|value| {
 				if let Some(id) = value.as_reference() {
@@ -284,18 +299,30 @@ fn reference<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], 
 	Ok((i, Object::Reference(id)))
 }
 
+fn _direct_objects<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+	alt((
+		null,
+		boolean,
+		reference,
+		map(real, Object::Real),
+		map(integer, Object::Integer),
+		map(name, Object::Name),
+		map(literal_string, Object::string_literal),
+		hexadecimal_string,
+		map(array, Object::Array),
+		map(dictionary, Object::Dictionary),
+	))(input)
+}
+
+fn _direct_object<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
+	let (i, object) = _direct_objects(input)?;
+	let (i, _) = space(i)?;
+
+	Ok((i, object))
+}
+
 pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
-	(nom_to_pom(null)
-		| nom_to_pom(boolean)
-		| nom_to_pom(reference)
-		| nom_to_pom(real).map(Object::Real)
-		| nom_to_pom(integer).map(Object::Integer)
-		| nom_to_pom(name).map(Object::Name)
-		| nom_to_pom(literal_string).map(Object::string_literal)
-		| nom_to_pom(hexadecimal_string)
-		| array().map(Object::Array)
-		| dictionary().map(Object::Dictionary))
-		- nom_to_pom(space)
+	nom_to_pom(_direct_object)
 }
 
 fn object(reader: &Reader) -> Parser<u8, Object> {
@@ -307,9 +334,9 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 		| nom_to_pom(name).map(Object::Name)
 		| nom_to_pom(literal_string).map(Object::string_literal)
 		| nom_to_pom(hexadecimal_string)
-		| array().map(Object::Array)
+		| nom_to_pom(array).map(Object::Array)
 		| stream(reader).map(Object::Stream)
-		| dictionary().map(Object::Dictionary))
+		| nom_to_pom(dictionary).map(Object::Dictionary))
 		- nom_to_pom(space)
 }
 
@@ -340,7 +367,7 @@ fn xref<'a>() -> Parser<'a, u8, Xref> {
 }
 
 fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
-	seq(b"trailer") * nom_to_pom(space) * dictionary() - nom_to_pom(space)
+	seq(b"trailer") * nom_to_pom(space) * nom_to_pom(dictionary) - nom_to_pom(space)
 }
 
 pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
@@ -375,8 +402,8 @@ fn operand<'a>() -> Parser<'a, u8, Object> {
 		| nom_to_pom(name).map(Object::Name)
 		| nom_to_pom(literal_string).map(Object::string_literal)
 		| nom_to_pom(hexadecimal_string)
-		| array().map(Object::Array)
-		| dictionary().map(Object::Dictionary))
+		| nom_to_pom(array).map(Object::Array)
+		| nom_to_pom(dictionary).map(Object::Dictionary))
 		- content_space()
 }
 
