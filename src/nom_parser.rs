@@ -260,21 +260,28 @@ fn dictionary<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8],
 	Ok((i, dict))
 }
 
-fn stream(reader: &Reader) -> Parser<u8, Stream> {
-	(nom_to_pom(dictionary) - nom_to_pom(space) - seq(b"stream") - nom_to_pom(eol))
-		>> move |dict: Dictionary| {
-			if let Some(length) = dict.get(b"Length").and_then(|value| {
-				if let Some(id) = value.as_reference() {
-					return reader.get_object(id).and_then(|value| value.as_i64());
-				}
-				value.as_i64()
-			}) {
-				let stream = take(length as usize) - nom_to_pom(eol).opt() - seq(b"endstream").expect("endstream");
-				stream.map(move |data| Stream::new(dict.clone(), data.to_vec()))
-			} else {
-				empty().pos().map(move |pos| Stream::with_position(dict.clone(), pos))
-			}
-		}
+fn stream<'a, E: ParseError<&'a [u8]>>(input: &'a [u8], reader: &Reader) -> IResult<&'a [u8], Object, E> {
+	let (i, dict) = dictionary(input)?;
+	let (i, _) = space(i)?;
+	let (i, _) = tag(b"stream")(i)?;
+	let (i, _) = eol(i)?;
+
+	if let Some(length) = dict.get(b"Length").and_then(|value|
+		if let Some(id) = value.as_reference() {
+			reader.get_object(id).and_then(|value| value.as_i64())
+		} else {
+			value.as_i64()
+		}) {
+
+		let (i, data) = nom_take(length as usize)(i)?;
+		let (i, _) = opt(eol)(i)?;
+		let (i, _) = tag(b"endstream")(i)?;
+
+		Ok((i, Object::Stream(Stream::new(dict, data.to_vec()))))
+	} else {
+		// Return position relative to the start of the stream dictionary.
+		Ok((i, Object::Stream(Stream::with_position(dict, input.len() - i.len()))))
+	}
 }
 
 fn unsigned_int<'a, E: ParseError<&'a [u8]>, I: FromStr>(input: &'a [u8]) -> IResult<&'a [u8], I, E> {
@@ -325,23 +332,33 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 	nom_to_pom(_direct_object)
 }
 
-fn object(reader: &Reader) -> Parser<u8, Object> {
-	(nom_to_pom(null)
-		| nom_to_pom(boolean)
-		| nom_to_pom(reference)
-		| nom_to_pom(real).map(Object::Real)
-		| nom_to_pom(integer).map(Object::Integer)
-		| nom_to_pom(name).map(Object::Name)
-		| nom_to_pom(literal_string).map(Object::string_literal)
-		| nom_to_pom(hexadecimal_string)
-		| nom_to_pom(array).map(Object::Array)
-		| stream(reader).map(Object::Stream)
-		| nom_to_pom(dictionary).map(Object::Dictionary))
-		- nom_to_pom(space)
+fn object<'a, E: ParseError<&'a [u8]>>(input: &'a [u8], reader: &Reader) -> IResult<&'a [u8], Object, E> {
+	let (i, object) = alt((|input| stream(input, reader), _direct_objects))(input)?;
+	let (i, _) = space(i)?;
+
+	Ok((i, object))
 }
 
 pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
-	nom_to_pom(object_id) - seq(b"obj") - nom_to_pom(space) + object(reader) - nom_to_pom(space) - seq(b"endobj").opt() - nom_to_pom(space)
+	nom_to_pom(move |input| _indirect_object(input, reader))
+}
+
+fn _indirect_object<'a, E: ParseError<&'a [u8]>>(input: &'a [u8], reader: &Reader) -> IResult<&'a [u8], (ObjectId, Object), E> {
+	let (i, object_id) = object_id(input)?;
+	let (i, _) = tag(b"obj")(i)?;
+	let (i, _) = space(i)?;
+
+	let object_offset = input.len() - i.len();
+	let (i, mut object) = object(i, reader)?;
+	let (i, _) = space(i)?;
+	let (i, _) = opt(tag(b"endobj"))(i)?;
+	let (i, _) = space(i)?;
+
+	if let Object::Stream(ref mut stream) = object {
+		stream.offset_position(object_offset);
+	}
+
+	Ok((i, (object_id, object)))
 }
 
 pub fn header<'a>() -> Parser<'a, u8, String> {
