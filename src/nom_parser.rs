@@ -12,6 +12,7 @@ use nom::error::{ParseError, ErrorKind};
 use nom::multi::{many0, many0_count, fold_many0};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
+use nom::sequence::{pair, preceded, terminated, tuple};
 
 // Change this to something else that implements ParseError to get a
 // different error type out of nom.
@@ -38,6 +39,21 @@ fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
 		}
 	})
 }
+
+// TODO: make this a part of nom
+fn contained<I, O1, O2, O3, E: ParseError<I>, F, G, H>(start: F, value: G, end: H) -> impl Fn(I) -> IResult<I, O2, E>
+	where
+	F: Fn(I) -> IResult<I, O1, E>,
+	G: Fn(I) -> IResult<I, O2, E>,
+	H: Fn(I) -> IResult<I, O3, E>,
+{
+	move |input: I| {
+		let (input, _) = start(input)?;
+		let (input, v) = value(input)?;
+		end(input).map(|(i, _)| (i, v))
+	}
+}
+
 
 fn eol<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
 	alt((|i| tag(b"\r\n")(i).map(|(i, _)| (i, b'\n')),
@@ -196,29 +212,23 @@ fn inner_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 }
 
 fn nested_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
-	let (i, _) = tag(b"(")(input)?;
-	let (i, mut content) = inner_literal_string(i)?;
-	let (i, _) = tag(b")")(i)?;
-
-	content.insert(0, b'(');
-	content.push(b')');
-
-	Ok((i, content))
+	map(contained(tag(b"("), inner_literal_string, tag(b")")),
+		|mut content| {
+			content.insert(0, b'(');
+			content.push(b')');
+			content
+		})(input)
 }
 
 fn literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
-	let (i, _) = tag(b"(")(input)?;
-	let (i, content) = inner_literal_string(i)?;
-	let (i, _) = tag(b")")(i)?;
-
-	Ok((i, content))
+	contained(tag(b"("), inner_literal_string, tag(b")"))(input)
 }
 
 fn hexadecimal_string<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
-	let (i, _) = tag(b"<")(input)?;
-	let (i, bytes) = many0(|i| white_space(i).and_then(|(i, _)| hex_char(i)))(i)?;
-	let (i, _) = white_space(i)?;
-	let (i, _) = tag(b">")(i)?;
+	let (i, bytes) = contained(tag(b"<"),
+							   terminated(many0(|i| white_space(i).and_then(|(i, _)| hex_char(i))),
+										  white_space),
+							   tag(b">"))(input)?;
 
 	Ok((i, Object::String(bytes, StringFormat::Hexadecimal)))
 }
@@ -244,16 +254,11 @@ fn array<'a>(input: &'a [u8]) -> NomResult<'a, Vec<Object>> {
 }
 
 fn dict_entry<'a>(input: &'a [u8]) -> NomResult<'a, (Vec<u8>, Object)> {
-	let (i, name) = name(input)?;
-	let (i, _) = space(i)?;
-	let (i, object) = _direct_object(i)?;
-
-	Ok((i, (name, object)))
+	pair(terminated(name, space), _direct_object)(input)
 }
 
 fn dictionary<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
-	let (i, _) = tag(b"<<")(input)?;
-	let (i, _) = space(i)?;
+	let (i, _) = terminated(tag(b"<<"), space)(input)?;
 	let (i, dict) = fold_many0(dict_entry, Dictionary::new(),
 							   |mut dict, (key, value)| {
 								   dict.set(key, value);
@@ -295,19 +300,11 @@ fn unsigned_int<'a, I: FromStr>(input: &'a [u8]) -> NomResult<'a, I> {
 }
 
 fn object_id<'a>(input: &'a [u8]) -> NomResult<'a, ObjectId> {
-	let (i, id) = unsigned_int(input)?;
-	let (i, _) = space(i)?;
-	let (i, gen) = unsigned_int(i)?;
-	let (i, _) = space(i)?;
-
-	Ok((i, (id, gen)))
+	pair(terminated(unsigned_int, space), terminated(unsigned_int, space))(input)
 }
 
 fn reference<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
-	let (i, id) = object_id(input)?;
-	let (i, _) = tag(b"R")(i)?;
-
-	Ok((i, Object::Reference(id)))
+	map(terminated(object_id, tag(b"R")), Object::Reference)(input)
 }
 
 fn _direct_objects<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
@@ -326,10 +323,7 @@ fn _direct_objects<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 }
 
 fn _direct_object<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
-	let (i, object) = _direct_objects(input)?;
-	let (i, _) = space(i)?;
-
-	Ok((i, object))
+	terminated(_direct_objects, space)(input)
 }
 
 pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
@@ -337,10 +331,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 }
 
 fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
-	let (i, object) = alt((|input| stream(input, reader), _direct_objects))(input)?;
-	let (i, _) = space(i)?;
-
-	Ok((i, object))
+	terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
 }
 
 pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
@@ -348,15 +339,10 @@ pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
 }
 
 fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (ObjectId, Object)> {
-	let (i, object_id) = object_id(input)?;
-	let (i, _) = tag(b"obj")(i)?;
-	let (i, _) = space(i)?;
+	let (i, object_id) = terminated(object_id, pair(tag(b"obj"), space))(input)?;
 
 	let object_offset = input.len() - i.len();
-	let (i, mut object) = object(i, reader)?;
-	let (i, _) = space(i)?;
-	let (i, _) = opt(tag(b"endobj"))(i)?;
-	let (i, _) = space(i)?;
+	let (i, mut object) = terminated(|i| object(i, reader), tuple((space, opt(tag(b"endobj")), space)))(i)?;
 
 	if let Object::Stream(ref mut stream) = object {
 		stream.offset_position(object_offset);
@@ -418,7 +404,7 @@ fn operator<'a>(input: &'a [u8]) -> NomResult<'a, String> {
 }
 
 fn operand<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
-	let (i, object) = alt((
+	terminated(alt((
 		null,
 		boolean,
 		map(real, Object::Real),
@@ -428,25 +414,17 @@ fn operand<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 		hexadecimal_string,
 		map(array, Object::Array),
 		map(dictionary, Object::Dictionary),
-	))(input)?;
-
-	let (i, _) = content_space(i)?;
-
-	Ok((i, object))
+	)), content_space)(input)
 }
 
 fn operation<'a>(input: &'a [u8]) -> NomResult<'a, Operation> {
-	let (i, operands) = many0(operand)(input)?;
-	let (i, operator) = operator(i)?;
-	let (i, _) = content_space(i)?;
+	let (i, (operands, operator)) = terminated(pair(many0(operand), operator), content_space)(input)?;
 
 	Ok((i, Operation { operator, operands }))
 }
 
 fn _content<'a>(input: &'a [u8]) -> NomResult<'a, Content> {
-	let (i, _) = content_space(input)?;
-
-	map(many0(operation), |operations| Content { operations })(i)
+	preceded(content_space, map(many0(operation), |operations| Content { operations }))(input)
 }
 
 
