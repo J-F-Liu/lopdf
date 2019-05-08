@@ -9,7 +9,7 @@ use nom::IResult;
 use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::{ParseError, ErrorKind};
-use nom::multi::{many0, many0_count, fold_many0};
+use nom::multi::{many0, fold_many0};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
 use nom::sequence::{pair, preceded, terminated, tuple};
@@ -55,18 +55,12 @@ fn contained<I, O1, O2, O3, E: ParseError<I>, F, G, H>(start: F, value: G, end: 
 }
 
 
-fn eol<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
-	alt((|i| tag(b"\r\n")(i).map(|(i, _)| (i, b'\n')),
-		 |i| tag(b"\n")(i).map(|(i, _)| (i, b'\n')),
-		 |i| tag(b"\r")(i).map(|(i, _)| (i, b'\r')))
-	)(input)
+fn eol<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
+	map(alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r"))), |_| ())(input)
 }
 
 fn comment<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
-	tag(b"%")(input)
-		.and_then(|(i, _)| take_while(|c: u8| !b"\r\n".contains(&c))(i))
-		.and_then(|(i, _)| eol(i))
-		.map(|(i, _)| (i, ()))
+	map(tuple((tag(b"%"), take_while(|c: u8| !b"\r\n".contains(&c)), eol)), |_| ())(input)
 }
 
 #[inline]
@@ -90,15 +84,14 @@ fn is_direct_literal_string(c: u8) -> bool {
 }
 
 fn white_space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
-	take_while(is_whitespace)(input)
-		.map(|(i, _)| (i, ()))
+	map(take_while(is_whitespace), |_| ())(input)
 }
 
 fn space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
-	many0_count(alt((
-		|i| take_while1(is_whitespace)(i).map(|(i, _)| (i, ())),
+	fold_many0(alt((
+		map(take_while1(is_whitespace), |_| ()),
 		comment
-	)))(input).map(|(i, _)| (i, ()))
+	)), (),	|_, _| ())(input)
 }
 
 fn integer<'a>(input: &'a [u8]) -> NomResult<'a, i64> {
