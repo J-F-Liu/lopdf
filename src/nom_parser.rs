@@ -10,7 +10,7 @@ use nom::IResult;
 use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::{ParseError, ErrorKind};
-use nom::multi::{many0, many0_count};
+use nom::multi::{many0, many0_count, fold_many0};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
 
@@ -62,6 +62,11 @@ fn is_delimiter(c: u8) -> bool {
 #[inline]
 fn is_regular(c: u8) -> bool {
 	!is_whitespace(c) && !is_delimiter(c)
+}
+
+#[inline]
+fn is_direct_literal_string(c: u8) -> bool {
+	!b"()\\\r\n".contains(&c)
 }
 
 fn white_space<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], (), E> {
@@ -132,7 +137,7 @@ fn name<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u
 	})
 }
 
-fn _escape_sequence<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Option<u8>, E> {
+fn escape_sequence<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Option<u8>, E> {
 	tag(b"\\")(input).and_then(|(i, _)| {
 		alt((
 			map(|i| map_opt(nom_take(1usize), |c: &[u8]| {
@@ -154,31 +159,55 @@ fn _escape_sequence<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a
 	})
 }
 
-fn escape_sequence<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
-	map(_escape_sequence, |c| match c {
-		Some(c) => vec![c],
-		None => vec![],
-	})(input)
+enum ILS<'a> {
+	Direct(&'a [u8]),
+	Escape(Option<u8>),
+	EOL,
+	Nested(Vec<u8>)
 }
 
-fn nested_literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'(')
-		* (none_of(b"\\()").repeat(1..) | nom_to_pom(escape_sequence) | call(nested_literal_string)).repeat(0..).map(|segments| {
-			let mut bytes = segments.into_iter().fold(vec![b'('], |mut bytes, mut segment| {
-				bytes.append(&mut segment);
-				bytes
-			});
-			bytes.push(b')');
-			bytes
-		}) - sym(b')')
+impl <'a> ILS<'a> {
+	fn push(&self, output: &mut Vec<u8>) {
+		match self {
+			ILS::Direct(d) => output.extend_from_slice(*d),
+			ILS::Escape(e) => output.extend(e.into_iter()),
+			ILS::EOL => output.extend(b"\n"),
+			ILS::Nested(n) => output.extend_from_slice(n),
+		}
+	}
 }
 
-fn literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
-	sym(b'(')
-		* (none_of(b"\\()").repeat(1..) | nom_to_pom(escape_sequence) | nested_literal_string())
-			.repeat(0..)
-			.map(|segments| segments.concat())
-		- sym(b')')
+fn inner_literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+	fold_many0(
+		alt((
+			map(take_while1(is_direct_literal_string), ILS::Direct),
+			map(escape_sequence, ILS::Escape),
+			// Any end of line in a string literal is treated as a line feed.
+			map(eol, |_| ILS::EOL),
+			map(nested_literal_string, ILS::Nested),
+		)),
+		Vec::new(),
+		|mut out: Vec<u8>, value| { value.push(&mut out); out }
+	)(input)
+}
+
+fn nested_literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+	let (i, _) = tag(b"(")(input)?;
+	let (i, mut content) = inner_literal_string(i)?;
+	let (i, _) = tag(b")")(i)?;
+
+	content.insert(0, b'(');
+	content.push(b')');
+
+	Ok((i, content))
+}
+
+fn literal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u8>, E> {
+	let (i, _) = tag(b"(")(input)?;
+	let (i, content) = inner_literal_string(i)?;
+	let (i, _) = tag(b")")(i)?;
+
+	Ok((i, content))
 }
 
 fn hexadecimal_string<'a, E: ParseError<&'a [u8]>>(input: &'a [u8]) -> IResult<&'a [u8], Object, E> {
@@ -262,7 +291,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 		| nom_to_pom(real).map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
-		| literal_string().map(Object::string_literal)
+		| nom_to_pom(literal_string).map(Object::string_literal)
 		| nom_to_pom(hexadecimal_string)
 		| array().map(Object::Array)
 		| dictionary().map(Object::Dictionary))
@@ -276,7 +305,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 		| nom_to_pom(real).map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
-		| literal_string().map(Object::string_literal)
+		| nom_to_pom(literal_string).map(Object::string_literal)
 		| nom_to_pom(hexadecimal_string)
 		| array().map(Object::Array)
 		| stream(reader).map(Object::Stream)
@@ -344,7 +373,7 @@ fn operand<'a>() -> Parser<'a, u8, Object> {
 		| nom_to_pom(real).map(Object::Real)
 		| nom_to_pom(integer).map(Object::Integer)
 		| nom_to_pom(name).map(Object::Name)
-		| literal_string().map(Object::string_literal)
+		| nom_to_pom(literal_string).map(Object::string_literal)
 		| nom_to_pom(hexadecimal_string)
 		| array().map(Object::Array)
 		| dictionary().map(Object::Dictionary))
@@ -376,11 +405,11 @@ mod tests {
 
 	#[test]
 	fn parse_string() {
-		assert_eq!(literal_string().parse(b"()"), Ok(b"".to_vec()));
-		assert_eq!(literal_string().parse(b"(text())"), Ok(b"text()".to_vec()));
-		assert_eq!(literal_string().parse(b"(text\r\n\\\\(nested\\t\\b\\f))"), Ok(b"text\r\n\\(nested\t\x08\x0C)".to_vec()));
-		assert_eq!(literal_string().parse(b"(text\\0\\53\\053\\0053)"), Ok(b"text\0++\x053".to_vec()));
-		assert_eq!(literal_string().parse(b"(text line\\\n())"), Ok(b"text line()".to_vec()));
+		assert_eq!(nom_to_pom(literal_string).parse(b"()"), Ok(b"".to_vec()));
+		assert_eq!(nom_to_pom(literal_string).parse(b"(text())"), Ok(b"text()".to_vec()));
+		assert_eq!(nom_to_pom(literal_string).parse(b"(text\r\n\\\\(nested\\t\\b\\f))"), Ok(b"text\n\\(nested\t\x08\x0C)".to_vec()));
+		assert_eq!(nom_to_pom(literal_string).parse(b"(text\\0\\53\\053\\0053)"), Ok(b"text\0++\x053".to_vec()));
+		assert_eq!(nom_to_pom(literal_string).parse(b"(text line\\\n())"), Ok(b"text line()".to_vec()));
 		assert_eq!(nom_to_pom(name).parse(b"/ABC#5f"), Ok(b"ABC\x5F".to_vec()));
 	}
 
