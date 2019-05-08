@@ -193,9 +193,16 @@ impl Reader {
 		if offset > self.buffer.len() {
 			return Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read at offset {})", offset)));
 		}
-		parser::indirect_object(self)
+		let (id, mut object) = parser::indirect_object(self)
 			.parse(&self.buffer[offset..])
-			.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).\n{:?}", offset, err)))
+			.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).\n{:?}", offset, err)))?;
+
+		// Parser is invoked relative to offset, add it back here.
+		if let Object::Stream(ref mut stream) = object {
+			stream.offset_position(offset);
+		}
+
+		Ok((id, object))
 	}
 
 	fn get_xref_start(buffer: &[u8]) -> Result<usize> {
