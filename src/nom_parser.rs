@@ -184,7 +184,8 @@ impl <'a> ILS<'a> {
 		match self {
 			ILS::Direct(d) => output.extend_from_slice(*d),
 			ILS::Escape(e) => output.extend(e.into_iter()),
-			ILS::EOL => output.extend(b"\n"),
+			// Any end of line in a string literal is treated as a line feed.
+			ILS::EOL => output.push(b'\n'),
 			ILS::Nested(n) => output.extend_from_slice(n),
 		}
 	}
@@ -195,7 +196,6 @@ fn inner_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 		alt((
 			map(take_while1(is_direct_literal_string), ILS::Direct),
 			map(escape_sequence, ILS::Escape),
-			// Any end of line in a string literal is treated as a line feed.
 			map(eol, |_| ILS::EOL),
 			map(nested_literal_string, ILS::Nested),
 		)),
@@ -238,35 +238,19 @@ fn null<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 }
 
 fn array<'a>(input: &'a [u8]) -> NomResult<'a, Vec<Object>> {
-	let (i, _) = tag(b"[")(input)?;
-	let (i, _) = space(i)?;
-	let (i, objects) = many0(_direct_object)(i)?;
-	let (i, _) = tag(b"]")(i)?;
-
-	Ok((i, objects))
-}
-
-fn dict_entry<'a>(input: &'a [u8]) -> NomResult<'a, (Vec<u8>, Object)> {
-	pair(terminated(name, space), _direct_object)(input)
+	contained(pair(tag(b"["), space), many0(_direct_object), tag(b"]"))(input)
 }
 
 fn dictionary<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
-	let (i, _) = terminated(tag(b"<<"), space)(input)?;
-	let (i, dict) = fold_many0(dict_entry, Dictionary::new(),
-							   |mut dict, (key, value)| {
-								   dict.set(key, value);
-								   dict
-							   })(i)?;
-	let (i, _) = tag(b">>")(i)?;
-
-	Ok((i, dict))
+	contained(pair(tag(b"<<"), space),
+			  fold_many0(pair(terminated(name, space), _direct_object),
+						 Dictionary::new(),
+						 |mut dict, (key, value)| { dict.set(key, value); dict }),
+			  tag(b">>"))(input)
 }
 
 fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
-	let (i, dict) = dictionary(input)?;
-	let (i, _) = space(i)?;
-	let (i, _) = tag(b"stream")(i)?;
-	let (i, _) = eol(i)?;
+	let (i, dict) = terminated(dictionary, tuple((space, tag(b"stream"), eol)))(input)?;
 
 	if let Some(length) = dict.get(b"Length").and_then(|value|
 		if let Some(id) = value.as_reference() {
@@ -275,10 +259,7 @@ fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 			value.as_i64()
 		}) {
 
-		let (i, data) = nom_take(length as usize)(i)?;
-		let (i, _) = opt(eol)(i)?;
-		let (i, _) = tag(b"endstream")(i)?;
-
+		let (i, data) = terminated(nom_take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
 		Ok((i, Object::Stream(Stream::new(dict, data.to_vec()))))
 	} else {
 		// Return position relative to the start of the stream dictionary.
