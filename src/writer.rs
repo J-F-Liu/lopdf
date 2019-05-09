@@ -96,7 +96,7 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_indirect_object<'a, W: Write>(file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &'a Object, xref: &mut Xref) -> Result<()> {
+	fn write_indirect_object<W: Write>(file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &Object, xref: &mut Xref) -> Result<()> {
 		let offset = file.bytes_written as u32;
 		xref.insert(id, XrefEntry::Normal { offset, generation });
 		file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) { " " } else { "" }).as_bytes())?;
@@ -105,7 +105,7 @@ impl Writer {
 		Ok(())
 	}
 
-	pub fn write_object<'a>(file: &mut dyn Write, object: &'a Object) -> Result<()> {
+	pub fn write_object(file: &mut dyn Write, object: &Object) -> Result<()> {
 		match *object {
 			Null => file.write_all(b"null"),
 			Boolean(ref value) => if *value {
@@ -130,7 +130,7 @@ impl Writer {
 		}
 	}
 
-	fn write_name<'a>(file: &mut dyn Write, name: &'a [u8]) -> Result<()> {
+	fn write_name(file: &mut dyn Write, name: &[u8]) -> Result<()> {
 		file.write_all(b"/")?;
 		for &byte in name {
 			// white-space and delimiter chars are encoded to # sequences
@@ -144,7 +144,7 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_string<'a>(file: &mut dyn Write, text: &'a [u8], format: &'a StringFormat) -> Result<()> {
+	fn write_string(file: &mut dyn Write, text: &[u8], format: &StringFormat) -> Result<()> {
 		match *format {
 			// Within a Literal string, backslash (\) and unbalanced parentheses should be escaped.
 			// This rule apply to each individual byte in a string object,
@@ -196,7 +196,7 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_array<'a>(file: &mut dyn Write, array: &'a [Object]) -> Result<()> {
+	fn write_array(file: &mut dyn Write, array: &[Object]) -> Result<()> {
 		file.write_all(b"[")?;
 		let mut first = true;
 		for object in array {
@@ -211,7 +211,7 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_dictionary<'a>(file: &mut dyn Write, dictionary: &'a Dictionary) -> Result<()> {
+	fn write_dictionary(file: &mut dyn Write, dictionary: &Dictionary) -> Result<()> {
 		file.write_all(b"<<")?;
 		for (key, value) in dictionary {
 			Writer::write_name(file, key)?;
@@ -224,7 +224,7 @@ impl Writer {
 		Ok(())
 	}
 
-	fn write_stream<'a>(file: &mut dyn Write, stream: &'a Stream) -> Result<()> {
+	fn write_stream(file: &mut dyn Write, stream: &Stream) -> Result<()> {
 		Writer::write_dictionary(file, &stream.dict)?;
 		file.write_all(b"stream\n")?;
 		file.write_all(&stream.content)?;
