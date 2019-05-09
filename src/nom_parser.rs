@@ -419,32 +419,44 @@ pub fn content<'a>() -> Parser<'a, u8, Content> {
 mod tests {
 	use super::*;
 
+	fn tstrip<O>(r: NomResult<O>) -> Option<O> {
+		r.ok().and_then(
+			|(i, o)| {
+				if !i.is_empty() {
+					None
+				} else {
+					Some(o)
+				}
+			})
+	}
+
 	#[test]
 	fn parse_real_number() {
-		let r0 = nom_to_pom(real).parse(b"0.12");
-		assert_eq!(r0, Ok(0.12));
-		let r1 = nom_to_pom(real).parse(b"-.12");
-		assert_eq!(r1, Ok(-0.12));
-		let r2 = nom_to_pom(real).parse(b"10.");
-		assert_eq!(r2, Ok(10.0));
+		let real = |i| tstrip(real(i));
+
+		assert_eq!(real(b"0.12"), Some(0.12));
+		assert_eq!(real(b"-.12"), Some(-0.12));
+		assert_eq!(real(b"10."), Some(10.0));
 	}
 
 	#[test]
 	fn parse_string() {
-		assert_eq!(nom_to_pom(literal_string).parse(b"()"), Ok(b"".to_vec()));
-		assert_eq!(nom_to_pom(literal_string).parse(b"(text())"), Ok(b"text()".to_vec()));
-		assert_eq!(nom_to_pom(literal_string).parse(b"(text\r\n\\\\(nested\\t\\b\\f))"), Ok(b"text\n\\(nested\t\x08\x0C)".to_vec()));
-		assert_eq!(nom_to_pom(literal_string).parse(b"(text\\0\\53\\053\\0053)"), Ok(b"text\0++\x053".to_vec()));
-		assert_eq!(nom_to_pom(literal_string).parse(b"(text line\\\n())"), Ok(b"text line()".to_vec()));
-		assert_eq!(nom_to_pom(name).parse(b"/ABC#5f"), Ok(b"ABC\x5F".to_vec()));
+		let literal_string = |i| tstrip(literal_string(i));
+
+		assert_eq!(literal_string(b"()"), Some(b"".to_vec()));
+		assert_eq!(literal_string(b"(text())"), Some(b"text()".to_vec()));
+		assert_eq!(literal_string(b"(text\r\n\\\\(nested\\t\\b\\f))"), Some(b"text\n\\(nested\t\x08\x0C)".to_vec()));
+		assert_eq!(literal_string(b"(text\\0\\53\\053\\0053)"), Some(b"text\0++\x053".to_vec()));
+		assert_eq!(literal_string(b"(text line\\\n())"), Some(b"text line()".to_vec()));
+		assert_eq!(tstrip(name(b"/ABC#5f")), Some(b"ABC\x5F".to_vec()));
 	}
 
 	#[test]
 	fn parse_name() {
 		let text = b"/#cb#ce#cc#e5";
-		let name = nom_to_pom(name).parse(text);
+		let name = tstrip(name(text));
 		println!("{:?}", name);
-		assert_eq!(name.is_ok(), true);
+		assert!(name.is_some());
 	}
 
 	#[test]
@@ -462,8 +474,8 @@ BT
 [(b) 20 (ut generally tak) 10 (e more space than \\311)] TJ
 T* (encoded streams.) Tj
 		";
-		let content = content().parse(stream);
+		let content = tstrip(_content(stream));
 		println!("{:?}", content);
-		assert_eq!(content.is_ok(), true);
+		assert!(content.is_some());
 	}
 }
