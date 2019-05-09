@@ -2,7 +2,6 @@ use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use crate::content::*;
 use crate::reader::Reader;
 use crate::xref::*;
-use pom::parser::Parser;
 use std::str::{self, FromStr};
 
 use nom::IResult;
@@ -19,25 +18,9 @@ use nom::sequence::{pair, preceded, terminated, tuple, separated_pair};
 type NomError = ();
 type NomResult<'a, O, E=NomError> = IResult<&'a [u8], O, E>;
 
-fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
-	where NP: Fn(&'a [u8]) -> IResult<&'a [u8], O, ()> + 'a
-{
-	Parser::new(move |input, inpos| {
-		let nom_input = &input[inpos..];
-
-		match f(nom_input) {
-			Ok((rem, out)) => {
-				let parsed_len = nom_input.len() - rem.len();
-				let outpos = inpos + parsed_len;
-
-				Ok((out, outpos))
-			},
-			Err(nom_err) => Err(match nom_err {
-				nom::Err::Incomplete(_) => pom::Error::Incomplete,
-				_ => pom::Error::Mismatch{ message: "nom error".into(), position: inpos },
-			}),
-		}
-	})
+#[inline]
+fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
+	r.ok().map(|(_, o)| o)
 }
 
 #[inline]
@@ -298,16 +281,16 @@ fn _direct_object(input: &[u8]) -> NomResult<Object> {
 	terminated(_direct_objects, space)(input)
 }
 
-pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
-	nom_to_pom(_direct_object)
+pub fn direct_object(input: &[u8]) -> Option<Object> {
+	strip_nom(_direct_object(input))
 }
 
 fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
 }
 
-pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
-	nom_to_pom(move |input| _indirect_object(input, reader))
+pub fn indirect_object(input: &[u8], reader: &Reader) -> Option<(ObjectId, Object)> {
+	strip_nom(_indirect_object(input, reader))
 }
 
 fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (ObjectId, Object)> {
@@ -323,9 +306,9 @@ fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (Obje
 	Ok((i, (object_id, object)))
 }
 
-pub fn header<'a>() -> Parser<'a, u8, String> {
-	nom_to_pom(map_res(contained(tag(b"%PDF-"), take_while(|c: u8| !b"\r\n".contains(&c)), pair(eol, many0_count(comment))),
-					   |v| str::from_utf8(v).map(Into::into)))
+pub fn header(input: &[u8]) -> Option<String> {
+	strip_nom(map_res(contained(tag(b"%PDF-"), take_while(|c: u8| !b"\r\n".contains(&c)), pair(eol, many0_count(comment))),
+					  |v| str::from_utf8(v).map(Into::into))(input))
 }
 
 fn xref(input: &[u8]) -> NomResult<Xref> {
@@ -353,28 +336,28 @@ fn trailer(input: &[u8]) -> NomResult<Dictionary> {
 	contained(pair(tag(b"trailer"), space), dictionary, space)(input)
 }
 
-pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
-	nom_to_pom(alt((
-		map_opt(pair(xref, trailer),
+pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictionary), &'static str> {
+	alt((
+		map(pair(xref, trailer),
 				|(mut xref, trailer)| {
-					xref.size = trailer.get(b"Size").and_then(Object::as_i64)? as u32;
-					Some((xref, trailer))
+					xref.size = trailer.get(b"Size").and_then(Object::as_i64).ok_or("Size is absent in trailer.")? as u32;
+					Ok((xref, trailer))
 				}),
 
-		map_opt(move |i| _indirect_object(i, reader),
+		map(move |i| _indirect_object(i, reader),
 				|(_, obj)| match obj {
-					Object::Stream(stream) => Some(decode_xref_stream(stream)),
-					_ => None, // Xref is not a stream object.
+					Object::Stream(stream) => Ok(decode_xref_stream(stream)),
+					_ => Err("Xref is not a stream object.")
 				})
-	)))
+	))(input).map(|(_, o)| o).unwrap_or(Err("syntax error"))
 }
 
-pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
-	nom_to_pom(contained(
+pub fn xref_start(input: &[u8]) -> Option<i64> {
+	strip_nom(contained(
 		pair(tag(b"startxref"), eol),
 		integer,
 		tuple((eol, tag(b"%%EOF"), space))
-	))
+	)(input))
 }
 
 // The following code create parser to parse content stream.
@@ -411,8 +394,8 @@ fn _content(input: &[u8]) -> NomResult<Content> {
 	preceded(content_space, map(many0(operation), |operations| Content { operations }))(input)
 }
 
-pub fn content<'a>() -> Parser<'a, u8, Content> {
-	nom_to_pom(_content)
+pub fn content(input: &[u8]) -> Option<Content> {
+	strip_nom(_content(input))
 }
 
 #[cfg(test)]
