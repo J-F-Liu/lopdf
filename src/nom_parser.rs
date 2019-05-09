@@ -41,7 +41,7 @@ fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
 }
 
 #[inline]
-fn convert_result<'a, O, E>(result: Result<O, E>, input: &'a[u8], error_kind: ErrorKind) -> NomResult<'a, O> {
+fn convert_result<O, E>(result: Result<O, E>, input: &[u8], error_kind: ErrorKind) -> NomResult<O> {
 	result.map(|o| (input, o)).map_err(|_| nom::Err::Error(NomError::from_error_kind(input, error_kind)))
 }
 
@@ -60,11 +60,11 @@ fn contained<I, O1, O2, O3, E: ParseError<I>, F, G, H>(start: F, value: G, end: 
 }
 
 
-fn eol<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
+fn eol(input: &[u8]) -> NomResult<()> {
 	map(alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r"))), |_| ())(input)
 }
 
-fn comment<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
+fn comment(input: &[u8]) -> NomResult<()> {
 	map(tuple((tag(b"%"), take_while(|c: u8| !b"\r\n".contains(&c)), eol)), |_| ())(input)
 }
 
@@ -88,18 +88,18 @@ fn is_direct_literal_string(c: u8) -> bool {
 	!b"()\\\r\n".contains(&c)
 }
 
-fn white_space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
+fn white_space(input: &[u8]) -> NomResult<()> {
 	map(take_while(is_whitespace), |_| ())(input)
 }
 
-fn space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
+fn space(input: &[u8]) -> NomResult<()> {
 	fold_many0(alt((
 		map(take_while1(is_whitespace), |_| ()),
 		comment
 	)), (),	|_, _| ())(input)
 }
 
-fn integer<'a>(input: &'a [u8]) -> NomResult<'a, i64> {
+fn integer(input: &[u8]) -> NomResult<i64> {
 	opt(nom_one_of("+-"))(input)
 		.and_then(|(i, sign)| {
 			map_res(take_while1(|c: u8| c.is_ascii_digit()),
@@ -110,7 +110,7 @@ fn integer<'a>(input: &'a [u8]) -> NomResult<'a, i64> {
 		})
 }
 
-fn real<'a>(input: &'a [u8]) -> NomResult<'a, f64> {
+fn real(input: &[u8]) -> NomResult<f64> {
 	let (i, _) = pair(opt(nom_one_of("+-")), alt((
 		map(tuple((take_while1(|c: u8| c.is_ascii_digit()),
 				   tag(b"."),
@@ -124,20 +124,20 @@ fn real<'a>(input: &'a [u8]) -> NomResult<'a, f64> {
 	convert_result(f64::from_str(str::from_utf8(float_input).unwrap()), i, ErrorKind::Digit)
 }
 
-fn hex_char<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
+fn hex_char(input: &[u8]) -> NomResult<u8> {
 	map_res(take_while_m_n(2, 2, |c: u8| c.is_ascii_hexdigit()),
 			|x| u8::from_str_radix(str::from_utf8(x).unwrap(), 16)
 	)(input)
 }
 
-fn oct_char<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
+fn oct_char(input: &[u8]) -> NomResult<u8> {
 	map_res(take_while_m_n(1, 3, |c: u8| c.is_ascii_hexdigit()),
 			// Spec requires us to ignore any overflow.
 			|x| u16::from_str_radix(str::from_utf8(x).unwrap(), 8).map(|o| o as u8)
 	)(input)
 }
 
-fn name<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
+fn name(input: &[u8]) -> NomResult<Vec<u8>> {
 	preceded(tag(b"/"), many0(alt((
 		preceded(tag(b"#"), hex_char),
 
@@ -151,7 +151,7 @@ fn name<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 	))))(input)
 }
 
-fn escape_sequence<'a>(input: &'a [u8]) -> NomResult<'a, Option<u8>> {
+fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
 	tag(b"\\")(input).and_then(|(i, _)| {
 		alt((
 			map(|i| map_opt(nom_take(1usize), |c: &[u8]| {
@@ -192,7 +192,7 @@ impl <'a> ILS<'a> {
 	}
 }
 
-fn inner_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
+fn inner_literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
 	fold_many0(
 		alt((
 			map(take_while1(is_direct_literal_string), ILS::Direct),
@@ -205,7 +205,7 @@ fn inner_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 	)(input)
 }
 
-fn nested_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
+fn nested_literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
 	map(contained(tag(b"("), inner_literal_string, tag(b")")),
 		|mut content| {
 			content.insert(0, b'(');
@@ -214,33 +214,33 @@ fn nested_literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 		})(input)
 }
 
-fn literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
+fn literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
 	contained(tag(b"("), inner_literal_string, tag(b")"))(input)
 }
 
-fn hexadecimal_string<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
+fn hexadecimal_string(input: &[u8]) -> NomResult<Object> {
 	map(contained(tag(b"<"),
 				  terminated(many0(preceded(white_space, hex_char)), white_space),
 				  tag(b">")),
 		|bytes| Object::String(bytes, StringFormat::Hexadecimal))(input)
 }
 
-fn boolean<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
+fn boolean(input: &[u8]) -> NomResult<Object> {
 	alt((
 		map(tag(b"true"), |_| Object::Boolean(true)),
 		map(tag(b"false"), |_| Object::Boolean(false))
 	))(input)
 }
 
-fn null<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
+fn null(input: &[u8]) -> NomResult<Object> {
 	map(tag(b"null"), |_| Object::Null)(input)
 }
 
-fn array<'a>(input: &'a [u8]) -> NomResult<'a, Vec<Object>> {
+fn array(input: &[u8]) -> NomResult<Vec<Object>> {
 	contained(pair(tag(b"["), space), many0(_direct_object), tag(b"]"))(input)
 }
 
-fn dictionary<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
+fn dictionary(input: &[u8]) -> NomResult<Dictionary> {
 	contained(pair(tag(b"<<"), space),
 			  fold_many0(pair(terminated(name, space), _direct_object),
 						 Dictionary::new(),
@@ -266,20 +266,20 @@ fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	}
 }
 
-fn unsigned_int<'a, I: FromStr>(input: &'a [u8]) -> NomResult<'a, I> {
+fn unsigned_int<I: FromStr>(input: &[u8]) -> NomResult<I> {
 	map_res(take_while1(|c: u8| c.is_ascii_digit()),
 			|digits| I::from_str(str::from_utf8(digits).unwrap()))(input)
 }
 
-fn object_id<'a>(input: &'a [u8]) -> NomResult<'a, ObjectId> {
+fn object_id(input: &[u8]) -> NomResult<ObjectId> {
 	pair(terminated(unsigned_int, space), terminated(unsigned_int, space))(input)
 }
 
-fn reference<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
+fn reference(input: &[u8]) -> NomResult<Object> {
 	map(terminated(object_id, tag(b"R")), Object::Reference)(input)
 }
 
-fn _direct_objects<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
+fn _direct_objects(input: &[u8]) -> NomResult<Object> {
 	alt((
 		null,
 		boolean,
@@ -294,7 +294,7 @@ fn _direct_objects<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	))(input)
 }
 
-fn _direct_object<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
+fn _direct_object(input: &[u8]) -> NomResult<Object> {
 	terminated(_direct_objects, space)(input)
 }
 
@@ -348,7 +348,7 @@ fn xref(input: &[u8]) -> NomResult<Xref> {
 			  space)(input)
 }
 
-fn trailer<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
+fn trailer(input: &[u8]) -> NomResult<Dictionary> {
 	contained(pair(tag(b"trailer"), space), dictionary, space)(input)
 }
 
@@ -372,16 +372,16 @@ pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
 
 // The following code create parser to parse content stream.
 
-fn content_space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
+fn content_space(input: &[u8]) -> NomResult<()> {
 	map(take_while(|c| b" \t\r\n".contains(&c)), |_| ())(input)
 }
 
-fn operator<'a>(input: &'a [u8]) -> NomResult<'a, String> {
+fn operator(input: &[u8]) -> NomResult<String> {
 	map_res(take_while1(|c: u8| c.is_ascii_alphabetic() || b"*'\"".contains(&c)),
 			|op| str::from_utf8(op).map(Into::into))(input)
 }
 
-fn operand<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
+fn operand(input: &[u8]) -> NomResult<Object> {
 	terminated(alt((
 		null,
 		boolean,
@@ -395,12 +395,12 @@ fn operand<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 	)), content_space)(input)
 }
 
-fn operation<'a>(input: &'a [u8]) -> NomResult<'a, Operation> {
+fn operation(input: &[u8]) -> NomResult<Operation> {
 	map(terminated(pair(many0(operand), operator), content_space),
 		|(operands, operator)| Operation { operator, operands })(input)
 }
 
-fn _content<'a>(input: &'a [u8]) -> NomResult<'a, Content> {
+fn _content(input: &[u8]) -> NomResult<Content> {
 	preceded(content_space, map(many0(operation), |operations| Content { operations }))(input)
 }
 
