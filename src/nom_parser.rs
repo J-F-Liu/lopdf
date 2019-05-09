@@ -345,12 +345,12 @@ fn xref<'a>() -> Parser<'a, u8, Xref> {
 	})
 }
 
-fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
-	seq(b"trailer") * nom_to_pom(space) * nom_to_pom(dictionary) - nom_to_pom(space)
+fn trailer<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
+	contained(pair(tag(b"trailer"), space), dictionary, space)(input)
 }
 
 pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
-	(xref() + trailer()).map(|(mut xref, trailer)| {
+	(xref() + nom_to_pom(trailer)).map(|(mut xref, trailer)| {
 		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
 		(xref, trailer)
 	}) | indirect_object(reader).convert(|(_, obj)| match obj {
@@ -360,7 +360,11 @@ pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
 }
 
 pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
-	seq(b"startxref") * nom_to_pom(eol) * nom_to_pom(integer) - nom_to_pom(eol) - seq(b"%%EOF") - nom_to_pom(space)
+	nom_to_pom(contained(
+		pair(tag(b"startxref"), eol),
+		integer,
+		tuple((eol, tag(b"%%EOF"), space))
+	))
 }
 
 // The following code create parser to parse content stream.
