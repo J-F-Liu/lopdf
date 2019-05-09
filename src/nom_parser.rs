@@ -2,16 +2,16 @@ use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use crate::content::*;
 use crate::reader::Reader;
 use crate::xref::*;
-use pom::parser::*;
+use pom::parser::Parser;
 use std::str::{self, FromStr};
 
 use nom::IResult;
-use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_while_m_n};
+use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::{ParseError, ErrorKind};
 use nom::multi::{many0, many0_count, fold_many0, fold_many1};
 use nom::combinator::{opt, map, map_res, map_opt};
-use nom::character::complete::{one_of as nom_one_of};
+use nom::character::complete::one_of;
 use nom::sequence::{pair, preceded, terminated, tuple, separated_pair};
 
 // Change this to something else that implements ParseError to get a
@@ -100,7 +100,7 @@ fn space(input: &[u8]) -> NomResult<()> {
 }
 
 fn integer(input: &[u8]) -> NomResult<i64> {
-	opt(nom_one_of("+-"))(input)
+	opt(one_of("+-"))(input)
 		.and_then(|(i, sign)| {
 			map_res(take_while1(|c: u8| c.is_ascii_digit()),
 					|m: &[u8]| {
@@ -111,7 +111,7 @@ fn integer(input: &[u8]) -> NomResult<i64> {
 }
 
 fn real(input: &[u8]) -> NomResult<f64> {
-	let (i, _) = pair(opt(nom_one_of("+-")), alt((
+	let (i, _) = pair(opt(one_of("+-")), alt((
 		map(tuple((take_while1(|c: u8| c.is_ascii_digit()),
 				   tag(b"."),
 				   take_while(|c: u8| c.is_ascii_digit()))),
@@ -141,7 +141,7 @@ fn name(input: &[u8]) -> NomResult<Vec<u8>> {
 	preceded(tag(b"/"), many0(alt((
 		preceded(tag(b"#"), hex_char),
 
-		map_opt(nom_take(1usize), |c: &[u8]| {
+		map_opt(take(1usize), |c: &[u8]| {
 			if c[0] != b'#' && is_regular(c[0]) {
 				Some(c[0])
 			} else {
@@ -154,7 +154,7 @@ fn name(input: &[u8]) -> NomResult<Vec<u8>> {
 fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
 	tag(b"\\")(input).and_then(|(i, _)| {
 		alt((
-			map(|i| map_opt(nom_take(1usize), |c: &[u8]| {
+			map(|i| map_opt(take(1usize), |c: &[u8]| {
 				match c[0] {
 					b'(' | b')' => Some(c[0]),
 					b'n' => Some(b'\n'),
@@ -184,7 +184,7 @@ impl <'a> ILS<'a> {
 	fn push(&self, output: &mut Vec<u8>) {
 		match self {
 			ILS::Direct(d) => output.extend_from_slice(*d),
-			ILS::Escape(e) => output.extend(e.into_iter()),
+			ILS::Escape(e) => output.extend(e.iter()),
 			// Any end of line in a string literal is treated as a line feed.
 			ILS::EOL => output.push(b'\n'),
 			ILS::Nested(n) => output.extend_from_slice(n),
@@ -258,7 +258,7 @@ fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 			value.as_i64()
 		}) {
 
-		let (i, data) = terminated(nom_take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
+		let (i, data) = terminated(take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
 		Ok((i, Object::Stream(Stream::new(dict, data.to_vec()))))
 	} else {
 		// Return position relative to the start of the stream dictionary.
@@ -329,9 +329,9 @@ pub fn header<'a>() -> Parser<'a, u8, String> {
 }
 
 fn xref(input: &[u8]) -> NomResult<Xref> {
-	let xref_eol = map(alt((tag(b" \r"), tag(b" \n"), tag("\r\n"))), |_| ());
+	let xref_eol = map(alt((tag(b" \r"), tag(b" \n"), tag(b"\r\n"))), |_| ());
 	let xref_entry = pair(separated_pair(unsigned_int, tag(b" "), unsigned_int),
-						  contained(tag(b" "), map(nom_one_of("nf"), |k| k == 'n'), xref_eol));
+						  contained(tag(b" "), map(one_of("nf"), |k| k == 'n'), xref_eol));
 
 	let xref_section = pair(separated_pair(unsigned_int::<usize>, tag(b" "), unsigned_int::<u32>),
 							preceded(pair(opt(tag(b" ")), eol), many0(xref_entry)));
