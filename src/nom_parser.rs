@@ -9,7 +9,7 @@ use nom::IResult;
 use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::{ParseError, ErrorKind};
-use nom::multi::{many0, fold_many0, fold_many1};
+use nom::multi::{many0, many0_count, fold_many0, fold_many1};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
 use nom::sequence::{pair, preceded, terminated, tuple, separated_pair};
@@ -324,7 +324,8 @@ fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (Obje
 }
 
 pub fn header<'a>() -> Parser<'a, u8, String> {
-	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(String::from_utf8) - nom_to_pom(eol) - nom_to_pom(comment).repeat(0..)
+	nom_to_pom(map_res(contained(tag(b"%PDF-"), take_while(|c: u8| !b"\r\n".contains(&c)), pair(eol, many0_count(comment))),
+					   |v| str::from_utf8(v).map(Into::into)))
 }
 
 fn xref(input: &[u8]) -> NomResult<Xref> {
