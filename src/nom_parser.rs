@@ -40,6 +40,11 @@ fn nom_to_pom<'a, O, NP>(f: NP) -> Parser<'a, u8, O>
 	})
 }
 
+#[inline]
+fn convert_result<'a, O, E>(result: Result<O, E>, input: &'a[u8], error_kind: ErrorKind) -> NomResult<'a, O> {
+	result.map(|o| (input, o)).map_err(|_| nom::Err::Error(NomError::from_error_kind(input, error_kind)))
+}
+
 // TODO: make this a part of nom
 fn contained<I, O1, O2, O3, E: ParseError<I>, F, G, H>(start: F, value: G, end: H) -> impl Fn(I) -> IResult<I, O2, E>
 	where
@@ -106,19 +111,17 @@ fn integer<'a>(input: &'a [u8]) -> NomResult<'a, i64> {
 }
 
 fn real<'a>(input: &'a [u8]) -> NomResult<'a, f64> {
-	let (i, _) = opt(nom_one_of("+-"))(input)?;
-	let (i, _) = alt((
-		|i| take_while1(|c: u8| c.is_ascii_digit())(i)
-			.and_then(|(i, _)| tag(b".")(i))
-			.and_then(|(i, _)| take_while(|c: u8| c.is_ascii_digit())(i)),
-		|i| tag(b".")(i)
-			.and_then(|(i, _)| take_while1(|c: u8| c.is_ascii_digit())(i)),
-	))(i)?;
+	let (i, _) = pair(opt(nom_one_of("+-")), alt((
+		map(tuple((take_while1(|c: u8| c.is_ascii_digit()),
+				   tag(b"."),
+				   take_while(|c: u8| c.is_ascii_digit()))),
+			|_| ()),
+		map(pair(tag(b"."), take_while1(|c: u8| c.is_ascii_digit())),
+			|_| ())
+	)))(input)?;
 
 	let float_input = &input[..input.len()-i.len()];
-	let float_str = str::from_utf8(float_input).unwrap();
-
-	f64::from_str(float_str).map(|v| (i, v)).map_err(|_| nom::Err::Error(NomError::from_error_kind(i, ErrorKind::Digit)))
+	convert_result(f64::from_str(str::from_utf8(float_input).unwrap()), i, ErrorKind::Digit)
 }
 
 fn hex_char<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
@@ -135,19 +138,17 @@ fn oct_char<'a>(input: &'a [u8]) -> NomResult<'a, u8> {
 }
 
 fn name<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
-	tag(b"/")(input).and_then(|(i, _)| {
-		many0(alt((
-			|i| tag(b"#")(i).and_then(|(i, _)| hex_char(i)),
+	preceded(tag(b"/"), many0(alt((
+		preceded(tag(b"#"), hex_char),
 
-			map_opt(nom_take(1usize), |c: &[u8]| {
-				if c[0] != b'#' && is_regular(c[0]) {
-					Some(c[0])
-				} else {
-					None
-				}
-			})
-		)))(i)
-	})
+		map_opt(nom_take(1usize), |c: &[u8]| {
+			if c[0] != b'#' && is_regular(c[0]) {
+				Some(c[0])
+			} else {
+				None
+			}
+		})
+	))))(input)
 }
 
 fn escape_sequence<'a>(input: &'a [u8]) -> NomResult<'a, Option<u8>> {
@@ -218,12 +219,10 @@ fn literal_string<'a>(input: &'a [u8]) -> NomResult<'a, Vec<u8>> {
 }
 
 fn hexadecimal_string<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
-	let (i, bytes) = contained(tag(b"<"),
-							   terminated(many0(|i| white_space(i).and_then(|(i, _)| hex_char(i))),
-										  white_space),
-							   tag(b">"))(input)?;
-
-	Ok((i, Object::String(bytes, StringFormat::Hexadecimal)))
+	map(contained(tag(b"<"),
+				  terminated(many0(preceded(white_space, hex_char)), white_space),
+				  tag(b">")),
+		|bytes| Object::String(bytes, StringFormat::Hexadecimal))(input)
 }
 
 fn boolean<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
@@ -268,9 +267,8 @@ fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 }
 
 fn unsigned_int<'a, I: FromStr>(input: &'a [u8]) -> NomResult<'a, I> {
-	let (i, digits) = take_while1(|c: u8| c.is_ascii_digit())(input)?;
-
-	I::from_str(str::from_utf8(&digits).unwrap()).map(|v| (i, v)).map_err(|_| nom::Err::Error(NomError::from_error_kind(i, ErrorKind::Digit)))
+	map_res(take_while1(|c: u8| c.is_ascii_digit()),
+			|digits| I::from_str(str::from_utf8(digits).unwrap()))(input)
 }
 
 fn object_id<'a>(input: &'a [u8]) -> NomResult<'a, ObjectId> {
@@ -368,8 +366,7 @@ pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
 // The following code create parser to parse content stream.
 
 fn content_space<'a>(input: &'a [u8]) -> NomResult<'a, ()> {
-	take_while(|c| b" \t\r\n".contains(&c))(input)
-		.map(|(i, _)| (i, ()))
+	map(take_while(|c| b" \t\r\n".contains(&c)), |_| ())(input)
 }
 
 fn operator<'a>(input: &'a [u8]) -> NomResult<'a, String> {
@@ -392,15 +389,13 @@ fn operand<'a>(input: &'a [u8]) -> NomResult<'a, Object> {
 }
 
 fn operation<'a>(input: &'a [u8]) -> NomResult<'a, Operation> {
-	let (i, (operands, operator)) = terminated(pair(many0(operand), operator), content_space)(input)?;
-
-	Ok((i, Operation { operator, operands }))
+	map(terminated(pair(many0(operand), operator), content_space),
+		|(operands, operator)| Operation { operator, operands })(input)
 }
 
 fn _content<'a>(input: &'a [u8]) -> NomResult<'a, Content> {
 	preceded(content_space, map(many0(operation), |operations| Content { operations }))(input)
 }
-
 
 pub fn content<'a>() -> Parser<'a, u8, Content> {
 	nom_to_pom(_content)
