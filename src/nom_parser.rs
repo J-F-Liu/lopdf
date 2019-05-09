@@ -9,10 +9,10 @@ use nom::IResult;
 use nom::bytes::complete::{tag, take as nom_take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::{ParseError, ErrorKind};
-use nom::multi::{many0, fold_many0};
+use nom::multi::{many0, fold_many0, fold_many1};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::{one_of as nom_one_of};
-use nom::sequence::{pair, preceded, terminated, tuple};
+use nom::sequence::{pair, preceded, terminated, tuple, separated_pair};
 
 // Change this to something else that implements ParseError to get a
 // different error type out of nom.
@@ -327,22 +327,25 @@ pub fn header<'a>() -> Parser<'a, u8, String> {
 	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(String::from_utf8) - nom_to_pom(eol) - nom_to_pom(comment).repeat(0..)
 }
 
-fn xref<'a>() -> Parser<'a, u8, Xref> {
-	let xref_entry = nom_to_pom(integer).map(|i| i as u32) - sym(b' ') + nom_to_pom(integer).map(|i| i as u16) - sym(b' ') + one_of(b"nf").map(|k| k == b'n') - take(2);
-	let xref_section = nom_to_pom(integer).map(|i| i as usize) - sym(b' ') + nom_to_pom(integer) - sym(b' ').opt() - nom_to_pom(eol) + xref_entry.repeat(0..);
-	let xref = seq(b"xref") * nom_to_pom(eol) * xref_section.repeat(1..) - nom_to_pom(space);
-	xref.map(|sections| {
-		sections
-			.into_iter()
-			.fold(Xref::new(0), |mut xref: Xref, ((start, _count), entries): _| {
-				for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
-					if is_normal {
-						xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
-					}
-				}
-				xref
-			})
-	})
+fn xref(input: &[u8]) -> NomResult<Xref> {
+	let xref_eol = map(alt((tag(b" \r"), tag(b" \n"), tag("\r\n"))), |_| ());
+	let xref_entry = pair(separated_pair(unsigned_int, tag(b" "), unsigned_int),
+						  contained(tag(b" "), map(nom_one_of("nf"), |k| k == 'n'), xref_eol));
+
+	let xref_section = pair(separated_pair(unsigned_int::<usize>, tag(b" "), unsigned_int::<u32>),
+							preceded(pair(opt(tag(b" ")), eol), many0(xref_entry)));
+
+	contained(pair(tag(b"xref"), eol),
+			  fold_many1(xref_section, Xref::new(0),
+						 |mut xref, ((start, _count), entries)| {
+							 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
+								 if is_normal {
+									 xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
+								 }
+							 }
+							 xref
+						 }),
+			  space)(input)
 }
 
 fn trailer<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
@@ -350,7 +353,7 @@ fn trailer<'a>(input: &'a [u8]) -> NomResult<'a, Dictionary> {
 }
 
 pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
-	(xref() + nom_to_pom(trailer)).map(|(mut xref, trailer)| {
+	(nom_to_pom(xref) + nom_to_pom(trailer)).map(|(mut xref, trailer)| {
 		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
 		(xref, trailer)
 	}) | indirect_object(reader).convert(|(_, obj)| match obj {
