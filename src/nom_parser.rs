@@ -354,13 +354,19 @@ fn trailer(input: &[u8]) -> NomResult<Dictionary> {
 }
 
 pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
-	(nom_to_pom(xref) + nom_to_pom(trailer)).map(|(mut xref, trailer)| {
-		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
-		(xref, trailer)
-	}) | indirect_object(reader).convert(|(_, obj)| match obj {
-		Object::Stream(stream) => Ok(decode_xref_stream(stream)),
-		_ => Err("Xref is not a stream object."),
-	})
+	nom_to_pom(alt((
+		map_opt(pair(xref, trailer),
+				|(mut xref, trailer)| {
+					xref.size = trailer.get(b"Size").and_then(Object::as_i64)? as u32;
+					Some((xref, trailer))
+				}),
+
+		map_opt(move |i| _indirect_object(i, reader),
+				|(_, obj)| match obj {
+					Object::Stream(stream) => Some(decode_xref_stream(stream)),
+					_ => None, // Xref is not a stream object.
+				})
+	)))
 }
 
 pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
