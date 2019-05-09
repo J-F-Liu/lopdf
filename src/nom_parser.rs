@@ -11,7 +11,7 @@ use nom::error::{ParseError, ErrorKind};
 use nom::multi::{many0, many0_count, fold_many0, fold_many1};
 use nom::combinator::{opt, map, map_res, map_opt};
 use nom::character::complete::one_of;
-use nom::sequence::{pair, preceded, terminated, tuple, separated_pair};
+use nom::sequence::{delimited, pair, preceded, terminated, tuple, separated_pair};
 
 // Change this to something else that implements ParseError to get a
 // different error type out of nom.
@@ -27,21 +27,6 @@ fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
 fn convert_result<O, E>(result: Result<O, E>, input: &[u8], error_kind: ErrorKind) -> NomResult<O> {
 	result.map(|o| (input, o)).map_err(|_| nom::Err::Error(NomError::from_error_kind(input, error_kind)))
 }
-
-// TODO: make this a part of nom
-fn contained<I, O1, O2, O3, E: ParseError<I>, F, G, H>(start: F, value: G, end: H) -> impl Fn(I) -> IResult<I, O2, E>
-	where
-	F: Fn(I) -> IResult<I, O1, E>,
-	G: Fn(I) -> IResult<I, O2, E>,
-	H: Fn(I) -> IResult<I, O3, E>,
-{
-	move |input: I| {
-		let (input, _) = start(input)?;
-		let (input, v) = value(input)?;
-		end(input).map(|(i, _)| (i, v))
-	}
-}
-
 
 fn eol(input: &[u8]) -> NomResult<()> {
 	map(alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r"))), |_| ())(input)
@@ -189,7 +174,7 @@ fn inner_literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
 }
 
 fn nested_literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
-	map(contained(tag(b"("), inner_literal_string, tag(b")")),
+	map(delimited(tag(b"("), inner_literal_string, tag(b")")),
 		|mut content| {
 			content.insert(0, b'(');
 			content.push(b')');
@@ -198,11 +183,11 @@ fn nested_literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
 }
 
 fn literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
-	contained(tag(b"("), inner_literal_string, tag(b")"))(input)
+	delimited(tag(b"("), inner_literal_string, tag(b")"))(input)
 }
 
 fn hexadecimal_string(input: &[u8]) -> NomResult<Object> {
-	map(contained(tag(b"<"),
+	map(delimited(tag(b"<"),
 				  terminated(many0(preceded(white_space, hex_char)), white_space),
 				  tag(b">")),
 		|bytes| Object::String(bytes, StringFormat::Hexadecimal))(input)
@@ -220,11 +205,11 @@ fn null(input: &[u8]) -> NomResult<Object> {
 }
 
 fn array(input: &[u8]) -> NomResult<Vec<Object>> {
-	contained(pair(tag(b"["), space), many0(_direct_object), tag(b"]"))(input)
+	delimited(pair(tag(b"["), space), many0(_direct_object), tag(b"]"))(input)
 }
 
 fn dictionary(input: &[u8]) -> NomResult<Dictionary> {
-	contained(pair(tag(b"<<"), space),
+	delimited(pair(tag(b"<<"), space),
 			  fold_many0(pair(terminated(name, space), _direct_object),
 						 Dictionary::new(),
 						 |mut dict, (key, value)| { dict.set(key, value); dict }),
@@ -307,19 +292,19 @@ fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (Obje
 }
 
 pub fn header(input: &[u8]) -> Option<String> {
-	strip_nom(map_res(contained(tag(b"%PDF-"), take_while(|c: u8| !b"\r\n".contains(&c)), pair(eol, many0_count(comment))),
+	strip_nom(map_res(delimited(tag(b"%PDF-"), take_while(|c: u8| !b"\r\n".contains(&c)), pair(eol, many0_count(comment))),
 					  |v| str::from_utf8(v).map(Into::into))(input))
 }
 
 fn xref(input: &[u8]) -> NomResult<Xref> {
 	let xref_eol = map(alt((tag(b" \r"), tag(b" \n"), tag(b"\r\n"))), |_| ());
 	let xref_entry = pair(separated_pair(unsigned_int, tag(b" "), unsigned_int),
-						  contained(tag(b" "), map(one_of("nf"), |k| k == 'n'), xref_eol));
+						  delimited(tag(b" "), map(one_of("nf"), |k| k == 'n'), xref_eol));
 
 	let xref_section = pair(separated_pair(unsigned_int::<usize>, tag(b" "), unsigned_int::<u32>),
 							preceded(pair(opt(tag(b" ")), eol), many0(xref_entry)));
 
-	contained(pair(tag(b"xref"), eol),
+	delimited(pair(tag(b"xref"), eol),
 			  fold_many1(xref_section, Xref::new(0),
 						 |mut xref, ((start, _count), entries)| {
 							 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
@@ -333,7 +318,7 @@ fn xref(input: &[u8]) -> NomResult<Xref> {
 }
 
 fn trailer(input: &[u8]) -> NomResult<Dictionary> {
-	contained(pair(tag(b"trailer"), space), dictionary, space)(input)
+	delimited(pair(tag(b"trailer"), space), dictionary, space)(input)
 }
 
 pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictionary), &'static str> {
@@ -353,7 +338,7 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictiona
 }
 
 pub fn xref_start(input: &[u8]) -> Option<i64> {
-	strip_nom(contained(
+	strip_nom(delimited(
 		pair(tag(b"startxref"), eol),
 		integer,
 		tuple((eol, tag(b"%%EOF"), space))
