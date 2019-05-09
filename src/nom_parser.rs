@@ -10,7 +10,7 @@ use nom::branch::alt;
 use nom::error::{ParseError, ErrorKind};
 use nom::multi::{many0, many0_count, fold_many0, fold_many1};
 use nom::combinator::{opt, map, map_res, map_opt};
-use nom::character::complete::one_of;
+use nom::character::complete::{digit0, digit1, one_of};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple, separated_pair};
 
 // Change this to something else that implements ParseError to get a
@@ -70,7 +70,7 @@ fn space(input: &[u8]) -> NomResult<()> {
 fn integer(input: &[u8]) -> NomResult<i64> {
 	opt(one_of("+-"))(input)
 		.and_then(|(i, sign)| {
-			map_res(take_while1(|c: u8| c.is_ascii_digit()),
+			map_res(digit1,
 					|m: &[u8]| {
 						let len = sign.map(|_| 1).unwrap_or(0) + m.len();
 						i64::from_str(str::from_utf8(&input[..len]).unwrap())
@@ -80,11 +80,11 @@ fn integer(input: &[u8]) -> NomResult<i64> {
 
 fn real(input: &[u8]) -> NomResult<f64> {
 	let (i, _) = pair(opt(one_of("+-")), alt((
-		map(tuple((take_while1(|c: u8| c.is_ascii_digit()),
+		map(tuple((digit1,
 				   tag(b"."),
-				   take_while(|c: u8| c.is_ascii_digit()))),
+				   digit0)),
 			|_| ()),
-		map(pair(tag(b"."), take_while1(|c: u8| c.is_ascii_digit())),
+		map(pair(tag(b"."), digit1),
 			|_| ())
 	)))(input)?;
 
@@ -235,8 +235,7 @@ fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 }
 
 fn unsigned_int<I: FromStr>(input: &[u8]) -> NomResult<I> {
-	map_res(take_while1(|c: u8| c.is_ascii_digit()),
-			|digits| I::from_str(str::from_utf8(digits).unwrap()))(input)
+	map_res(digit1,	|digits| I::from_str(str::from_utf8(digits).unwrap()))(input)
 }
 
 fn object_id(input: &[u8]) -> NomResult<ObjectId> {
