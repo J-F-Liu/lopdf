@@ -99,7 +99,7 @@ fn hex_char(input: &[u8]) -> NomResult<u8> {
 }
 
 fn oct_char(input: &[u8]) -> NomResult<u8> {
-	map_res(take_while_m_n(1, 3, |c: u8| c.is_ascii_hexdigit()),
+	map_res(take_while_m_n(1, 3, |c: u8| b"01234567".contains(&c)),
 			// Spec requires us to ignore any overflow.
 			|x| u16::from_str_radix(str::from_utf8(x).unwrap(), 8).map(|o| o as u8)
 	)(input)
