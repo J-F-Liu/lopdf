@@ -55,7 +55,7 @@ impl Reader {
 
 		let xref_start = Self::get_xref_start(&self.buffer)?;
 		if xref_start > self.buffer.len() {
-			return Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (xref_start)")));
+			return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)"));
 		}
 
 		let (mut xref, mut trailer) = parser::xref_and_trailer(&self)
@@ -67,7 +67,7 @@ impl Reader {
 		while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
 			let prev = prev as usize;
 			if prev > self.buffer.len() {
-				return Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (prev_xref_start)")));
+				return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev_xref_start)"));
 			}
 			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self)
 				.parse(&self.buffer[prev..])
@@ -79,7 +79,7 @@ impl Reader {
 			if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64()) {
 				let prev = prev as usize;
 				if prev > self.buffer.len() {
-					return Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (prev_xref_stream_start)")));
+					return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev_xref_stream_start)"));
 				}
 				let (prev_xref, _) = parser::xref_and_trailer(&self)
 					.parse(&self.buffer[prev..])
