@@ -69,14 +69,10 @@ fn space(input: &[u8]) -> NomResult<()> {
 }
 
 fn integer(input: &[u8]) -> NomResult<i64> {
-	opt(one_of("+-"))(input)
-		.and_then(|(i, sign)| {
-			map_res(digit1,
-					|m: &[u8]| {
-						let len = sign.map(|_| 1).unwrap_or(0) + m.len();
-						i64::from_str(str::from_utf8(&input[..len]).unwrap())
-					})(i)
-		})
+	let (i, _) = pair(opt(one_of("+-")), digit1)(input)?;
+
+	let int_input = &input[..input.len()-i.len()];
+	convert_result(i64::from_str(str::from_utf8(int_input).unwrap()), i, ErrorKind::Digit)
 }
 
 fn real(input: &[u8]) -> NomResult<f64> {
