@@ -325,7 +325,7 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictiona
 					Ok((xref, trailer))
 				}),
 
-		map(move |i| _indirect_object(i, reader),
+		map(|i| _indirect_object(i, reader),
 				|(_, obj)| match obj {
 					Object::Stream(stream) => Ok(decode_xref_stream(stream)),
 					_ => Err("Xref is not a stream object.")
