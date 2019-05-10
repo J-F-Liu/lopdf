@@ -100,7 +100,7 @@ fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
 	})
 }
 
-fn stream(reader: &Reader) -> Parser<u8, Stream> {
+fn stream(reader: &Reader) -> Parser<'_, u8, Stream> {
 	(dictionary() - space() - seq(b"stream") - eol())
 		>> move |dict: Dictionary| {
 			if let Some(length) = dict.get(b"Length").and_then(|value| {
@@ -138,7 +138,7 @@ pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
 		- space()
 }
 
-fn object(reader: &Reader) -> Parser<u8, Object> {
+fn object(reader: &Reader) -> Parser<'_, u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
@@ -154,7 +154,7 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 		- space()
 }
 
-pub fn indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {
+pub fn indirect_object(reader: &Reader) -> Parser<'_, u8, (ObjectId, Object)> {
 	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
 }
 
@@ -184,7 +184,7 @@ fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
 	seq(b"trailer") * space() * dictionary() - space()
 }
 
-pub fn xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
+pub fn xref_and_trailer(reader: &Reader) -> Parser<'_, u8, (Xref, Dictionary)> {
 	(xref() + trailer()).map(|(mut xref, trailer)| {
 		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
 		(xref, trailer)
