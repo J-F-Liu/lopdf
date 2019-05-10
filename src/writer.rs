@@ -24,7 +24,7 @@ impl Document {
 	fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
 		let mut target = CountingWrite { inner: target, bytes_written: 0 };
 		let mut xref = Xref::new(self.max_id + 1);
-		target.write_all(format!("%PDF-{}\n", self.version).as_bytes())?;
+		write!(target, "%PDF-{}\n", self.version)?;
 
 		for (&(id, generation), object) in &self.objects {
 			if object.type_name().map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name)) != Some(true) {
@@ -35,7 +35,7 @@ impl Document {
 		let xref_start = target.bytes_written;
 		Writer::write_xref(&mut target, &xref)?;
 		self.write_trailer(&mut target)?;
-		target.write_all(format!("\nstartxref\n{}\n%%EOF", xref_start).as_bytes())?;
+		write!(target, "\nstartxref\n{}\n%%EOF", xref_start)?;
 
 		Ok(())
 	}
@@ -77,9 +77,9 @@ impl Writer {
 
 	fn write_xref(file: &mut dyn Write, xref: &Xref) -> Result<()> {
 		file.write_all(b"xref\n")?;
-		file.write_all(format!("0 {}\n", xref.size).as_bytes())?;
+		write!(file, "0 {}\n", xref.size)?;
 
-		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| file.write_all(format!("{:>010} {:>05} {} \n", offset, generation, kind).as_bytes());
+		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| write!(file, "{:>010} {:>05} {} \n", offset, generation, kind);
 		write_xref_entry(0, 65535, 'f')?;
 
 		let mut obj_id = 1;
@@ -99,9 +99,9 @@ impl Writer {
 	fn write_indirect_object<W: Write>(file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &Object, xref: &mut Xref) -> Result<()> {
 		let offset = file.bytes_written as u32;
 		xref.insert(id, XrefEntry::Normal { offset, generation });
-		file.write_all(format!("{} {} obj{}", id, generation, if Writer::need_separator(object) { " " } else { "" }).as_bytes())?;
+		write!(file, "{} {} obj{}", id, generation, if Writer::need_separator(object) { " " } else { "" })?;
 		Writer::write_object(file, object)?;
-		file.write_all(format!("{}endobj\n", if Writer::need_end_separator(object) { " " } else { "" }).as_bytes())?;
+		write!(file, "{}endobj\n", if Writer::need_end_separator(object) { " " } else { "" })?;
 		Ok(())
 	}
 
@@ -126,7 +126,7 @@ impl Writer {
 			Array(ref array) => Writer::write_array(file, array),
 			Object::Dictionary(ref dict) => Writer::write_dictionary(file, dict),
 			Object::Stream(ref stream) => Writer::write_stream(file, stream),
-			Reference(ref id) => file.write_all(format!("{} {} R", id.0, id.1).as_bytes()),
+			Reference(ref id) => write!(file, "{} {} R", id.0, id.1),
 		}
 	}
 
@@ -136,7 +136,7 @@ impl Writer {
 			// white-space and delimiter chars are encoded to # sequences
 			// also encode bytes outside of the range 33 (!) to 126 (~)
 			if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) || byte < 33 || byte > 126 {
-				file.write_all(format!("#{:02X}", byte).as_bytes())?;
+				write!(file, "#{:02X}", byte)?;
 			} else {
 				file.write_all(&[byte])?;
 			}
@@ -188,7 +188,7 @@ impl Writer {
 			StringFormat::Hexadecimal => {
 				file.write_all(b"<")?;
 				for &byte in text {
-					file.write_all(format!("{:02X}", byte).as_bytes())?;
+					write!(file, "{:02X}", byte)?;
 				}
 				file.write_all(b">")?;
 			}
