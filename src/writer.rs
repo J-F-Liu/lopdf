@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Result, Write};
+use std::io::{BufWriter, Result, Write};
 use std::path::Path;
 
 use super::Object::*;
@@ -10,9 +10,9 @@ impl Document {
 	/// Save PDF document to specified file path.
 	#[inline]
 	pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
-		let mut file = File::create(path)?;
+		let mut file = BufWriter::new(File::create(path)?);
 		self.save_internal(&mut file)?;
-		Ok(file)
+		Ok(file.into_inner()?)
 	}
 
 	/// Save PDF to arbitrary target
