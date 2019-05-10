@@ -2,10 +2,9 @@
 extern crate test;
 use test::Bencher;
 
-extern crate lopdf;
+use lopdf;
 use lopdf::Object;
 
-extern crate chrono;
 use chrono::prelude::{Local, Timelike};
 
 #[bench]

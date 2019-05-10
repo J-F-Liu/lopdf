@@ -1,4 +1,3 @@
-extern crate lopdf;
 use lopdf::xobject;
 use lopdf::Document;
 use std::str::FromStr;

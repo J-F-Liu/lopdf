@@ -223,7 +223,7 @@ impl Object {
 }
 
 impl fmt::Debug for Object {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match *self {
 			Object::Null => f.write_str("null"),
 			Object::Boolean(ref value) => {
@@ -293,11 +293,11 @@ impl Dictionary {
 		self.get(b"Type").and_then(Object::as_name) == Some(type_name)
 	}
 
-	pub fn iter(&self) -> Iter<Vec<u8>, Object> {
+	pub fn iter(&self) -> Iter<'_, Vec<u8>, Object> {
 		self.0.iter()
 	}
 
-	pub fn iter_mut(&mut self) -> IterMut<Vec<u8>, Object> {
+	pub fn iter_mut(&mut self) -> IterMut<'_, Vec<u8>, Object> {
 		self.0.iter_mut()
 	}
 }
@@ -320,7 +320,7 @@ macro_rules! dictionary {
 }
 
 impl fmt::Debug for Dictionary {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		let entries = self.into_iter().map(|(key, value)| format!("/{} {:?}", String::from_utf8_lossy(key), value)).collect::<Vec<String>>();
 		write!(f, "<<{}>>", entries.concat())
 	}
