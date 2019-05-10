@@ -158,8 +158,8 @@ fn object(reader: &Reader) -> Parser<u8, Object> {
 		- space()
 }
 
-pub fn indirect_object(input: &[u8], reader: &Reader) -> Option<(ObjectId, Object)> {
-	_indirect_object(reader).parse(input).ok()
+pub fn indirect_object(input: &[u8], offset: usize, reader: &Reader) -> Result<(ObjectId, Object), pom::Error> {
+	_indirect_object(reader).parse_at(input, offset).map(|(out, _)| out)
 }
 
 fn _indirect_object(reader: &Reader) -> Parser<u8, (ObjectId, Object)> {

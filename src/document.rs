@@ -193,7 +193,7 @@ impl Document {
 
 	/// Get resources used by a page.
 	pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
-		fn collect_resources<'a>(page_node: &'a Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &'a Document) {
+		fn collect_resources(page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document) {
 			if let Some(resources_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
 				resource_ids.push(resources_id);
 			}
@@ -241,7 +241,7 @@ impl Document {
 		fonts
 	}
 
-	pub fn get_font_encoding<'a>(&'a self, font: &'a Dictionary) -> &str {
+	pub fn get_font_encoding<'a>(&self, font: &'a Dictionary) -> &'a str {
 		if let Some(encoding) = font.get(b"Encoding") {
 			return match *encoding {
 				Object::Name(ref name) => str::from_utf8(name).unwrap(),
@@ -251,7 +251,7 @@ impl Document {
 		"StandardEncoding"
 	}
 
-	pub fn decode_text<'a>(encoding: Option<&'a str>, bytes: &'a [u8]) -> String {
+	pub fn decode_text(encoding: Option<&str>, bytes: &[u8]) -> String {
 		if let Some(encoding) = encoding {
 			info!("{}", encoding);
 			match encoding {
@@ -268,7 +268,7 @@ impl Document {
 		}
 	}
 
-	pub fn encode_text<'a>(encoding: Option<&'a str>, text: &'a str) -> Vec<u8> {
+	pub fn encode_text(encoding: Option<&str>, text: &str) -> Vec<u8> {
 		if let Some(encoding) = encoding {
 			match encoding {
 				"StandardEncoding" => string_to_bytes(encodings::STANDARD_ENCODING, text),

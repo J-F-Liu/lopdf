@@ -29,6 +29,13 @@ fn convert_result<O, E>(result: Result<O, E>, input: &[u8], error_kind: ErrorKin
 	result.map(|o| (input, o)).map_err(|_| nom::Err::Error(NomError::from_error_kind(input, error_kind)))
 }
 
+#[inline]
+fn offset_stream(object: &mut Object, offset: usize) {
+	if let Object::Stream(ref mut stream) = object {
+		stream.start_position = stream.start_position.and_then(|sp| sp.checked_add(offset));
+	}
+}
+
 fn eol(input: &[u8]) -> NomResult<()> {
 	map(alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r"))), |_| ())(input)
 }
@@ -270,8 +277,12 @@ fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
 }
 
-pub fn indirect_object(input: &[u8], reader: &Reader) -> Option<(ObjectId, Object)> {
-	strip_nom(_indirect_object(input, reader))
+pub fn indirect_object<'a>(input: &'a [u8], file_offset: usize, reader: &Reader) -> Result<(ObjectId, Object), NomError> {
+	let (_, (id, mut object)) = _indirect_object(&input[file_offset..], reader).map_err(|_| ())?;
+
+	offset_stream(&mut object, file_offset);
+
+	Ok((id, object))
 }
 
 fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (ObjectId, Object)> {
@@ -280,9 +291,7 @@ fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (Obje
 	let object_offset = input.len() - i.len();
 	let (i, mut object) = terminated(|i| object(i, reader), tuple((space, opt(tag(b"endobj")), space)))(i)?;
 
-	if let Object::Stream(ref mut stream) = object {
-		stream.offset_position(object_offset);
-	}
+	offset_stream(&mut object, object_offset);
 
 	Ok((i, (object_id, object)))
 }

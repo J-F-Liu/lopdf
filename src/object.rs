@@ -366,10 +366,6 @@ impl Stream {
 		}
 	}
 
-	pub fn offset_position(&mut self, file_offset: usize) {
-		self.start_position = self.start_position.and_then(|sp| sp.checked_add(file_offset))
-	}
-
 	/// Default is that the stream may be compressed. On font streams,
 	/// set this to false, otherwise the font will be corrupt
 	#[inline]
