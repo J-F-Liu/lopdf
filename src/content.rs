@@ -1,6 +1,5 @@
 use super::parser;
 use super::{Object, Stream};
-use pom::Result;
 use std::io::{self, Write};
 use crate::writer::Writer;
 
@@ -40,14 +39,14 @@ impl Content {
 	}
 
 	/// Decode content operations.
-	pub fn decode(data: &[u8]) -> Result<Content> {
-		parser::content().parse(data)
+	pub fn decode(data: &[u8]) -> Option<Content> {
+		parser::content(data)
 	}
 }
 
 impl Stream {
 	/// Decode content after decoding all stream filters.
-	pub fn decode_content(&self) -> Result<Content> {
+	pub fn decode_content(&self) -> Option<Content> {
 		Content::decode(&self.content)
 	}
 }

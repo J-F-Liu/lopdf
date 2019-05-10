@@ -51,15 +51,14 @@ impl Reader {
 	fn read(&mut self) -> Result<()> {
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
-		let version = parser::header().parse(&self.buffer).map_err(|_| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (header)."))?;
+		let version = parser::header(&self.buffer).ok_or_else(|| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (header)."))?;
 
 		let xref_start = Self::get_xref_start(&self.buffer)?;
 		if xref_start > self.buffer.len() {
 			return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)"));
 		}
 
-		let (mut xref, mut trailer) = parser::xref_and_trailer(&self)
-			.parse(&self.buffer[xref_start..])
+		let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], self)
 			.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (xref_and_trailer).\n{:?}", err)))?;
 
 		// Read previous Xrefs of linearized or incremental updated document.
@@ -69,8 +68,7 @@ impl Reader {
 			if prev > self.buffer.len() {
 				return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev_xref_start)"));
 			}
-			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self)
-				.parse(&self.buffer[prev..])
+			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev..], &self)
 				.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (prev xref_and_trailer).\n{:?}", err)))?;
 			xref.extend(prev_xref);
 
@@ -81,8 +79,7 @@ impl Reader {
 				if prev > self.buffer.len() {
 					return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev_xref_stream_start)"));
 				}
-				let (prev_xref, _) = parser::xref_and_trailer(&self)
-					.parse(&self.buffer[prev..])
+				let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev..], &self)
 					.map_err(|_| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev xref_and_trailer)."))?;
 				xref.extend(prev_xref);
 			}
@@ -193,9 +190,7 @@ impl Reader {
 		if offset > self.buffer.len() {
 			return Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read at offset {})", offset)));
 		}
-		parser::indirect_object(self)
-			.parse_at(&self.buffer, offset)
-			.map(|(out, _)| out)
+		parser::indirect_object(&self.buffer, offset, self)
 			.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).\n{:?}", offset, err)))
 	}
 
@@ -205,9 +200,9 @@ impl Reader {
 			.and_then(|eof_pos| Self::search_substring(buffer, b"startxref", eof_pos - 25))
 			.ok_or_else(|| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)."))
 			.and_then(|xref_pos| if xref_pos <= buffer.len() {
-				match parser::xref_start().parse(&buffer[xref_pos..]) {
-					Ok(startxref) => Ok(startxref as usize),
-					Err(_) => Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start).")),
+				match parser::xref_start(&buffer[xref_pos..]) {
+					Some(startxref) => Ok(startxref as usize),
+					None => Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start).")),
 				}
 			} else {
 				Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_pos)"))

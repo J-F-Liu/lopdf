@@ -31,7 +31,7 @@ impl ObjectStream {
 			let id = chunk[0]?;
 			let offset = first_offset + chunk[1]? as usize;
 
-			let object = parser::direct_object().parse(&stream.content[offset..]).ok()?;
+			let object = parser::direct_object(&stream.content[offset..])?;
 
 			Some(((id, 0), object))
 		}).collect();

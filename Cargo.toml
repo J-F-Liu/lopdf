@@ -24,11 +24,13 @@ image = { version = "0.20.0", optional = true }
 chrono = { version = "0.3.0", optional = true }
 log = "0.4.6"
 rayon = "1.0"
+nom = { version = "5.0.0-alpha2", optional = true }
 
 [features]
 default = ["chrono_time"]
 chrono_time = ["chrono"]
 embed_image = ["image"]
+nom_parser = ["nom"]
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }

@@ -11,7 +11,9 @@ script:
   - cargo clean
   - cargo check --verbose --no-default-features
   - cargo check --verbose --features="chrono_time"
+  - cargo check --verbose --features="nom_parser"
   - cargo test --verbose
+  - cargo test --verbose --features="nom_parser"
   - cargo test --verbose --examples
 
 matrix:

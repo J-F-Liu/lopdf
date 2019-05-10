@@ -86,11 +86,11 @@ fn hexadecimal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 }
 
 fn array<'a>() -> Parser<'a, u8, Vec<Object>> {
-	sym(b'[') * space() * call(direct_object).repeat(0..) - sym(b']')
+	sym(b'[') * space() * call(_direct_object).repeat(0..) - sym(b']')
 }
 
 fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
-	let entry = name() - space() + call(direct_object);
+	let entry = name() - space() + call(_direct_object);
 	let entries = seq(b"<<") * space() * entry.repeat(0..) - seq(b">>");
 	entries.map(|entries| {
 		entries.into_iter().fold(Dictionary::new(), |mut dict: Dictionary, (key, value)| {
@@ -123,7 +123,11 @@ fn object_id<'a>() -> Parser<'a, u8, ObjectId> {
 	id - space() + gen - space()
 }
 
-pub fn direct_object<'a>() -> Parser<'a, u8, Object> {
+pub fn direct_object(input: &[u8]) -> Option<Object> {
+	_direct_object().parse(input).ok()
+}
+
+fn _direct_object<'a>() -> Parser<'a, u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
@@ -154,12 +158,16 @@ fn object(reader: &Reader) -> Parser<'_, u8, Object> {
 		- space()
 }
 
-pub fn indirect_object(reader: &Reader) -> Parser<'_, u8, (ObjectId, Object)> {
+pub fn indirect_object(input: &[u8], offset: usize, reader: &Reader) -> Result<(ObjectId, Object), pom::Error> {
+	_indirect_object(reader).parse_at(input, offset).map(|(out, _)| out)
+}
+
+fn _indirect_object(reader: &Reader) -> Parser<'_, u8, (ObjectId, Object)> {
 	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
 }
 
-pub fn header<'a>() -> Parser<'a, u8, String> {
-	seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(String::from_utf8) - eol() - comment().repeat(0..)
+pub fn header(input: &[u8]) -> Option<String> {
+	(seq(b"%PDF-") * none_of(b"\r\n").repeat(0..).convert(String::from_utf8) - eol() - comment().repeat(0..)).parse(input).ok()
 }
 
 fn xref<'a>() -> Parser<'a, u8, Xref> {
@@ -184,18 +192,22 @@ fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
 	seq(b"trailer") * space() * dictionary() - space()
 }
 
-pub fn xref_and_trailer(reader: &Reader) -> Parser<'_, u8, (Xref, Dictionary)> {
+pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictionary), pom::Error> {
+	_xref_and_trailer(reader).parse(input)
+}
+
+fn _xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
 	(xref() + trailer()).map(|(mut xref, trailer)| {
 		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
 		(xref, trailer)
-	}) | indirect_object(reader).convert(|(_, obj)| match obj {
+	}) | _indirect_object(reader).convert(|(_, obj)| match obj {
 		Object::Stream(stream) => Ok(decode_xref_stream(stream)),
 		_ => Err("Xref is not a stream object."),
 	})
 }
 
-pub fn xref_start<'a>() -> Parser<'a, u8, i64> {
-	seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()
+pub fn xref_start(input: &[u8]) -> Option<i64> {
+	(seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()).parse(input).ok()
 }
 
 // The following code create parser to parse content stream.
@@ -227,8 +239,8 @@ fn operation<'a>() -> Parser<'a, u8, Operation> {
 	operation.map(|(operands, operator)| Operation { operator, operands })
 }
 
-pub fn content<'a>() -> Parser<'a, u8, Content> {
-	content_space() * operation().repeat(0..).map(|operations| Content { operations })
+pub fn content(input: &[u8]) -> Option<Content> {
+	(content_space() * operation().repeat(0..).map(|operations| Content { operations })).parse(input).ok()
 }
 
 #[cfg(test)]
@@ -278,8 +290,8 @@ BT
 [(b) 20 (ut generally tak) 10 (e more space than \\311)] TJ
 T* (encoded streams.) Tj
 		";
-		let content = content().parse(stream);
+		let content = content(stream);
 		println!("{:?}", content);
-		assert_eq!(content.is_ok(), true);
+		assert!(content.is_some());
 	}
 }
