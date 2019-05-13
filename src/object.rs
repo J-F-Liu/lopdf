@@ -420,12 +420,57 @@ impl Stream {
 			let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict);
 			if filter.as_str() == "FlateDecode" {
 				Some(Self::decompress_zlib(self.content.as_slice(), params))
+			} else if filter.as_str() == "LZWDecode" {
+				Some(Self::decompress_lzw(self.content.as_slice(), params))
 			} else {
 				None
 			}
 		} else {
 			None
 		}
+	}
+
+	fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Vec<u8> {
+		use lzw::{MsbReader, Decoder, DecoderEarlyChange};
+		const MIN_BITS: u8 = 9;
+
+		let early_change = if let Some(params) = params {
+			params.get(b"EarlyChange").and_then(Object::as_i64).map(|v| v != 0).unwrap_or(true)
+		} else {
+			true
+		};
+
+		let output = if early_change {
+			Self::decompress_lzw_loop(input, DecoderEarlyChange::new(MsbReader::new(), MIN_BITS-1), DecoderEarlyChange::decode_bytes)
+		} else {
+			Self::decompress_lzw_loop(input, Decoder::new(MsbReader::new(), MIN_BITS-1), Decoder::decode_bytes)
+		};
+
+		Self::decompress_predictor(output, params)
+	}
+
+	fn decompress_lzw_loop<F, D>(mut input: &[u8], mut decoder: D, decode: F) -> Vec<u8>
+		where F: for<'d> Fn(&'d mut D, &[u8]) -> std::io::Result<(usize, &'d [u8])>
+	{
+		let mut output = Vec::with_capacity(input.len() * 2);
+
+		loop {
+			match decode(&mut decoder, input) {
+				Ok((consumed_bytes, out_bytes)) => {
+					output.extend(out_bytes);
+					input = &input[consumed_bytes..];
+					if input.is_empty() || consumed_bytes == 0 {
+						break;
+					}
+				},
+				Err(err) => {
+					warn!("{}", err);
+					break;
+				}
+			}
+		}
+
+		output
 	}
 
 	fn decompress_zlib(input: &[u8], params: Option<&Dictionary>) -> Vec<u8> {
