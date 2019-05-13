@@ -1,6 +1,6 @@
 [package]
 name = "lopdf"
-version = "0.21.0"
+version = "0.22.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
 homepage = "https://github.com/J-F-Liu/lopdf"
 documentation = "https://docs.rs/crate/lopdf/"
