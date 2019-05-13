@@ -412,37 +412,54 @@ impl Stream {
 	}
 
 	pub fn decompressed_content(&self) -> Option<Vec<u8>> {
-		use crate::filters::png;
+		if let Some(filter) = self.filter() {
+			if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
+				return None;
+			}
+
+			let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict);
+			if filter.as_str() == "FlateDecode" {
+				Some(Self::decompress_zlib(self.content.as_slice(), params))
+			} else {
+				None
+			}
+		} else {
+			None
+		}
+	}
+
+	fn decompress_zlib(input: &[u8], params: Option<&Dictionary>) -> Vec<u8> {
 		use flate2::read::ZlibDecoder;
 		use std::io::prelude::*;
 
-		if let Some(filter) = self.filter() {
-			if let "FlateDecode" = filter.as_str() {
-				if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
-					return None;
-				}
-				let mut data = Vec::new();
-				if !self.content.is_empty() {
-					let mut decoder = ZlibDecoder::new(self.content.as_slice());
-					decoder.read_to_end(&mut data).unwrap_or_else(|err| {
-						warn!("{}", err);
-						0
-					});
-				}
-				if let Some(params) = self.dict.get(b"DecodeParms").and_then(Object::as_dict) {
-					let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
-					if predictor >= 10 && predictor <= 15 {
-						let pixels_per_row = params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1) as usize;
-						let colors = params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1) as usize;
-						let bits = params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8) as usize;
-						let bytes_per_pixel = colors * bits / 8;
-						data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
-					}
-				}
-				return Some(data);
-			}
+		let mut output = Vec::with_capacity(input.len() * 2);
+		let mut decoder = ZlibDecoder::new(input);
+
+		if !input.is_empty() {
+			decoder.read_to_end(&mut output).unwrap_or_else(|err| {
+				warn!("{}", err);
+				0
+			});
 		}
-		None
+		Self::decompress_predictor(output, params)
+	}
+
+	fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>) -> Vec<u8> {
+		use crate::filters::png;
+
+		if let Some(params) = params {
+			let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
+			if predictor >= 10 && predictor <= 15 {
+				let pixels_per_row = params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1) as usize;
+				let colors = params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1) as usize;
+				let bits = params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8) as usize;
+				let bytes_per_pixel = colors * bits / 8;
+				data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
+			}
+			data
+		} else {
+			data
+		}
 	}
 
 	pub fn decompress(&mut self) {
