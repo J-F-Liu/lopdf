@@ -9,7 +9,7 @@ use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
 use nom::branch::alt;
 use nom::error::{ParseError, ErrorKind};
 use nom::multi::{many0, many0_count, fold_many0, fold_many1};
-use nom::combinator::{opt, map, map_res, map_opt};
+use nom::combinator::{opt, map, map_res, map_opt, verify};
 use nom::character::{is_hex_digit, is_oct_digit};
 use nom::character::complete::{digit0, digit1, one_of};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple, separated_pair};
@@ -97,7 +97,7 @@ fn real(input: &[u8]) -> NomResult<f64> {
 }
 
 fn hex_char(input: &[u8]) -> NomResult<u8> {
-	map_res(take_while_m_n(2, 2, is_hex_digit),
+	map_res(verify(take(2usize), |h: &[u8]| h.iter().copied().all(is_hex_digit)),
 			|x| u8::from_str_radix(str::from_utf8(x).unwrap(), 16)
 	)(input)
 }
