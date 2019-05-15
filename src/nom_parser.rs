@@ -97,7 +97,7 @@ fn real(input: &[u8]) -> NomResult<f64> {
 }
 
 fn hex_char(input: &[u8]) -> NomResult<u8> {
-	map_res(verify(take(2usize), |h: &[u8]| h.iter().copied().all(is_hex_digit)),
+	map_res(verify(take(2usize), |h: &[u8]| h.iter().cloned().all(is_hex_digit)),
 			|x| u8::from_str_radix(str::from_utf8(x).unwrap(), 16)
 	)(input)
 }
