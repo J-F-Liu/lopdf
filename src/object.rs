@@ -374,10 +374,28 @@ impl Stream {
 		self
 	}
 
+	// Return first filter
 	pub fn filter(&self) -> Option<String> {
-		self.dict.get(b"Filter")
-			.and_then(Object::as_name_str)
-			.map(Into::into)
+		self.filters().and_then(|f| f.into_iter().nth(0))
+	}
+
+	pub fn filters(&self) -> Option<Vec<String>> {
+		let filter = self.dict.get(b"Filter")?;
+
+		if let Some(name) = filter.as_name_str() {
+			Some(vec![name.into()])
+		} else if let Some(names) = filter.as_array() {
+			let out_names: Vec<_> = names.iter().filter_map(Object::as_name_str).map(Into::into).collect();
+
+			// It is an error if a single conversion fails.
+			if out_names.len() == names.len() {
+				Some(out_names)
+			} else {
+				None
+			}
+		} else {
+			None
+		}
 	}
 
 	pub fn set_content(&mut self, content: Vec<u8>) {
