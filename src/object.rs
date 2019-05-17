@@ -454,11 +454,7 @@ impl Stream {
 		use lzw::{MsbReader, Decoder, DecoderEarlyChange};
 		const MIN_BITS: u8 = 9;
 
-		let early_change = if let Some(params) = params {
-			params.get(b"EarlyChange").and_then(Object::as_i64).map(|v| v != 0).unwrap_or(true)
-		} else {
-			true
-		};
+		let early_change = params.and_then(|p| p.get(b"EarlyChange")).and_then(Object::as_i64).map(|v| v != 0).unwrap_or(true);
 
 		let output = if early_change {
 			Self::decompress_lzw_loop(input, DecoderEarlyChange::new(MsbReader::new(), MIN_BITS-1), DecoderEarlyChange::decode_bytes)
