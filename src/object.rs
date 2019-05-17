@@ -428,20 +428,26 @@ impl Stream {
 
 	pub fn decompressed_content(&self) -> Option<Vec<u8>> {
 		let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict);
+		let filters = self.filters()?;
 
 		if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
 			return None;
 		}
 
-		if let Some(filter) = self.filter() {
-			match filter.as_str() {
-				"FlateDecode" => Some(Self::decompress_zlib(self.content.as_slice(), params)),
-				"LZWDecode" => Some(Self::decompress_lzw(self.content.as_slice(), params)),
-				_ => None,
-			}
-		} else {
-			None
+		let mut input = self.content.as_slice();
+		let mut output = None;
+
+		// Filters are in decoding order.
+		for filter in filters {
+			output = Some(match filter.as_str() {
+				"FlateDecode" => Self::decompress_zlib(input, params),
+				"LZWDecode" => Self::decompress_lzw(input, params),
+				_ => { return None; },
+			});
+			input = output.as_ref().unwrap();
 		}
+
+		output
 	}
 
 	fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Vec<u8> {
