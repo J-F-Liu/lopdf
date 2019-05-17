@@ -375,12 +375,9 @@ impl Stream {
 	}
 
 	pub fn filter(&self) -> Option<String> {
-		if let Some(filter) = self.dict.get(b"Filter") {
-			if let Some(filter) = filter.as_name() {
-				return Some(String::from_utf8(filter.to_vec()).unwrap()); // so as to pass borrow checker
-			}
-		}
-		None
+		self.dict.get(b"Filter")
+			.and_then(Object::as_name_str)
+			.map(Into::into)
 	}
 
 	pub fn set_content(&mut self, content: Vec<u8>) {
