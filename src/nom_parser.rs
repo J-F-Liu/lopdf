@@ -451,4 +451,25 @@ T* (encoded streams.) Tj
 		println!("{:?}", content);
 		assert!(content.is_some());
 	}
+
+	#[test]
+	fn hex_partial() {
+		// Example from PDF specification.
+		let out = tstrip(hexadecimal_string(b"<901FA>"));
+
+		match out {
+			Some(Object::String(s, _)) => assert_eq!(s, b"\x90\x1F\xA0".to_vec()),
+			_ => panic!(format!("unexpected {:?}", out)),
+		}
+	}
+
+	#[test]
+	fn hex_separated() {
+		let out = tstrip(hexadecimal_string(b"<9 01F A>"));
+
+		match out {
+			Some(Object::String(s, _)) => assert_eq!(s, b"\x90\x1F\xA0".to_vec()),
+			_ => panic!(format!("unexpected {:?}", out)),
+		}
+	}
 }
