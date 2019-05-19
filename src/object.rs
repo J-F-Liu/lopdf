@@ -374,13 +374,28 @@ impl Stream {
 		self
 	}
 
+	// Return first filter
 	pub fn filter(&self) -> Option<String> {
-		if let Some(filter) = self.dict.get(b"Filter") {
-			if let Some(filter) = filter.as_name() {
-				return Some(String::from_utf8(filter.to_vec()).unwrap()); // so as to pass borrow checker
+		self.filters().and_then(|f| f.into_iter().nth(0))
+	}
+
+	pub fn filters(&self) -> Option<Vec<String>> {
+		let filter = self.dict.get(b"Filter")?;
+
+		if let Some(name) = filter.as_name_str() {
+			Some(vec![name.into()])
+		} else if let Some(names) = filter.as_array() {
+			let out_names: Vec<_> = names.iter().filter_map(Object::as_name_str).map(Into::into).collect();
+
+			// It is an error if a single conversion fails.
+			if out_names.len() == names.len() {
+				Some(out_names)
+			} else {
+				None
 			}
+		} else {
+			None
 		}
-		None
 	}
 
 	pub fn set_content(&mut self, content: Vec<u8>) {
@@ -412,33 +427,34 @@ impl Stream {
 	}
 
 	pub fn decompressed_content(&self) -> Option<Vec<u8>> {
-		if let Some(filter) = self.filter() {
-			if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
-				return None;
-			}
+		let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict);
+		let filters = self.filters()?;
 
-			let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict);
-			if filter.as_str() == "FlateDecode" {
-				Some(Self::decompress_zlib(self.content.as_slice(), params))
-			} else if filter.as_str() == "LZWDecode" {
-				Some(Self::decompress_lzw(self.content.as_slice(), params))
-			} else {
-				None
-			}
-		} else {
-			None
+		if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
+			return None;
 		}
+
+		let mut input = self.content.as_slice();
+		let mut output = None;
+
+		// Filters are in decoding order.
+		for filter in filters {
+			output = Some(match filter.as_str() {
+				"FlateDecode" => Self::decompress_zlib(input, params),
+				"LZWDecode" => Self::decompress_lzw(input, params),
+				_ => { return None; },
+			});
+			input = output.as_ref().unwrap();
+		}
+
+		output
 	}
 
 	fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Vec<u8> {
 		use lzw::{MsbReader, Decoder, DecoderEarlyChange};
 		const MIN_BITS: u8 = 9;
 
-		let early_change = if let Some(params) = params {
-			params.get(b"EarlyChange").and_then(Object::as_i64).map(|v| v != 0).unwrap_or(true)
-		} else {
-			true
-		};
+		let early_change = params.and_then(|p| p.get(b"EarlyChange")).and_then(Object::as_i64).map(|v| v != 0).unwrap_or(true);
 
 		let output = if early_change {
 			Self::decompress_lzw_loop(input, DecoderEarlyChange::new(MsbReader::new(), MIN_BITS-1), DecoderEarlyChange::decode_bytes)
