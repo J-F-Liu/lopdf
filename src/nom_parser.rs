@@ -190,11 +190,25 @@ fn literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
 	delimited(tag(b"("), inner_literal_string, tag(b")"))(input)
 }
 
+#[inline]
+fn hex_digit(input: &[u8]) -> NomResult<u8> {
+	map_opt(take(1usize), |c: &[u8]| {
+		str::from_utf8(c).ok()
+			.and_then(|c| u8::from_str_radix(c, 16).ok())
+	})(input)
+}
+
 fn hexadecimal_string(input: &[u8]) -> NomResult<Object> {
 	map(delimited(tag(b"<"),
-				  terminated(many0(preceded(white_space, hex_char)), white_space),
+				  terminated(fold_many0(preceded(white_space, hex_digit),
+							 (Vec::new(), false),
+							 |state, c| match state {
+								 (mut out, false) => { out.push(c << 4); (out, true) },
+								 (mut out, true) => { *out.last_mut().unwrap() |= c; (out, false) },
+							 }),
+							 white_space),
 				  tag(b">")),
-		|bytes| Object::String(bytes, StringFormat::Hexadecimal))(input)
+		|(bytes, _)| Object::String(bytes, StringFormat::Hexadecimal))(input)
 }
 
 fn boolean(input: &[u8]) -> NomResult<Object> {
@@ -450,5 +464,26 @@ T* (encoded streams.) Tj
 		let content = tstrip(_content(stream));
 		println!("{:?}", content);
 		assert!(content.is_some());
+	}
+
+	#[test]
+	fn hex_partial() {
+		// Example from PDF specification.
+		let out = tstrip(hexadecimal_string(b"<901FA>"));
+
+		match out {
+			Some(Object::String(s, _)) => assert_eq!(s, b"\x90\x1F\xA0".to_vec()),
+			_ => panic!(format!("unexpected {:?}", out)),
+		}
+	}
+
+	#[test]
+	fn hex_separated() {
+		let out = tstrip(hexadecimal_string(b"<9 01F A>"));
+
+		match out {
+			Some(Object::String(s, _)) => assert_eq!(s, b"\x90\x1F\xA0".to_vec()),
+			_ => panic!(format!("unexpected {:?}", out)),
+		}
 	}
 }
