@@ -135,7 +135,7 @@ fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
 					b'b' => Some(b'\x08'),
 					b'f' => Some(b'\x0C'),
 					b'\\' => Some(b'\\'),
-					_ => None,
+					_ => Some(c[0]),
 				}
 			})(i), Some),
 
