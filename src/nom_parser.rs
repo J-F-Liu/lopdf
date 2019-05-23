@@ -128,17 +128,12 @@ fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
 		alt((
 			map(oct_char, Some),
 			map(eol, |_| None),
-			map(|i| map_opt(take(1usize), |c: &[u8]| {
-				match c[0] {
-					b'n' => Some(b'\n'),
-					b'r' => Some(b'\r'),
-					b't' => Some(b'\t'),
-					b'b' => Some(b'\x08'),
-					b'f' => Some(b'\x0C'),
-					_ => Some(c[0]),
-				}
-			})(i), Some),
-
+			map(tag(b"n"), |_| Some(b'\n')),
+			map(tag(b"r"), |_| Some(b'\r')),
+			map(tag(b"t"), |_| Some(b'\t')),
+			map(tag(b"b"), |_| Some(b'\x08')),
+			map(tag(b"f"), |_| Some(b'\x0C')),
+			map(take(1usize), |c: &[u8]| Some(c[0])),
 		))(i)
 	})
 }
