@@ -126,21 +126,19 @@ fn name(input: &[u8]) -> NomResult<Vec<u8>> {
 fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
 	tag(b"\\")(input).and_then(|(i, _)| {
 		alt((
+			map(oct_char, Some),
+			map(eol, |_| None),
 			map(|i| map_opt(take(1usize), |c: &[u8]| {
 				match c[0] {
-					b'(' | b')' => Some(c[0]),
 					b'n' => Some(b'\n'),
 					b'r' => Some(b'\r'),
 					b't' => Some(b'\t'),
 					b'b' => Some(b'\x08'),
 					b'f' => Some(b'\x0C'),
-					b'\\' => Some(b'\\'),
 					_ => Some(c[0]),
 				}
 			})(i), Some),
 
-			map(oct_char, Some),
-			map(eol, |_| None),
 		))(i)
 	})
 }
