@@ -147,7 +147,7 @@ impl Reader {
 	}
 
 	fn get_stream_length(&self, object_id: ObjectId) -> Option<i64> {
-		let object = self.document.get_object(object_id).unwrap();
+		let object = self.document.get_object(object_id)?;
 		match object {
 			Object::Stream(ref stream) => stream.dict.get(b"Length").and_then(|value| {
 				if let Some(id) = value.as_reference() {

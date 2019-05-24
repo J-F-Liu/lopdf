@@ -23,7 +23,7 @@ impl Document {
 	}
 
 	fn get_or_create_resources_mut(&mut self, page_id: ObjectId) -> Option<&mut Object> {
-		let page = self.get_object_mut(page_id).and_then(Object::as_dict_mut).unwrap();
+		let page = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
 		if page.has(b"Resources") {
 			if let Some(_res_id) = page.get(b"Resources").and_then(Object::as_reference) {
 				// self.get_object_mut(res_id)
@@ -40,7 +40,7 @@ impl Document {
 	pub fn get_or_create_resources(&mut self, page_id: ObjectId) -> Option<&mut Object> {
 		let mut resources_id = None;
 		{
-			let page = self.get_object(page_id).and_then(Object::as_dict).unwrap();
+			let page = self.get_object(page_id).and_then(Object::as_dict)?;
 			if page.has(b"Resources") {
 				resources_id = page.get(b"Resources").and_then(Object::as_reference);
 			}
