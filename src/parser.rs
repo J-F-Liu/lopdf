@@ -1,5 +1,7 @@
 use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use crate::content::*;
+use crate::{Error, Result};
+use crate::error::XrefError;
 use crate::reader::Reader;
 use crate::xref::*;
 use pom::char_class::{alpha, hex_digit, multispace, oct_digit};
@@ -158,8 +160,8 @@ fn object(reader: &Reader) -> Parser<'_, u8, Object> {
 		- space()
 }
 
-pub fn indirect_object(input: &[u8], offset: usize, reader: &Reader) -> Result<(ObjectId, Object), pom::Error> {
-	_indirect_object(reader).parse_at(input, offset).map(|(out, _)| out)
+pub fn indirect_object(input: &[u8], offset: usize, reader: &Reader) -> Result<(ObjectId, Object)> {
+	_indirect_object(reader).parse_at(input, offset).map(|(out, _)| out).map_err(|_| Error::Parse{ offset })
 }
 
 fn _indirect_object(reader: &Reader) -> Parser<'_, u8, (ObjectId, Object)> {
@@ -192,8 +194,8 @@ fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
 	seq(b"trailer") * space() * dictionary() - space()
 }
 
-pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictionary), pom::Error> {
-	_xref_and_trailer(reader).parse(input)
+pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictionary)> {
+	_xref_and_trailer(reader).parse(input).map_err(|_| Error::Xref(XrefError::Parse))
 }
 
 fn _xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
@@ -201,8 +203,8 @@ fn _xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
 		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
 		(xref, trailer)
 	}) | _indirect_object(reader).convert(|(_, obj)| match obj {
-		Object::Stream(stream) => Ok(decode_xref_stream(stream)),
-		_ => Err("Xref is not a stream object."),
+		Object::Stream(stream) => decode_xref_stream(stream),
+		_ => Err(Error::Xref(XrefError::Parse)),
 	})
 }
 

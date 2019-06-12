@@ -284,10 +284,10 @@ fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
 }
 
-pub fn indirect_object<'a>(input: &'a [u8], file_offset: usize, reader: &Reader) -> crate::Result<(ObjectId, Object)> {
-	let (_, (id, mut object)) = _indirect_object(&input[file_offset..], reader).map_err(|_| Error::Parse{ offset: file_offset })?;
+pub fn indirect_object<'a>(input: &'a [u8], offset: usize, reader: &Reader) -> crate::Result<(ObjectId, Object)> {
+	let (_, (id, mut object)) = _indirect_object(&input[offset..], reader).map_err(|_| Error::Parse{ offset })?;
 
-	offset_stream(&mut object, file_offset);
+	offset_stream(&mut object, offset);
 
 	Ok((id, object))
 }
