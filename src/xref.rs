@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 
 use crate::{Error, Result};
+use crate::error::XrefError;
 
 #[derive(Debug, Clone)]
 pub struct Xref {
@@ -73,39 +74,42 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
 	stream.decompress();
 	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
-	let size = dict.get(b"Size").and_then(Object::as_i64).ok_or(Error::Trailer)?;
+	let size = dict.get(b"Size").and_then(Object::as_i64).ok_or(Error::Xref(XrefError::Parse))?;
 	let mut xref = Xref::new(size as u32);
 	{
 		let section_indice = dict
 			.get(b"Index")
-			.and_then(Object::as_array)
-			.map(|array| array.iter().map(|n| n.as_i64().unwrap()).collect())
+			.and_then(parse_integer_array)
 			.unwrap_or_else(|| vec![0, size]);
-		let field_widths: Vec<usize> = dict
+		let field_widths = dict
 			.get(b"W")
-			.and_then(Object::as_array)
-			.map(|array| array.iter().map(|n| n.as_i64().unwrap() as usize).collect())
-			.ok_or(Error::Trailer)?;
-		let mut bytes1 = vec![0_u8; field_widths[0]];
-		let mut bytes2 = vec![0_u8; field_widths[1]];
-		let mut bytes3 = vec![0_u8; field_widths[2]];
+			.and_then(parse_integer_array)
+			.ok_or(Error::Xref(XrefError::Parse))?;
+
+		if field_widths.len() < 3 {
+			return Err(Error::Xref(XrefError::Parse));
+		}
+
+		let mut bytes1 = vec![0_u8; field_widths[0] as usize];
+		let mut bytes2 = vec![0_u8; field_widths[1] as usize];
+		let mut bytes3 = vec![0_u8; field_widths[2] as usize];
 
 		for i in 0..section_indice.len() / 2 {
 			let start = section_indice[2 * i];
 			let count = section_indice[2 * i + 1];
 
 			for j in 0..count {
-				let entry_type = if !bytes1.is_empty() { read_big_endian_interger(&mut reader, bytes1.as_mut_slice()) } else { 1 };
+				let entry_type = if !bytes1.is_empty() { read_big_endian_integer(&mut reader, bytes1.as_mut_slice())? } else { 1 };
 				match entry_type {
 					0 => {
 						//free object
-						read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
-						read_big_endian_interger(&mut reader, bytes3.as_mut_slice());
+						read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
+						read_big_endian_integer(&mut reader, bytes3.as_mut_slice())?;
 					}
 					1 => {
 						//normal object
-						let offset = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
-						let generation = if !bytes3.is_empty() { read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) } else { 0 } as u16;
+						let offset = read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
+						let generation = if !bytes3.is_empty() { read_big_endian_integer(&mut reader, bytes3.as_mut_slice())? } else { 0 } as u16;
 						xref.insert(
 							(start + j) as u32,
 							XrefEntry::Normal {
@@ -116,8 +120,8 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
 					}
 					2 => {
 						//compressed object
-						let container = read_big_endian_interger(&mut reader, bytes2.as_mut_slice());
-						let index = read_big_endian_interger(&mut reader, bytes3.as_mut_slice()) as u16;
+						let container = read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
+						let index = read_big_endian_integer(&mut reader, bytes3.as_mut_slice())? as u16;
 						xref.insert((start + j) as u32, XrefEntry::Compressed { container, index });
 					}
 					_ => {}
@@ -131,11 +135,22 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
 	Ok((xref, dict))
 }
 
-fn read_big_endian_interger(reader: &mut Cursor<Vec<u8>>, buffer: &mut [u8]) -> u32 {
-	reader.read_exact(buffer).unwrap();
+fn read_big_endian_integer(reader: &mut Cursor<Vec<u8>>, buffer: &mut [u8]) -> Result<u32> {
+	reader.read_exact(buffer)?;
 	let mut value = 0;
 	for &mut byte in buffer {
 		value = (value << 8) + u32::from(byte);
 	}
-	value
+	Ok(value)
+}
+
+fn parse_integer_array(array: &Object) -> Option<Vec<i64>> {
+	let array = array.as_array()?;
+	let mut out = Vec::with_capacity(array.len());
+
+	for n in array {
+		out.push(n.as_i64()?);
+	}
+
+	Some(out)
 }
