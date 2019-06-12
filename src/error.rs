@@ -8,6 +8,7 @@ pub enum Error {
 	Xref(XrefError),
 	Offset(usize),
 	Parse {offset: usize},
+	ContentDecode,
 }
 
 impl fmt::Display for Error {
@@ -19,6 +20,7 @@ impl fmt::Display for Error {
 			Error::Xref(e) => write!(f, "Invalid cross-reference table ({})", e),
 			Error::Offset(o) => write!(f, "Invalid file offset: {}", o),
 			Error::Parse{offset, ..} => write!(f, "Invalid object at byte {}", offset),
+			Error::ContentDecode => write!(f, "Could not decode content"),
 		}
     }
 }

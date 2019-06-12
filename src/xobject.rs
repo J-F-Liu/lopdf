@@ -1,6 +1,7 @@
 use super::content::*;
 use super::Object::*;
 use super::{Dictionary, Document, ObjectId, Stream};
+use crate::Result;
 
 #[cfg(feature = "embed_image")]
 use image::{self, ColorType, GenericImageView, ImageFormat};
@@ -66,11 +67,11 @@ pub fn image<P: AsRef<Path>>(path: P) -> Stream {
 
 impl Document {
 	#[cfg(feature = "embed_image")]
-	pub fn insert_image(&mut self, page_id: ObjectId, img_object: Stream, position: (f64, f64), size: (f64, f64)) {
+	pub fn insert_image(&mut self, page_id: ObjectId, img_object: Stream, position: (f64, f64), size: (f64, f64)) -> Result<()> {
 		let img_id = self.add_object(img_object);
 		let img_name = format!("X{}", img_id.0);
 
-		let mut content = self.get_and_decode_page_content(page_id);
+		let mut content = self.get_and_decode_page_content(page_id)?;
 		// content.operations.insert(0, Operation::new("q", vec![]));
 		// content.operations.push(Operation::new("Q", vec![]));
 		content.operations.push(Operation::new("q", vec![]));
@@ -82,13 +83,15 @@ impl Document {
 		let modified_contnet = content.encode().unwrap();
 		self.add_xobject(page_id, img_name, img_id);
 		self.change_page_content(page_id, modified_contnet);
+
+		Ok(())
 	}
 
-	pub fn insert_form_object(&mut self, page_id: ObjectId, form_obj: Stream) {
+	pub fn insert_form_object(&mut self, page_id: ObjectId, form_obj: Stream) -> Result<()> {
 		let form_id = self.add_object(form_obj);
 		let form_name = format!("X{}", form_id.0);
 
-		let mut content = self.get_and_decode_page_content(page_id);
+		let mut content = self.get_and_decode_page_content(page_id)?;
 		content.operations.insert(0, Operation::new("q", vec![]));
 		content.operations.push(Operation::new("Q", vec![]));
 		// content.operations.push(Operation::new("q", vec![]));
@@ -97,6 +100,8 @@ impl Document {
 		let modified_contnet = content.encode().unwrap();
 		self.add_xobject(page_id, form_name, form_id);
 		self.change_page_content(page_id, modified_contnet);
+
+		Ok(())
 	}
 }
 
@@ -108,6 +113,6 @@ fn insert_image() {
 	let pages = doc.get_pages();
 	let page_id = *pages.get(&1).expect(&format!("Page {} not exist.", 1));
 	let img = xobject::image("assets/pdf_icon.jpg");
-	doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0));
+	doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0)).unwrap();
 	doc.save("test_5_image.pdf").unwrap();
 }

@@ -1,6 +1,7 @@
 use super::parser;
 use super::{Object, Stream};
-use std::io::{self, Write};
+use std::io::Write;
+use crate::{Error, Result};
 use crate::writer::Writer;
 
 #[derive(Debug, Clone)]
@@ -25,7 +26,7 @@ pub struct Content {
 
 impl Content {
 	/// Encode content operations.
-	pub fn encode(&self) -> io::Result<Vec<u8>> {
+	pub fn encode(&self) -> Result<Vec<u8>> {
 		let mut buffer = Vec::new();
 		for operation in &self.operations {
 			for operand in &operation.operands {
@@ -39,14 +40,14 @@ impl Content {
 	}
 
 	/// Decode content operations.
-	pub fn decode(data: &[u8]) -> Option<Content> {
-		parser::content(data)
+	pub fn decode(data: &[u8]) -> Result<Content> {
+		parser::content(data).ok_or(Error::ContentDecode)
 	}
 }
 
 impl Stream {
 	/// Decode content after decoding all stream filters.
-	pub fn decode_content(&self) -> Option<Content> {
+	pub fn decode_content(&self) -> Result<Content> {
 		Content::decode(&self.content)
 	}
 }
