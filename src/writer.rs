@@ -24,7 +24,7 @@ impl Document {
 	fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
 		let mut target = CountingWrite { inner: target, bytes_written: 0 };
 		let mut xref = Xref::new(self.max_id + 1);
-		write!(target, "%PDF-{}\n", self.version)?;
+		writeln!(target, "%PDF-{}", self.version)?;
 
 		for (&(id, generation), object) in &self.objects {
 			if object.type_name().map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name)) != Some(true) {
@@ -76,10 +76,9 @@ impl Writer {
 	}
 
 	fn write_xref(file: &mut dyn Write, xref: &Xref) -> Result<()> {
-		file.write_all(b"xref\n")?;
-		write!(file, "0 {}\n", xref.size)?;
+		writeln!(file, "xref\n0 {}", xref.size)?;
 
-		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| write!(file, "{:>010} {:>05} {} \n", offset, generation, kind);
+		let mut write_xref_entry = |offset: u32, generation: u16, kind: char| writeln!(file, "{:>010} {:>05} {} ", offset, generation, kind);
 		write_xref_entry(0, 65535, 'f')?;
 
 		let mut obj_id = 1;
@@ -101,7 +100,7 @@ impl Writer {
 		xref.insert(id, XrefEntry::Normal { offset, generation });
 		write!(file, "{} {} obj{}", id, generation, if Writer::need_separator(object) { " " } else { "" })?;
 		Writer::write_object(file, object)?;
-		write!(file, "{}endobj\n", if Writer::need_end_separator(object) { " " } else { "" })?;
+		writeln!(file, "{}endobj", if Writer::need_end_separator(object) { " " } else { "" })?;
 		Ok(())
 	}
 
