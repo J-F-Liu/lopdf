@@ -1,5 +1,4 @@
-use lopdf::{Document, Object};
-use std::io::Result;
+use lopdf::{Document, Object, Result};
 
 fn modify_text() -> Result<Document> {
 	let mut doc = Document::load("assets/example.pdf")?;

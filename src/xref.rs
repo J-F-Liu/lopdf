@@ -73,7 +73,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
 	stream.decompress();
 	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
-	let size = dict.get(b"Size").and_then(Object::as_i64).ok_or(Error::InvalidTrailer)?;
+	let size = dict.get(b"Size").and_then(Object::as_i64).ok_or(Error::Trailer)?;
 	let mut xref = Xref::new(size as u32);
 	{
 		let section_indice = dict
@@ -85,7 +85,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
 			.get(b"W")
 			.and_then(Object::as_array)
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap() as usize).collect())
-			.ok_or(Error::InvalidTrailer)?;
+			.ok_or(Error::Trailer)?;
 		let mut bytes1 = vec![0_u8; field_widths[0]];
 		let mut bytes2 = vec![0_u8; field_widths[1]];
 		let mut bytes3 = vec![0_u8; field_widths[2]];
