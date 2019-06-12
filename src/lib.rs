@@ -18,3 +18,6 @@ mod processor;
 mod reader;
 mod writer;
 pub mod xobject;
+
+mod error;
+pub use error::{Error, Result};

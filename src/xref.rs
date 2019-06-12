@@ -2,6 +2,8 @@ use super::{Dictionary, Stream};
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 
+use crate::{Error, Result};
+
 #[derive(Debug, Clone)]
 pub struct Xref {
 	/// Entries for indirect object.
@@ -67,11 +69,11 @@ impl XrefEntry {
 	}
 }
 
-pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
+pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
 	stream.decompress();
 	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
-	let size = dict.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.");
+	let size = dict.get(b"Size").and_then(Object::as_i64).ok_or(Error::InvalidTrailer)?;
 	let mut xref = Xref::new(size as u32);
 	{
 		let section_indice = dict
@@ -83,7 +85,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 			.get(b"W")
 			.and_then(Object::as_array)
 			.map(|array| array.iter().map(|n| n.as_i64().unwrap() as usize).collect())
-			.expect("W is absent in trailer.");
+			.ok_or(Error::InvalidTrailer)?;
 		let mut bytes1 = vec![0_u8; field_widths[0]];
 		let mut bytes2 = vec![0_u8; field_widths[1]];
 		let mut bytes3 = vec![0_u8; field_widths[2]];
@@ -126,7 +128,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> (Xref, Dictionary) {
 	dict.remove(b"Length");
 	dict.remove(b"W");
 	dict.remove(b"Index");
-	(xref, dict)
+	Ok((xref, dict))
 }
 
 fn read_big_endian_interger(reader: &mut Cursor<Vec<u8>>, buffer: &mut [u8]) -> u32 {
