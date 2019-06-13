@@ -25,7 +25,7 @@ fn test_modify() {
 
 fn replace_text() -> Result<Document> {
 	let mut doc = Document::load("assets/example.pdf")?;
-	doc.replace_text(1, "Hello World!", "Modified text!");
+	doc.replace_text(1, "Hello World!", "Modified text!")?;
 	doc.save("test_4_replace.pdf")?;
 
 	let doc = Document::load("test_4_replace.pdf")?;
@@ -34,7 +34,7 @@ fn replace_text() -> Result<Document> {
 
 #[test]
 fn test_replace() {
-	assert_eq!(replace_text().unwrap().extract_text(&[1]), "Modified text!\n");
+	assert_eq!(replace_text().unwrap().extract_text(&[1]).unwrap(), "Modified text!\n");
 }
 
 #[test]

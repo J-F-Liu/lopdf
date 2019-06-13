@@ -9,6 +9,9 @@ pub enum Error {
 	Offset(usize),
 	Parse {offset: usize},
 	ContentDecode,
+	TypeError,
+	ObjectNotFound,
+	PageNumberNotFound(u32),
 }
 
 impl fmt::Display for Error {
@@ -21,6 +24,9 @@ impl fmt::Display for Error {
 			Error::Offset(o) => write!(f, "Invalid file offset: {}", o),
 			Error::Parse{offset, ..} => write!(f, "Invalid object at byte {}", offset),
 			Error::ContentDecode => write!(f, "Could not decode content"),
+			Error::TypeError => write!(f, "An object does not have the expected type"),
+			Error::ObjectNotFound => write!(f, "A required object was not found"),
+			Error::PageNumberNotFound(p) => write!(f, "Page number {} could not be found", p),
 		}
     }
 }

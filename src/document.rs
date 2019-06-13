@@ -7,7 +7,7 @@ use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use log::info;
 use std::collections::BTreeMap;
-use std::io::{self, Write};
+use std::io::Write;
 use std::str;
 
 /// PDF document.
@@ -169,7 +169,7 @@ impl Document {
 	}
 
 	/// Get content of a page.
-	pub fn get_page_content(&self, page_id: ObjectId) -> io::Result<Vec<u8>> {
+	pub fn get_page_content(&self, page_id: ObjectId) -> Result<Vec<u8>> {
 		let mut content = Vec::new();
 		let content_streams = self.get_page_contents(page_id);
 		for object_id in content_streams {

@@ -1,9 +1,10 @@
-use super::content::Content;
-use super::{Document, Object, ObjectId};
+use crate::content::Content;
+use crate::{Document, Object, ObjectId};
+use crate::{Error, Result};
 use log::info;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{Result, Write};
+use std::io::Write;
 
 impl Document {
 	/// Change producer of document information dictionary.
@@ -145,7 +146,7 @@ impl Document {
 		self.max_id = new_id - 1;
 	}
 
-	pub fn extract_text(&self, page_numbers: &[u32]) -> String {
+	pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
 		fn collect_text(text: &mut String, encoding: Option<&str>, operands: &[Object]) {
 			for operand in operands.iter() {
 				match *operand {
@@ -166,13 +167,13 @@ impl Document {
 			let page_id = pages[page_number];
 			let fonts = self.get_page_fonts(page_id);
 			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<Vec<u8>, &str>>();
-			let content_data = self.get_page_content(page_id).unwrap();
-			let content = Content::decode(&content_data).unwrap();
+			let content_data = self.get_page_content(page_id)?;
+			let content = Content::decode(&content_data)?;
 			let mut current_encoding = None;
 			for operation in &content.operations {
 				match operation.operator.as_ref() {
 					"Tf" => {
-						let current_font = operation.operands[0].as_name().unwrap();
+						let current_font = operation.operands[0].as_name().ok_or(Error::TypeError)?;
 						current_encoding = encodings.get(current_font).cloned();
 					}
 					"Tj" | "TJ" => {
@@ -187,7 +188,7 @@ impl Document {
 				}
 			}
 		}
-		text
+		Ok(text)
 	}
 
 	pub fn change_content_stream(&mut self, stream_id: ObjectId, content: Vec<u8>) {
@@ -199,8 +200,8 @@ impl Document {
 		}
 	}
 
-	pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) {
-		let contents = self.get_dictionary(page_id).and_then(|page| page.get(b"Contents")).cloned().unwrap();
+	pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) -> Result<()> {
+		let contents = self.get_dictionary(page_id).and_then(|page| page.get(b"Contents")).cloned().ok_or(Error::ObjectNotFound)?;
 		match contents {
 			Object::Reference(id) => self.change_content_stream(id, content),
 			Object::Array(ref arr) => {
@@ -217,23 +218,24 @@ impl Document {
 			}
 			_ => {}
 		}
+		Ok(())
 	}
 
-	pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) {
+	pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) -> Result<()>{
 		let pages = self.get_pages();
-		let page_id = *pages.get(&page_number).unwrap_or_else(|| panic!("Page {} not exist.", page_number));
+		let page_id = *pages.get(&page_number).ok_or(Error::PageNumberNotFound(page_number))?;
 		let encodings = self
 			.get_page_fonts(page_id)
 			.into_iter()
 			.map(|(name, font)| (name, self.get_font_encoding(font).to_owned()))
 			.collect::<BTreeMap<Vec<u8>, String>>();
-		let content_data = self.get_page_content(page_id).unwrap();
-		let mut content = Content::decode(&content_data).unwrap();
+		let content_data = self.get_page_content(page_id)?;
+		let mut content = Content::decode(&content_data)?;
 		let mut current_encoding = None;
 		for operation in &mut content.operations {
 			match operation.operator.as_ref() {
 				"Tf" => {
-					let current_font = operation.operands[0].as_name().unwrap();
+					let current_font = operation.operands[0].as_name().ok_or(Error::TypeError)?;
 					current_encoding = encodings.get(current_font).map(std::string::String::as_str);
 				}
 				"Tj" => {
@@ -251,8 +253,8 @@ impl Document {
 				_ => {}
 			}
 		}
-		let modified_contnet = content.encode().unwrap();
-		self.change_page_content(page_id, modified_contnet);
+		let modified_content = content.encode()?;
+		self.change_page_content(page_id, modified_content)
 	}
 
 	pub fn extract_stream(&self, stream_id: ObjectId, decompress: bool) -> Result<()> {
