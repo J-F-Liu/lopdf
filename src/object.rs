@@ -1,3 +1,4 @@
+use crate::{Error, Result};
 use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
 use log::warn;
 use std::fmt;
@@ -235,7 +236,7 @@ impl fmt::Debug for Object {
 			}
 			Object::Integer(ref value) => write!(f, "{}", *value),
 			Object::Real(ref value) => write!(f, "{}", *value),
-			Object::Name(ref name) => write!(f, "/{}", str::from_utf8(name).unwrap()),
+			Object::Name(ref name) => write!(f, "/{}", String::from_utf8_lossy(name)),
 			Object::String(ref text, _) => write!(f, "({})", String::from_utf8_lossy(text)),
 			Object::Array(ref array) => {
 				let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
@@ -410,28 +411,29 @@ impl Stream {
 		self.content = content;
 	}
 
-	pub fn compress(&mut self) {
+	pub fn compress(&mut self) -> Result<()> {
 		use flate2::write::ZlibEncoder;
 		use flate2::Compression;
 		use std::io::prelude::*;
 
 		if self.dict.get(b"Filter").is_none() {
 			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
-			encoder.write_all(self.content.as_slice()).unwrap();
-			let compressed = encoder.finish().unwrap();
+			encoder.write_all(self.content.as_slice())?;
+			let compressed = encoder.finish()?;
 			if compressed.len() + 19 < self.content.len() {
 				self.dict.set("Filter", "FlateDecode");
 				self.set_content(compressed);
 			}
 		}
+		Ok(())
 	}
 
-	pub fn decompressed_content(&self) -> Option<Vec<u8>> {
+	pub fn decompressed_content(&self) -> Result<Vec<u8>> {
 		let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict);
-		let filters = self.filters()?;
+		let filters = self.filters().ok_or(Error::ObjectNotFound)?;
 
 		if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
-			return None;
+			return Err(Error::TypeError);
 		}
 
 		let mut input = self.content.as_slice();
@@ -440,17 +442,17 @@ impl Stream {
 		// Filters are in decoding order.
 		for filter in filters {
 			output = Some(match filter.as_str() {
-				"FlateDecode" => Self::decompress_zlib(input, params),
-				"LZWDecode" => Self::decompress_lzw(input, params),
-				_ => { return None; },
+				"FlateDecode" => Self::decompress_zlib(input, params)?,
+				"LZWDecode" => Self::decompress_lzw(input, params)?,
+				_ => { return Err(Error::TypeError); },
 			});
 			input = output.as_ref().unwrap();
 		}
 
-		output
+		output.ok_or(Error::TypeError)
 	}
 
-	fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Vec<u8> {
+	fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {
 		use lzw::{MsbReader, Decoder, DecoderEarlyChange};
 		const MIN_BITS: u8 = 9;
 
@@ -489,7 +491,7 @@ impl Stream {
 		output
 	}
 
-	fn decompress_zlib(input: &[u8], params: Option<&Dictionary>) -> Vec<u8> {
+	fn decompress_zlib(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {
 		use flate2::read::ZlibDecoder;
 		use std::io::prelude::*;
 
@@ -505,7 +507,7 @@ impl Stream {
 		Self::decompress_predictor(output, params)
 	}
 
-	fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>) -> Vec<u8> {
+	fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>) -> Result<Vec<u8>> {
 		use crate::filters::png;
 
 		if let Some(params) = params {
@@ -515,16 +517,16 @@ impl Stream {
 				let colors = params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1) as usize;
 				let bits = params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8) as usize;
 				let bytes_per_pixel = colors * bits / 8;
-				data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row).unwrap();
+				data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row)?;
 			}
-			data
+			Ok(data)
 		} else {
-			data
+			Ok(data)
 		}
 	}
 
 	pub fn decompress(&mut self) {
-		if let Some(data) = self.decompressed_content() {
+		if let Ok(data) = self.decompressed_content() {
 			self.dict.remove(b"DecodeParms");
 			self.dict.remove(b"Filter");
 			self.set_content(data);

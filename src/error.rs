@@ -12,6 +12,8 @@ pub enum Error {
 	TypeError,
 	ObjectNotFound,
 	PageNumberNotFound(u32),
+	#[cfg(feature = "embed_image")]
+	Image(image::ImageError),
 }
 
 impl fmt::Display for Error {
@@ -27,6 +29,8 @@ impl fmt::Display for Error {
 			Error::TypeError => write!(f, "An object does not have the expected type"),
 			Error::ObjectNotFound => write!(f, "A required object was not found"),
 			Error::PageNumberNotFound(p) => write!(f, "Page number {} could not be found", p),
+			#[cfg(feature = "embed_image")]
+			Error::Image(e) => e.fmt(f),
 		}
     }
 }
@@ -59,5 +63,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl From<std::io::Error> for Error {
 	fn from(err: std::io::Error) -> Error {
 		Error::IO(err)
+	}
+}
+
+#[cfg(feature = "embed_image")]
+impl From<image::ImageError> for Error {
+	fn from(err: image::ImageError) -> Error {
+		Error::Image(err)
 	}
 }

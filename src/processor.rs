@@ -25,7 +25,8 @@ impl Document {
 		for object in self.objects.values_mut() {
 			if let Object::Stream(ref mut stream) = *object {
 				if stream.allows_compression {
-					stream.compress()
+					// Ignore any error and continue to compress other streams.
+					let _ = stream.compress();
 				}
 			}
 		}
@@ -195,7 +196,8 @@ impl Document {
 		if let Some(content_stream) = self.objects.get_mut(&stream_id) {
 			if let Object::Stream(ref mut stream) = *content_stream {
 				stream.set_plain_content(content);
-				stream.compress();
+				// Ignore any compression error.
+				let _ = stream.compress();
 			}
 		}
 	}
@@ -262,7 +264,7 @@ impl Document {
 		if let Some(stream_obj) = self.get_object(stream_id) {
 			if let Object::Stream(ref stream) = *stream_obj {
 				if decompress {
-					if let Some(data) = stream.decompressed_content() {
+					if let Ok(data) = stream.decompressed_content() {
 						file.write_all(&data)?;
 					} else {
 						file.write_all(&stream.content)?;

@@ -175,7 +175,7 @@ impl Document {
 		for object_id in content_streams {
 			if let Some(content_stream) = self.get_object(object_id) {
 				if let Object::Stream(ref stream) = *content_stream {
-					if let Some(data) = stream.decompressed_content() {
+					if let Ok(data) = stream.decompressed_content() {
 						content.write_all(&data)?;
 					} else {
 						content.write_all(&stream.content)?;
