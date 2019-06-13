@@ -83,7 +83,7 @@ impl Document {
 		content.operations.push(Operation::new("Do", vec![Name(img_name.as_bytes().to_vec())]));
 		content.operations.push(Operation::new("Q", vec![]));
 		let modified_content = content.encode()?;
-		self.add_xobject(page_id, img_name, img_id);
+		self.add_xobject(page_id, img_name, img_id)?;
 
 		self.change_page_content(page_id, modified_content)
 	}
@@ -99,7 +99,7 @@ impl Document {
 		content.operations.push(Operation::new("Do", vec![Name(form_name.as_bytes().to_vec())]));
 		// content.operations.push(Operation::new("Q", vec![]));
 		let modified_content = content.encode()?;
-		self.add_xobject(page_id, form_name, form_id);
+		self.add_xobject(page_id, form_name, form_id)?;
 
 		self.change_page_content(page_id, modified_content)
 	}

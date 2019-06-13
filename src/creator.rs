@@ -1,4 +1,5 @@
-use super::{Dictionary, Document, Object, ObjectId};
+use crate::{Error, Result};
+use crate::{Dictionary, Document, Object, ObjectId};
 
 impl Document {
 	/// Create new PDF document with version.
@@ -51,24 +52,26 @@ impl Document {
 		}
 	}
 
-	pub fn add_xobject<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) {
+	pub fn add_xobject<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) -> Result<()> {
 		if let Some(resources) = self.get_or_create_resources(page_id).and_then(Object::as_dict_mut) {
 			if !resources.has(b"XObject") {
 				resources.set("XObject", Dictionary::new());
 			}
-			let xobjects = resources.get_mut(b"XObject").and_then(Object::as_dict_mut).unwrap();
+			let xobjects = resources.get_mut(b"XObject").and_then(Object::as_dict_mut).ok_or(Error::TypeError)?;
 			xobjects.set(xobject_name, Object::Reference(xobject_id));
 		}
+		Ok(())
 	}
 
-	pub fn add_graphics_state<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId) {
+	pub fn add_graphics_state<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId) -> Result<()> {
 		if let Some(resources) = self.get_or_create_resources(page_id).and_then(Object::as_dict_mut) {
 			if !resources.has(b"ExtGState") {
 				resources.set("ExtGState", Dictionary::new());
 			}
-			let states = resources.get_mut(b"ExtGState").and_then(Object::as_dict_mut).unwrap();
+			let states = resources.get_mut(b"ExtGState").and_then(Object::as_dict_mut).ok_or(Error::TypeError)?;
 			states.set(gs_name, Object::Reference(gs_id));
 		}
+		Ok(())
 	}
 }
 
