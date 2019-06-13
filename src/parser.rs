@@ -199,9 +199,9 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictiona
 }
 
 fn _xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
-	(xref() + trailer()).map(|(mut xref, trailer)| {
-		xref.size = trailer.get(b"Size").and_then(Object::as_i64).expect("Size is absent in trailer.") as u32;
-		(xref, trailer)
+	(xref() + trailer()).convert(|(mut xref, trailer)| -> Result<_> {
+		xref.size = trailer.get(b"Size").and_then(Object::as_i64).ok_or(Error::Trailer)? as u32;
+		Ok((xref, trailer))
 	}) | _indirect_object(reader).convert(|(_, obj)| match obj {
 		Object::Stream(stream) => decode_xref_stream(stream),
 		_ => Err(Error::Xref(XrefError::Parse)),
