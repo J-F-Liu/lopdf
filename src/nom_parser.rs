@@ -1,5 +1,7 @@
 use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use crate::content::*;
+use crate::Error;
+use crate::error::XrefError;
 use crate::reader::Reader;
 use crate::xref::*;
 use std::str::{self, FromStr};
@@ -282,10 +284,10 @@ fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
 }
 
-pub fn indirect_object<'a>(input: &'a [u8], file_offset: usize, reader: &Reader) -> Result<(ObjectId, Object), NomError> {
-	let (_, (id, mut object)) = _indirect_object(&input[file_offset..], reader).map_err(|_| ())?;
+pub fn indirect_object<'a>(input: &'a [u8], offset: usize, reader: &Reader) -> crate::Result<(ObjectId, Object)> {
+	let (_, (id, mut object)) = _indirect_object(&input[offset..], reader).map_err(|_| Error::Parse{ offset })?;
 
-	offset_stream(&mut object, file_offset);
+	offset_stream(&mut object, offset);
 
 	Ok((id, object))
 }
@@ -331,20 +333,20 @@ fn trailer(input: &[u8]) -> NomResult<Dictionary> {
 	delimited(pair(tag(b"trailer"), space), dictionary, space)(input)
 }
 
-pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictionary), &'static str> {
+pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> crate::Result<(Xref, Dictionary)> {
 	alt((
 		map(pair(xref, trailer),
 				|(mut xref, trailer)| {
-					xref.size = trailer.get(b"Size").and_then(Object::as_i64).ok_or("Size is absent in trailer.")? as u32;
+					xref.size = trailer.get(b"Size").and_then(Object::as_i64).ok_or(Error::Trailer)? as u32;
 					Ok((xref, trailer))
 				}),
 
 		map(|i| _indirect_object(i, reader),
 				|(_, obj)| match obj {
-					Object::Stream(stream) => Ok(decode_xref_stream(stream)),
-					_ => Err("Xref is not a stream object.")
+					Object::Stream(stream) => decode_xref_stream(stream),
+					_ => Err(Error::Xref(XrefError::Parse))
 				})
-	))(input).map(|(_, o)| o).unwrap_or(Err("syntax error"))
+	))(input).map(|(_, o)| o).unwrap_or(Err(Error::Trailer))
 }
 
 pub fn xref_start(input: &[u8]) -> Option<i64> {

@@ -79,7 +79,7 @@ fn main() {
 			vec![mm2pt, 0.0, 0.0, mm2pt, 12.44 * mm2pt, 842.0 - 14.53 * mm2pt],
 			operations.as_bytes().to_vec(),
 		);
-		doc.insert_form_object(page_id, barcode);
+		doc.insert_form_object(page_id, barcode).unwrap();
 	}
 	doc.save(output_file).unwrap();
 }

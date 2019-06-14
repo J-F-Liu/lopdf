@@ -1,7 +1,7 @@
 use log::{error, warn};
 use std::cmp;
 use std::fs::File;
-use std::io::{Error, ErrorKind, Read, Result};
+use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -11,6 +11,8 @@ use super::parser;
 use super::{Document, Object, ObjectId};
 use crate::object_stream::ObjectStream;
 use crate::xref::XrefEntry;
+use crate::{Error, Result};
+use crate::error::XrefError;
 
 impl Document {
 	/// Load PDF document from specified file path.
@@ -51,25 +53,23 @@ impl Reader {
 	fn read(&mut self) -> Result<()> {
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
-		let version = parser::header(&self.buffer).ok_or_else(|| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (header)."))?;
+		let version = parser::header(&self.buffer).ok_or(Error::Header)?;
 
 		let xref_start = Self::get_xref_start(&self.buffer)?;
 		if xref_start > self.buffer.len() {
-			return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)"));
+			return Err(Error::Xref(XrefError::Start));
 		}
 
-		let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], self)
-			.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (xref_and_trailer).\n{:?}", err)))?;
+		let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], self)?;
 
 		// Read previous Xrefs of linearized or incremental updated document.
 		let mut prev_xref_start = trailer.remove(b"Prev");
 		while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
 			let prev = prev as usize;
 			if prev > self.buffer.len() {
-				return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev_xref_start)"));
+				return Err(Error::Xref(XrefError::PrevStart));
 			}
-			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev..], &self)
-				.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (prev xref_and_trailer).\n{:?}", err)))?;
+			let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
 			xref.extend(prev_xref);
 
 			// Read xref stream in hybrid-reference file
@@ -77,10 +77,9 @@ impl Reader {
 			if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64()) {
 				let prev = prev as usize;
 				if prev > self.buffer.len() {
-					return Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev_xref_stream_start)"));
+					return Err(Error::Xref(XrefError::StreamStart));
 				}
-				let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev..], &self)
-					.map_err(|_| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (prev xref_and_trailer)."))?;
+				let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
 				xref.extend(prev_xref);
 			}
 
@@ -147,7 +146,7 @@ impl Reader {
 	}
 
 	fn get_stream_length(&self, object_id: ObjectId) -> Option<i64> {
-		let object = self.document.get_object(object_id).unwrap();
+		let object = self.document.get_object(object_id)?;
 		match object {
 			Object::Stream(ref stream) => stream.dict.get(b"Length").and_then(|value| {
 				if let Some(id) = value.as_reference() {
@@ -188,24 +187,24 @@ impl Reader {
 
 	fn read_object(&self, offset: usize) -> Result<(ObjectId, Object)> {
 		if offset > self.buffer.len() {
-			return Err(Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read at offset {})", offset)));
+			return Err(Error::Offset(offset));
 		}
+
 		parser::indirect_object(&self.buffer, offset, self)
-			.map_err(|err| Error::new(ErrorKind::InvalidData, format!("Not a valid PDF file (read object at {}).\n{:?}", offset, err)))
 	}
 
 	fn get_xref_start(buffer: &[u8]) -> Result<usize> {
 		let seek_pos = buffer.len() - cmp::min(buffer.len(), 512);
 		Self::search_substring(buffer, b"%%EOF", seek_pos)
 			.and_then(|eof_pos| Self::search_substring(buffer, b"startxref", eof_pos - 25))
-			.ok_or_else(|| Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start)."))
+			.ok_or(Error::Xref(XrefError::Start))
 			.and_then(|xref_pos| if xref_pos <= buffer.len() {
 				match parser::xref_start(&buffer[xref_pos..]) {
 					Some(startxref) => Ok(startxref as usize),
-					None => Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_start).")),
+					None => Err(Error::Xref(XrefError::Start)),
 				}
 			} else {
-				Err(Error::new(ErrorKind::InvalidData, "Not a valid PDF file (xref_pos)"))
+				Err(Error::Xref(XrefError::Start))
 			})
 	}
 

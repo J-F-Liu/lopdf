@@ -2,11 +2,12 @@ use super::content::Content;
 use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Dictionary, Object, ObjectId};
 use crate::xref::Xref;
+use crate::Result;
 use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use log::info;
 use std::collections::BTreeMap;
-use std::io::{self, Write};
+use std::io::Write;
 use std::str;
 
 /// PDF document.
@@ -168,13 +169,13 @@ impl Document {
 	}
 
 	/// Get content of a page.
-	pub fn get_page_content(&self, page_id: ObjectId) -> io::Result<Vec<u8>> {
+	pub fn get_page_content(&self, page_id: ObjectId) -> Result<Vec<u8>> {
 		let mut content = Vec::new();
 		let content_streams = self.get_page_contents(page_id);
 		for object_id in content_streams {
 			if let Some(content_stream) = self.get_object(object_id) {
 				if let Object::Stream(ref stream) = *content_stream {
-					if let Some(data) = stream.decompressed_content() {
+					if let Ok(data) = stream.decompressed_content() {
 						content.write_all(&data)?;
 					} else {
 						content.write_all(&stream.content)?;
@@ -186,9 +187,9 @@ impl Document {
 	}
 
 	/// Get decoded page content;
-	pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Content {
-		let content_data = self.get_page_content(page_id).unwrap();
-		Content::decode(&content_data).unwrap()
+	pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Result<Content> {
+		let content_data = self.get_page_content(page_id)?;
+		Content::decode(&content_data)
 	}
 
 	/// Get resources used by a page.
