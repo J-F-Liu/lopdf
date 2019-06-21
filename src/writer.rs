@@ -27,7 +27,7 @@ impl Document {
 		writeln!(target, "%PDF-{}", self.version)?;
 
 		for (&(id, generation), object) in &self.objects {
-			if object.type_name().map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name)) != Some(true) {
+			if object.type_name().map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name)).ok() != Some(true) {
 				Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
 			}
 		}
