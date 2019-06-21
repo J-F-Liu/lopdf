@@ -167,7 +167,7 @@ impl Document {
 		for page_number in page_numbers {
 			let page_id = pages[page_number];
 			let fonts = self.get_page_fonts(page_id);
-			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<Vec<u8>, &str>>();
+			let encodings = fonts.into_iter().map(|(name, font)| (name, font.get_font_encoding())).collect::<BTreeMap<Vec<u8>, &str>>();
 			let content_data = self.get_page_content(page_id)?;
 			let content = Content::decode(&content_data)?;
 			let mut current_encoding = None;
@@ -229,7 +229,7 @@ impl Document {
 		let encodings = self
 			.get_page_fonts(page_id)
 			.into_iter()
-			.map(|(name, font)| (name, self.get_font_encoding(font).to_owned()))
+			.map(|(name, font)| (name, font.get_font_encoding().to_owned()))
 			.collect::<BTreeMap<Vec<u8>, String>>();
 		let content_data = self.get_page_content(page_id)?;
 		let mut content = Content::decode(&content_data)?;

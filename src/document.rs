@@ -239,12 +239,6 @@ impl Document {
 		fonts
 	}
 
-	pub fn get_font_encoding<'a>(&self, font: &'a Dictionary) -> &'a str {
-		font.get(b"Encoding")
-			.and_then(Object::as_name_str)
-			.unwrap_or("StandardEncoding")
-	}
-
 	pub fn decode_text(encoding: Option<&str>, bytes: &[u8]) -> String {
 		if let Some(encoding) = encoding {
 			info!("{}", encoding);

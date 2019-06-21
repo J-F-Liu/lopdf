@@ -298,6 +298,12 @@ impl Dictionary {
 	pub fn iter_mut(&mut self) -> IterMut<'_, Vec<u8>, Object> {
 		self.0.iter_mut()
 	}
+
+	pub fn get_font_encoding(&self) -> &str {
+		self.get(b"Encoding")
+			.and_then(Object::as_name_str)
+			.unwrap_or("StandardEncoding")
+	}
 }
 
 #[macro_export]
