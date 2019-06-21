@@ -1,4 +1,3 @@
-#![allow(dead_code)] // false positive
 use std::convert::{TryInto, TryFrom};
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem;

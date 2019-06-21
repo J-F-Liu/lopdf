@@ -11,7 +11,7 @@ pub use crate::document::Document;
 pub mod content;
 mod creator;
 mod encodings;
-mod filters;
+pub mod filters;
 #[cfg_attr(feature = "nom_parser", path = "nom_parser.rs")]
 mod parser;
 mod processor;
