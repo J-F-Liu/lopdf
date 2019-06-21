@@ -104,7 +104,7 @@ impl Reader {
 			if let XrefEntry::Normal { offset, .. } = *entry {
 				let (object_id, mut object) = self.read_object(offset as usize)
 					.map_err(|e| error!("Object load error: {:?}", e)).ok()?;
-				if let Object::Stream(ref mut stream) = object {
+				if let Ok(ref mut stream) = object.as_stream_mut() {
 					if stream.dict.type_is(b"ObjStm") {
 						let obj_stream = ObjectStream::new(stream).ok()?;
 						let mut object_streams = object_streams.lock().unwrap();
@@ -123,59 +123,54 @@ impl Reader {
 		self.document.objects.extend(object_streams.into_inner().unwrap());
 
 		for object_id in zero_length_streams.into_inner().unwrap() {
-			if let Ok(length) = self.get_stream_length(object_id) {
-				if let Ok(ref mut object) = self.document.get_object_mut(object_id) {
-					if let Object::Stream(ref mut stream) = object {
-						if let Some(start) = stream.start_position {
-							let end = start + length as usize;
-							stream.set_content(self.buffer[start..end].to_vec());
-						}
-					}
-				}
-			}
+			let _ = self.set_stream_content(object_id);
 		}
 
 		Ok(())
 	}
 
+	fn set_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
+		let length = self.get_stream_length(object_id)?;
+		let stream = self.document.get_object_mut(object_id).and_then(Object::as_stream_mut)?;
+		let start = stream.start_position.ok_or(Error::ObjectNotFound)?;
+
+		let end = start + length as usize;
+		stream.set_content(self.buffer[start..end].to_vec());
+		Ok(())
+	}
+
 	fn get_stream_length(&self, object_id: ObjectId) -> Result<i64> {
 		let object = self.document.get_object(object_id)?;
-		match object {
-			Object::Stream(ref stream) => stream.dict.get(b"Length").and_then(|value| {
-				if let Ok(id) = value.as_reference() {
-					return self.document.get_object(id).and_then(Object::as_i64);
-				}
-				value.as_i64()
-			}),
-			_ => Err(Error::Type),
-		}
+		let stream = object.as_stream()?;
+
+		stream.dict.get(b"Length").and_then(|value| {
+			if let Ok(id) = value.as_reference() {
+				return self.document.get_object(id).and_then(Object::as_i64);
+			}
+			value.as_i64()
+		})
 	}
 
 	/// Get object offset by object id.
-	fn get_offset(&self, id: ObjectId) -> Option<u32> {
-		if let Some(entry) = self.document.reference_table.get(id.0) {
-			match *entry {
-				XrefEntry::Normal { offset, generation } => {
-					if id.1 == generation {
-						Some(offset)
-					} else {
-						None
-					}
+	fn get_offset(&self, id: ObjectId) -> Result<u32> {
+		let entry = self.document.reference_table.get(id.0).ok_or(Error::ObjectNotFound)?;
+		match *entry {
+			XrefEntry::Normal { offset, generation } => {
+				if id.1 == generation {
+					Ok(offset)
+				} else {
+					Err(Error::ObjectNotFound)
 				}
-				_ => None,
 			}
-		} else {
-			None
+			_ => Err(Error::ObjectNotFound),
 		}
 	}
 
 	pub fn get_object(&self, id: ObjectId) -> Result<Object> {
-		if let Some(offset) = self.get_offset(id) {
-			if let Ok((_, obj)) = self.read_object(offset as usize) {
-				return Ok(obj);
-			}
-		}
-		Err(Error::ObjectNotFound)
+		let offset = self.get_offset(id)?;
+		let (_, obj) = self.read_object(offset as usize)?;
+
+		Ok(obj)
 	}
 
 	fn read_object(&self, offset: usize) -> Result<(ObjectId, Object)> {

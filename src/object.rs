@@ -211,6 +211,13 @@ impl Object {
 		}
 	}
 
+	pub fn as_stream_mut(&mut self) -> Result<&mut Stream> {
+		match *self {
+			Object::Stream(ref mut stream) => Ok(stream),
+			_ => Err(Error::Type),
+		}
+	}
+
 	pub fn type_name(&self) -> Result<&str> {
 		match *self {
 			Object::Dictionary(ref dict) => dict.type_name(),
