@@ -1,23 +1,28 @@
 #![allow(dead_code)] // false positive
+use std::convert::{TryInto, TryFrom};
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::mem;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
 pub enum FilterType {
-	None = 0,
-	Sub = 1,
-	Up = 2,
-	Avg = 3,
-	Paeth = 4,
+	None,
+	Sub,
+	Up,
+	Avg,
+	Paeth,
 }
 
-impl FilterType {
-	/// u8 -> Self. Temporary solution until Rust provides a canonical one.
-	pub fn from_u8(n: u8) -> Option<FilterType> {
+impl TryFrom<u8> for FilterType {
+	type Error = ();
+
+	fn try_from(n: u8) -> std::result::Result<FilterType, ()> {
 		match n {
-			n if n <= 4 => Some(unsafe { mem::transmute(n) }),
-			_ => None,
+			0 => Ok(FilterType::None),
+			1 => Ok(FilterType::Sub),
+			2 => Ok(FilterType::Up),
+			3 => Ok(FilterType::Avg),
+			4 => Ok(FilterType::Paeth),
+			_ => Err(()),
 		}
 	}
 }
@@ -86,7 +91,7 @@ pub fn decode_frame(content: &[u8], bytes_per_pixel: usize, pixels_per_row: usiz
 	let mut decoded = Vec::new();
 	let mut pos = 0;
 	while pos < content.len() {
-		if let Some(filter) = FilterType::from_u8(content[pos]) {
+		if let Ok(filter) = content[pos].try_into() {
 			pos += 1;
 			(&content[pos..]).read_exact(current.as_mut_slice())?;
 			pos += bytes_per_row;
