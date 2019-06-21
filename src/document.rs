@@ -53,19 +53,17 @@ impl Document {
 		Err(Error::ObjectNotFound)
 	}
 
-	/// Get mutable reference to object by object id, will recursively dereference a referenced object.
+	/// Get mutable reference to object by object id, will iteratively dereference a referenced object.
 	pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
-		unsafe {
-			let s = self as *mut Self;
-			if let Some(object) = (*s).objects.get_mut(&id) {
-				if let Ok(id) = object.as_reference() {
-					return (*s).get_object_mut(id);
-				} else {
-					return Ok(object);
-				}
-			}
-			Err(Error::ObjectNotFound)
+		let mut object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+		let mut cur_id = id;
+
+		while let Ok(id) = object.as_reference() {
+			cur_id = id;
+			object = self.objects.get(&cur_id).ok_or(Error::ObjectNotFound)?;
 		}
+
+		Ok(self.objects.get_mut(&cur_id).unwrap())
 	}
 
 	/// Get dictionary object by id.
