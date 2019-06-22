@@ -2,7 +2,7 @@ use super::content::Content;
 use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Dictionary, Object, ObjectId};
 use crate::xref::Xref;
-use crate::Result;
+use crate::{Error, Result};
 use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use log::info;
@@ -42,34 +42,32 @@ impl Document {
 	}
 
 	/// Get object by object id, will recursively dereference a referenced object.
-	pub fn get_object(&self, id: ObjectId) -> Option<&Object> {
+	pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
 		if let Some(object) = self.objects.get(&id) {
-			if let Some(id) = object.as_reference() {
+			if let Ok(id) = object.as_reference() {
 				return self.get_object(id);
 			} else {
-				return Some(object);
+				return Ok(object);
 			}
 		}
-		None
+		Err(Error::ObjectNotFound)
 	}
 
-	/// Get mutable reference to object by object id, will recursively dereference a referenced object.
-	pub fn get_object_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
-		unsafe {
-			let s = self as *mut Self;
-			if let Some(object) = (*s).objects.get_mut(&id) {
-				if let Some(id) = object.as_reference() {
-					return (*s).get_object_mut(id);
-				} else {
-					return Some(object);
-				}
-			}
-			None
+	/// Get mutable reference to object by object id, will iteratively dereference a referenced object.
+	pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
+		let mut object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+		let mut cur_id = id;
+
+		while let Ok(id) = object.as_reference() {
+			cur_id = id;
+			object = self.objects.get(&cur_id).ok_or(Error::ObjectNotFound)?;
 		}
+
+		Ok(self.objects.get_mut(&cur_id).unwrap())
 	}
 
 	/// Get dictionary object by id.
-	pub fn get_dictionary(&self, id: ObjectId) -> Option<&Dictionary> {
+	pub fn get_dictionary(&self, id: ObjectId) -> Result<&Dictionary> {
 		self.get_object(id).and_then(Object::as_dict)
 	}
 
@@ -112,17 +110,17 @@ impl Document {
 	}
 
 	/// Get catalog dictionary.
-	pub fn catalog(&self) -> Option<&Dictionary> {
+	pub fn catalog(&self) -> Result<&Dictionary> {
 		self.trailer.get(b"Root").and_then(Object::as_reference).and_then(|id| self.get_dictionary(id))
 	}
 
 	/// Get page numbers and corresponding object ids.
 	pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
 		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>) {
-			if let Some(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get(b"Kids")).and_then(Object::as_array) {
+			if let Ok(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get(b"Kids")).and_then(Object::as_array) {
 				for kid in kids {
-					if let Some(kid_id) = kid.as_reference() {
-						if let Some(type_name) = doc.get_dictionary(kid_id).and_then(Dictionary::type_name) {
+					if let Ok(kid_id) = kid.as_reference() {
+						if let Ok(type_name) = doc.get_dictionary(kid_id).and_then(Dictionary::type_name) {
 							match type_name {
 								"Page" => {
 									pages.insert(*page_number, kid_id);
@@ -141,7 +139,7 @@ impl Document {
 
 		let mut pages = BTreeMap::new();
 		let mut page_number = 1;
-		if let Some(page_tree_id) = self.catalog().and_then(|cat| cat.get(b"Pages")).and_then(Object::as_reference) {
+		if let Ok(page_tree_id) = self.catalog().and_then(|cat| cat.get(b"Pages")).and_then(Object::as_reference) {
 			collect_pages(self, page_tree_id, &mut page_number, &mut pages);
 		}
 		pages
@@ -150,15 +148,15 @@ impl Document {
 	/// Get content stream object ids of a page.
 	pub fn get_page_contents(&self, page_id: ObjectId) -> Vec<ObjectId> {
 		let mut streams = vec![];
-		if let Some(page) = self.get_dictionary(page_id) {
-			if let Some(contents) = page.get(b"Contents") {
+		if let Ok(page) = self.get_dictionary(page_id) {
+			if let Ok(contents) = page.get(b"Contents") {
 				match *contents {
 					Object::Reference(ref id) => {
 						streams.push(*id);
 					}
 					Object::Array(ref arr) => {
 						for content in arr {
-							if let Some(id) = content.as_reference() { streams.push(id) }
+							if let Ok(id) = content.as_reference() { streams.push(id) }
 						}
 					}
 					_ => {}
@@ -173,14 +171,11 @@ impl Document {
 		let mut content = Vec::new();
 		let content_streams = self.get_page_contents(page_id);
 		for object_id in content_streams {
-			if let Some(content_stream) = self.get_object(object_id) {
-				if let Object::Stream(ref stream) = *content_stream {
-					if let Ok(data) = stream.decompressed_content() {
-						content.write_all(&data)?;
-					} else {
-						content.write_all(&stream.content)?;
-					}
-				}
+			if let Ok(content_stream) = self.get_object(object_id).and_then(Object::as_stream) {
+				match content_stream.decompressed_content() {
+					Ok(data) => content.write_all(&data)?,
+					Err(_) => content.write_all(&content_stream.content)?,
+				};
 			}
 		}
 		Ok(content)
@@ -195,18 +190,18 @@ impl Document {
 	/// Get resources used by a page.
 	pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
 		fn collect_resources(page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document) {
-			if let Some(resources_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
+			if let Ok(resources_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
 				resource_ids.push(resources_id);
 			}
-			if let Some(page_tree) = page_node.get(b"Parent").and_then(Object::as_reference).and_then(|id| doc.get_dictionary(id)) {
+			if let Ok(page_tree) = page_node.get(b"Parent").and_then(Object::as_reference).and_then(|id| doc.get_dictionary(id)) {
 				collect_resources(page_tree, resource_ids, doc);
 			}
 		};
 
 		let mut resource_dict = None;
 		let mut resource_ids = Vec::new();
-		if let Some(page) = self.get_dictionary(page_id) {
-			resource_dict = page.get(b"Resources").and_then(Object::as_dict);
+		if let Ok(page) = self.get_dictionary(page_id) {
+			resource_dict = page.get(b"Resources").and_then(Object::as_dict).ok();
 			collect_resources(page, &mut resource_ids, self);
 		}
 		(resource_dict, resource_ids)
@@ -215,10 +210,10 @@ impl Document {
 	/// Get fonts used by a page.
 	pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<Vec<u8>, &Dictionary> {
 		fn collect_fonts_from_resources<'a>(resources: &'a Dictionary, fonts: &mut BTreeMap<Vec<u8>, &'a Dictionary>, doc: &'a Document) {
-			if let Some(font_dict) = resources.get(b"Font").and_then(Object::as_dict) {
+			if let Ok(font_dict) = resources.get(b"Font").and_then(Object::as_dict) {
 				for (name, value) in font_dict.iter() {
 					let font = match *value {
-						Object::Reference(id) => doc.get_dictionary(id),
+						Object::Reference(id) => doc.get_dictionary(id).ok(),
 						Object::Dictionary(ref dict) => Some(dict),
 						_ => None,
 					};
@@ -235,21 +230,11 @@ impl Document {
 			collect_fonts_from_resources(resources, &mut fonts, self);
 		}
 		for resource_id in resource_ids {
-			if let Some(resources) = self.get_dictionary(resource_id) {
+			if let Ok(resources) = self.get_dictionary(resource_id) {
 				collect_fonts_from_resources(resources, &mut fonts, self);
 			}
 		}
 		fonts
-	}
-
-	pub fn get_font_encoding<'a>(&self, font: &'a Dictionary) -> &'a str {
-		if let Some(encoding) = font.get(b"Encoding") {
-			return match *encoding {
-				Object::Name(ref name) => str::from_utf8(name).unwrap(),
-				_ => "StandardEncoding",
-			};
-		}
-		"StandardEncoding"
 	}
 
 	pub fn decode_text(encoding: Option<&str>, bytes: &[u8]) -> String {

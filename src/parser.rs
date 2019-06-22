@@ -105,8 +105,8 @@ fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
 fn stream(reader: &Reader) -> Parser<'_, u8, Stream> {
 	(dictionary() - space() - seq(b"stream") - eol())
 		>> move |dict: Dictionary| {
-			if let Some(length) = dict.get(b"Length").and_then(|value| {
-				if let Some(id) = value.as_reference() {
+			if let Ok(length) = dict.get(b"Length").and_then(|value| {
+				if let Ok(id) = value.as_reference() {
 					return reader.get_object(id).and_then(|value| value.as_i64());
 				}
 				value.as_i64()
@@ -200,7 +200,7 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictiona
 
 fn _xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
 	(xref() + trailer()).convert(|(mut xref, trailer)| -> Result<_> {
-		xref.size = trailer.get(b"Size").and_then(Object::as_i64).ok_or(Error::Trailer)? as u32;
+		xref.size = trailer.get(b"Size").and_then(Object::as_i64).map_err(|_| Error::Trailer)? as u32;
 		Ok((xref, trailer))
 	}) | _indirect_object(reader).convert(|(_, obj)| match obj {
 		Object::Stream(stream) => decode_xref_stream(stream),

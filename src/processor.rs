@@ -9,10 +9,10 @@ use std::io::Write;
 impl Document {
 	/// Change producer of document information dictionary.
 	pub fn change_producer(&mut self, producer: &str) {
-		if let Some(info) = self.trailer.get_mut(b"Info") {
+		if let Ok(info) = self.trailer.get_mut(b"Info") {
 			if let Some(dict) = match *info {
 				Object::Dictionary(ref mut dict) => Some(dict),
-				Object::Reference(ref id) => self.objects.get_mut(id).and_then(Object::as_dict_mut),
+				Object::Reference(ref id) => self.objects.get_mut(id).and_then(|o| o.as_dict_mut().ok()),
 				_ => None,
 			} {
 				dict.set("Producer", Object::string_literal(producer));
@@ -47,9 +47,9 @@ impl Document {
 		for page_number in page_numbers {
 			if let Some(page) = pages.get(&page_number).and_then(|page_id| self.delete_object(*page_id)) {
 				let mut page_tree_ref = page.as_dict().and_then(|dict| dict.get(b"Parent")).and_then(Object::as_reference);
-				while let Some(page_tree_id) = page_tree_ref {
-					if let Some(page_tree) = self.objects.get_mut(&page_tree_id).and_then(Object::as_dict_mut) {
-						if let Some(count) = page_tree.get(b"Count").and_then(Object::as_i64) {
+				while let Ok(page_tree_id) = page_tree_ref {
+					if let Some(page_tree) = self.objects.get_mut(&page_tree_id).and_then(|pt| pt.as_dict_mut().ok()) {
+						if let Ok(count) = page_tree.get(b"Count").and_then(Object::as_i64) {
 							page_tree.set("Count", count - 1);
 						}
 						page_tree_ref = page_tree.get(b"Parent").and_then(Object::as_reference);
@@ -108,7 +108,7 @@ impl Document {
 	pub fn delete_zero_length_streams(&mut self) -> Vec<ObjectId> {
 		let mut ids = vec![];
 		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
-			if self.objects.get(&id).and_then(Object::as_stream).map(|stream| stream.content.is_empty()) == Some(true) {
+			if self.objects.get(&id).and_then(|o| Object::as_stream(o).ok()).map(|stream| stream.content.is_empty()).unwrap_or(false) {
 				self.delete_object(id);
 				ids.push(id);
 			}
@@ -167,14 +167,14 @@ impl Document {
 		for page_number in page_numbers {
 			let page_id = pages[page_number];
 			let fonts = self.get_page_fonts(page_id);
-			let encodings = fonts.into_iter().map(|(name, font)| (name, self.get_font_encoding(font))).collect::<BTreeMap<Vec<u8>, &str>>();
+			let encodings = fonts.into_iter().map(|(name, font)| (name, font.get_font_encoding())).collect::<BTreeMap<Vec<u8>, &str>>();
 			let content_data = self.get_page_content(page_id)?;
 			let content = Content::decode(&content_data)?;
 			let mut current_encoding = None;
 			for operation in &content.operations {
 				match operation.operator.as_ref() {
 					"Tf" => {
-						let current_font = operation.operands[0].as_name().ok_or(Error::TypeError)?;
+						let current_font = operation.operands[0].as_name()?;
 						current_encoding = encodings.get(current_font).cloned();
 					}
 					"Tj" | "TJ" => {
@@ -203,15 +203,15 @@ impl Document {
 	}
 
 	pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) -> Result<()> {
-		let contents = self.get_dictionary(page_id).and_then(|page| page.get(b"Contents")).cloned().ok_or(Error::ObjectNotFound)?;
-		match contents {
+		let contents = self.get_dictionary(page_id).and_then(|page| page.get(b"Contents"))?;
+		match *contents {
 			Object::Reference(id) => self.change_content_stream(id, content),
 			Object::Array(ref arr) => {
 				if arr.len() == 1 {
-					if let Some(id) = arr[0].as_reference() { self.change_content_stream(id, content) }
+					if let Ok(id) = arr[0].as_reference() { self.change_content_stream(id, content) }
 				} else {
 					let new_stream = self.add_object(super::Stream::new(dictionary!{}, content));
-					if let Some(page) = self.get_object_mut(page_id) {
+					if let Ok(page) = self.get_object_mut(page_id) {
 						if let Object::Dictionary(ref mut dict) = *page {
 							dict.set("Contents", new_stream);
 						}
@@ -229,7 +229,7 @@ impl Document {
 		let encodings = self
 			.get_page_fonts(page_id)
 			.into_iter()
-			.map(|(name, font)| (name, self.get_font_encoding(font).to_owned()))
+			.map(|(name, font)| (name, font.get_font_encoding().to_owned()))
 			.collect::<BTreeMap<Vec<u8>, String>>();
 		let content_data = self.get_page_content(page_id)?;
 		let mut content = Content::decode(&content_data)?;
@@ -237,7 +237,7 @@ impl Document {
 		for operation in &mut content.operations {
 			match operation.operator.as_ref() {
 				"Tf" => {
-					let current_font = operation.operands[0].as_name().ok_or(Error::TypeError)?;
+					let current_font = operation.operands[0].as_name()?;
 					current_encoding = encodings.get(current_font).map(std::string::String::as_str);
 				}
 				"Tj" => {
@@ -261,7 +261,7 @@ impl Document {
 
 	pub fn extract_stream(&self, stream_id: ObjectId, decompress: bool) -> Result<()> {
 		let mut file = File::create(format!("{:?}.bin", stream_id))?;
-		if let Some(stream_obj) = self.get_object(stream_id) {
+		if let Ok(stream_obj) = self.get_object(stream_id) {
 			if let Object::Stream(ref stream) = *stream_obj {
 				if decompress {
 					if let Ok(data) = stream.decompressed_content() {

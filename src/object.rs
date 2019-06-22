@@ -144,45 +144,42 @@ impl Object {
 		}
 	}
 
-	pub fn as_i64(&self) -> Option<i64> {
+	pub fn as_i64(&self) -> Result<i64> {
 		match *self {
-			Object::Integer(ref value) => Some(*value),
-			_ => None,
+			Object::Integer(ref value) => Ok(*value),
+			_ => Err(Error::Type),
 		}
 	}
 
-	pub fn as_f64(&self) -> Option<f64> {
+	pub fn as_f64(&self) -> Result<f64> {
 		match *self {
-			Object::Real(ref value) => Some(*value),
-			_ => None,
+			Object::Real(ref value) => Ok(*value),
+			_ => Err(Error::Type),
 		}
 	}
 
-	pub fn as_name(&self) -> Option<&[u8]> {
+	pub fn as_name(&self) -> Result<&[u8]> {
 		match *self {
-			Object::Name(ref name) => Some(name),
-			_ => None,
+			Object::Name(ref name) => Ok(name),
+			_ => Err(Error::Type),
 		}
 	}
 
-	pub fn as_name_str(&self) -> Option<&str> {
+	pub fn as_name_str(&self) -> Result<&str> {
+		Ok(str::from_utf8(self.as_name()?)?)
+	}
+
+	pub fn as_reference(&self) -> Result<ObjectId> {
 		match *self {
-			Object::Name(ref name) => str::from_utf8(name).ok(),
-			_ => None,
+			Object::Reference(ref id) => Ok(*id),
+			_ => Err(Error::Type),
 		}
 	}
 
-	pub fn as_reference(&self) -> Option<ObjectId> {
+	pub fn as_array(&self) -> Result<&Vec<Object>> {
 		match *self {
-			Object::Reference(ref id) => Some(*id),
-			_ => None,
-		}
-	}
-
-	pub fn as_array(&self) -> Option<&Vec<Object>> {
-		match *self {
-			Object::Array(ref arr) => Some(arr),
-			_ => None,
+			Object::Array(ref arr) => Ok(arr),
+			_ => Err(Error::Type),
 		}
 	}
 
@@ -193,32 +190,39 @@ impl Object {
 		}
 	}
 
-	pub fn as_dict(&self) -> Option<&Dictionary> {
+	pub fn as_dict(&self) -> Result<&Dictionary> {
 		match *self {
-			Object::Dictionary(ref dict) => Some(dict),
-			_ => None,
+			Object::Dictionary(ref dict) => Ok(dict),
+			_ => Err(Error::Type),
 		}
 	}
 
-	pub fn as_dict_mut(&mut self) -> Option<&mut Dictionary> {
+	pub fn as_dict_mut(&mut self) -> Result<&mut Dictionary> {
 		match *self {
-			Object::Dictionary(ref mut dict) => Some(dict),
-			_ => None,
+			Object::Dictionary(ref mut dict) => Ok(dict),
+			_ => Err(Error::Type),
 		}
 	}
 
-	pub fn as_stream(&self) -> Option<&Stream> {
+	pub fn as_stream(&self) -> Result<&Stream> {
 		match *self {
-			Object::Stream(ref stream) => Some(stream),
-			_ => None,
+			Object::Stream(ref stream) => Ok(stream),
+			_ => Err(Error::Type),
 		}
 	}
 
-	pub fn type_name(&self) -> Option<&str> {
+	pub fn as_stream_mut(&mut self) -> Result<&mut Stream> {
+		match *self {
+			Object::Stream(ref mut stream) => Ok(stream),
+			_ => Err(Error::Type),
+		}
+	}
+
+	pub fn type_name(&self) -> Result<&str> {
 		match *self {
 			Object::Dictionary(ref dict) => dict.type_name(),
 			Object::Stream(ref stream) => stream.dict.type_name(),
-			_ => None,
+			_ => Err(Error::Type),
 		}
 	}
 }
@@ -258,12 +262,12 @@ impl Dictionary {
 		self.0.contains_key(key)
 	}
 
-	pub fn get(&self, key: &[u8]) -> Option<&Object> {
-		self.0.get(key)
+	pub fn get(&self, key: &[u8]) -> Result<&Object> {
+		self.0.get(key).ok_or(Error::DictKey)
 	}
 
-	pub fn get_mut(&mut self, key: &[u8]) -> Option<&mut Object> {
-		self.0.get_mut(key)
+	pub fn get_mut(&mut self, key: &[u8]) -> Result<&mut Object> {
+		self.0.get_mut(key).ok_or(Error::DictKey)
 	}
 
 	pub fn set<K, V>(&mut self, key: K, value: V)
@@ -286,12 +290,12 @@ impl Dictionary {
 		self.0.remove(key)
 	}
 
-	pub fn type_name(&self) -> Option<&str> {
-		self.get(b"Type").and_then(Object::as_name_str).or_else(|| self.get(b"Linearized").and(Some("Linearized")))
+	pub fn type_name(&self) -> Result<&str> {
+		self.get(b"Type").and_then(Object::as_name_str).or_else(|_| self.get(b"Linearized").and(Ok("Linearized")))
 	}
 
 	pub fn type_is(&self, type_name: &[u8]) -> bool {
-		self.get(b"Type").and_then(Object::as_name) == Some(type_name)
+		self.get(b"Type").and_then(Object::as_name).ok() == Some(type_name)
 	}
 
 	pub fn iter(&self) -> Iter<'_, Vec<u8>, Object> {
@@ -300,6 +304,12 @@ impl Dictionary {
 
 	pub fn iter_mut(&mut self) -> IterMut<'_, Vec<u8>, Object> {
 		self.0.iter_mut()
+	}
+
+	pub fn get_font_encoding(&self) -> &str {
+		self.get(b"Encoding")
+			.and_then(Object::as_name_str)
+			.unwrap_or("StandardEncoding")
 	}
 }
 
@@ -376,26 +386,26 @@ impl Stream {
 	}
 
 	// Return first filter
-	pub fn filter(&self) -> Option<String> {
-		self.filters().and_then(|f| f.into_iter().nth(0))
+	pub fn filter(&self) -> Result<String> {
+		self.filters().and_then(|f| f.into_iter().nth(0).ok_or(Error::ObjectNotFound))
 	}
 
-	pub fn filters(&self) -> Option<Vec<String>> {
+	pub fn filters(&self) -> Result<Vec<String>> {
 		let filter = self.dict.get(b"Filter")?;
 
-		if let Some(name) = filter.as_name_str() {
-			Some(vec![name.into()])
-		} else if let Some(names) = filter.as_array() {
-			let out_names: Vec<_> = names.iter().filter_map(Object::as_name_str).map(Into::into).collect();
+		if let Ok(name) = filter.as_name_str() {
+			Ok(vec![name.into()])
+		} else if let Ok(names) = filter.as_array() {
+			let out_names: Vec<_> = names.iter().filter_map(|n| Object::as_name_str(n).ok()).map(Into::into).collect();
 
 			// It is an error if a single conversion fails.
 			if out_names.len() == names.len() {
-				Some(out_names)
+				Ok(out_names)
 			} else {
-				None
+				Err(Error::Type)
 			}
 		} else {
-			None
+			Err(Error::Type)
 		}
 	}
 
@@ -416,7 +426,7 @@ impl Stream {
 		use flate2::Compression;
 		use std::io::prelude::*;
 
-		if self.dict.get(b"Filter").is_none() {
+		if self.dict.get(b"Filter").is_err() {
 			let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
 			encoder.write_all(self.content.as_slice())?;
 			let compressed = encoder.finish()?;
@@ -429,11 +439,11 @@ impl Stream {
 	}
 
 	pub fn decompressed_content(&self) -> Result<Vec<u8>> {
-		let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict);
-		let filters = self.filters().ok_or(Error::ObjectNotFound)?;
+		let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict).ok();
+		let filters = self.filters()?;
 
-		if self.dict.get(b"Subtype").and_then(Object::as_name_str) == Some("Image") {
-			return Err(Error::TypeError);
+		if self.dict.get(b"Subtype").and_then(Object::as_name_str).ok() == Some("Image") {
+			return Err(Error::Type);
 		}
 
 		let mut input = self.content.as_slice();
@@ -444,19 +454,19 @@ impl Stream {
 			output = Some(match filter.as_str() {
 				"FlateDecode" => Self::decompress_zlib(input, params)?,
 				"LZWDecode" => Self::decompress_lzw(input, params)?,
-				_ => { return Err(Error::TypeError); },
+				_ => { return Err(Error::Type); },
 			});
 			input = output.as_ref().unwrap();
 		}
 
-		output.ok_or(Error::TypeError)
+		output.ok_or(Error::Type)
 	}
 
 	fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {
 		use lzw::{MsbReader, Decoder, DecoderEarlyChange};
 		const MIN_BITS: u8 = 9;
 
-		let early_change = params.and_then(|p| p.get(b"EarlyChange")).and_then(Object::as_i64).map(|v| v != 0).unwrap_or(true);
+		let early_change = params.and_then(|p| p.get(b"EarlyChange").ok()).and_then(|p| Object::as_i64(p).ok()).map(|v| v != 0).unwrap_or(true);
 
 		let output = if early_change {
 			Self::decompress_lzw_loop(input, DecoderEarlyChange::new(MsbReader::new(), MIN_BITS-1), DecoderEarlyChange::decode_bytes)

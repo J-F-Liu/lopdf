@@ -1,5 +1,5 @@
-use super::parser;
-use super::{Object, ObjectId, Stream};
+use crate::parser;
+use crate::{Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -11,19 +11,19 @@ pub struct ObjectStream {
 }
 
 impl ObjectStream {
-	pub fn new(stream: &mut Stream) -> Option<ObjectStream> {
+	pub fn new(stream: &mut Stream) -> Result<ObjectStream> {
 		stream.decompress();
 
 		if stream.content.is_empty() {
-			return Some(ObjectStream { objects: BTreeMap::new() });
+			return Ok(ObjectStream { objects: BTreeMap::new() });
 		}
 
 		let first_offset = stream.dict.get(b"First").and_then(Object::as_i64)? as usize;
 		let _count = stream.dict.get(b"N").and_then(Object::as_i64)? as usize;
 
-		let index_block = stream.content.get(..first_offset)?;
+		let index_block = stream.content.get(..first_offset).ok_or(Error::Offset(first_offset))?;
 
-		let numbers_str = std::str::from_utf8(index_block).ok()?;
+		let numbers_str = std::str::from_utf8(index_block)?;
 		let numbers: Vec<_> = numbers_str.split_whitespace().map(|number| u32::from_str(number).ok()).collect();
 		let len = numbers.len() / 2 * 2; // Ensure only pairs.
 
@@ -36,6 +36,6 @@ impl ObjectStream {
 			Some(((id, 0), object))
 		}).collect();
 
-		Some(ObjectStream{ objects })
+		Ok(ObjectStream{ objects })
 	}
 }

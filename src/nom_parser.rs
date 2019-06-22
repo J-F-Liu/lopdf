@@ -230,8 +230,8 @@ fn dictionary(input: &[u8]) -> NomResult<Dictionary> {
 fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	let (i, dict) = terminated(dictionary, tuple((space, tag(b"stream"), eol)))(input)?;
 
-	if let Some(length) = dict.get(b"Length").and_then(|value|
-		if let Some(id) = value.as_reference() {
+	if let Ok(length) = dict.get(b"Length").and_then(|value|
+		if let Ok(id) = value.as_reference() {
 			reader.get_object(id).and_then(|value| value.as_i64())
 		} else {
 			value.as_i64()
@@ -337,7 +337,7 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> crate::Result<(Xref, D
 	alt((
 		map(pair(xref, trailer),
 				|(mut xref, trailer)| {
-					xref.size = trailer.get(b"Size").and_then(Object::as_i64).ok_or(Error::Trailer)? as u32;
+					xref.size = trailer.get(b"Size").and_then(Object::as_i64).map_err(|_| Error::Trailer)? as u32;
 					Ok((xref, trailer))
 				}),
 

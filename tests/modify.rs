@@ -49,6 +49,6 @@ fn test_get_object() {
 
 	println!("{:?}", id);
 	println!("{:?}", id2);
-	assert!(doc.get_object(id).is_some());
-	assert!(doc.get_object(id2).is_some());
+	assert!(doc.get_object(id).is_ok());
+	assert!(doc.get_object(id2).is_ok());
 }

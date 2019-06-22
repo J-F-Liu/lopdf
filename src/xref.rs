@@ -74,17 +74,17 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
 	stream.decompress();
 	let mut dict = stream.dict;
 	let mut reader = Cursor::new(stream.content);
-	let size = dict.get(b"Size").and_then(Object::as_i64).ok_or(Error::Xref(XrefError::Parse))?;
+	let size = dict.get(b"Size").and_then(Object::as_i64).map_err(|_| Error::Xref(XrefError::Parse))?;
 	let mut xref = Xref::new(size as u32);
 	{
 		let section_indice = dict
 			.get(b"Index")
 			.and_then(parse_integer_array)
-			.unwrap_or_else(|| vec![0, size]);
+			.unwrap_or_else(|_| vec![0, size]);
 		let field_widths = dict
 			.get(b"W")
 			.and_then(parse_integer_array)
-			.ok_or(Error::Xref(XrefError::Parse))?;
+			.map_err(|_| Error::Xref(XrefError::Parse))?;
 
 		if field_widths.len() < 3 {
 			return Err(Error::Xref(XrefError::Parse));
@@ -144,7 +144,7 @@ fn read_big_endian_integer(reader: &mut Cursor<Vec<u8>>, buffer: &mut [u8]) -> R
 	Ok(value)
 }
 
-fn parse_integer_array(array: &Object) -> Option<Vec<i64>> {
+fn parse_integer_array(array: &Object) -> Result<Vec<i64>> {
 	let array = array.as_array()?;
 	let mut out = Vec::with_capacity(array.len());
 
@@ -152,5 +152,5 @@ fn parse_integer_array(array: &Object) -> Option<Vec<i64>> {
 		out.push(n.as_i64()?);
 	}
 
-	Some(out)
+	Ok(out)
 }
