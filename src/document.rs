@@ -114,9 +114,11 @@ impl Document {
 		self.trailer.get(b"Root").and_then(Object::as_reference).and_then(|id| self.get_dictionary(id))
 	}
 
+	const PAGE_TREE_DEPTH_LIMIT : usize = 256;
+
 	/// Get page numbers and corresponding object ids.
 	pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
-		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>) {
+		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>, depth: usize) {
 			if let Ok(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get(b"Kids")).and_then(Object::as_array) {
 				for kid in kids {
 					if let Ok(kid_id) = kid.as_reference() {
@@ -127,7 +129,9 @@ impl Document {
 									*page_number += 1;
 								}
 								"Pages" => {
-									collect_pages(doc, kid_id, page_number, pages);
+									if depth <= Document::PAGE_TREE_DEPTH_LIMIT {
+										collect_pages(doc, kid_id, page_number, pages, depth+1);
+									}
 								}
 								_ => {}
 							}
@@ -140,7 +144,7 @@ impl Document {
 		let mut pages = BTreeMap::new();
 		let mut page_number = 1;
 		if let Ok(page_tree_id) = self.catalog().and_then(|cat| cat.get(b"Pages")).and_then(Object::as_reference) {
-			collect_pages(self, page_tree_id, &mut page_number, &mut pages);
+			collect_pages(self, page_tree_id, &mut page_number, &mut pages, 0);
 		}
 		pages
 	}
