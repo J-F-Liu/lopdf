@@ -41,29 +41,35 @@ impl Document {
 		}
 	}
 
-	/// Get object by object id, will recursively dereference a referenced object.
-	pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
-		if let Some(object) = self.objects.get(&id) {
-			if let Ok(id) = object.as_reference() {
-				return self.get_object(id);
-			} else {
-				return Ok(object);
+	const DEREF_LIMIT : usize = 128;
+
+	fn follow_references(&self, mut id: ObjectId) -> Result<(ObjectId, &Object)> {
+		let mut object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+		let mut nb_deref = 0;
+
+		while let Ok(ref_id) = object.as_reference() {
+			id = ref_id;
+			object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+
+			nb_deref += 1;
+			if nb_deref > Self::DEREF_LIMIT {
+				return Err(Error::ReferenceLimit);
 			}
 		}
-		Err(Error::ObjectNotFound)
+
+		Ok((id, object))
+	}
+
+	/// Get object by object id, will iteratively dereference a referenced object.
+	pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
+		self.follow_references(id).map(|(_, object)| object)
 	}
 
 	/// Get mutable reference to object by object id, will iteratively dereference a referenced object.
 	pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
-		let mut object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
-		let mut cur_id = id;
+		let (id, _) = self.follow_references(id)?;
 
-		while let Ok(id) = object.as_reference() {
-			cur_id = id;
-			object = self.objects.get(&cur_id).ok_or(Error::ObjectNotFound)?;
-		}
-
-		Ok(self.objects.get_mut(&cur_id).unwrap())
+		Ok(self.objects.get_mut(&id).unwrap())
 	}
 
 	/// Get dictionary object by id.
