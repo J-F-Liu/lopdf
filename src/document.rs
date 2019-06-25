@@ -43,7 +43,13 @@ impl Document {
 
 	const DEREF_LIMIT : usize = 128;
 
-	pub(crate) fn follow_references<'a>(&'a self, mut object: &'a Object) -> Result<(Option<ObjectId>, &'a Object)> {
+	/// Follow references if the supplied object is a reference.
+	///
+	/// Returns a tuple of an optional object id and final object.
+	/// The object id will be None if the object was not a
+	/// reference. Otherwise, it will be the last object id in the
+	/// reference chain.
+	pub fn dereference<'a>(&'a self, mut object: &'a Object) -> Result<(Option<ObjectId>, &'a Object)> {
 		let mut nb_deref = 0;
 		let mut id = None;
 
@@ -63,13 +69,13 @@ impl Document {
 	/// Get object by object id, will iteratively dereference a referenced object.
 	pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
 		let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
-		self.follow_references(object).map(|(_, object)| object)
+		self.dereference(object).map(|(_, object)| object)
 	}
 
 	/// Get mutable reference to object by object id, will iteratively dereference a referenced object.
 	pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
 		let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
-		let (ref_id, _) = self.follow_references(object)?;
+		let (ref_id, _) = self.dereference(object)?;
 
 		Ok(self.objects.get_mut(&ref_id.unwrap_or(id)).unwrap())
 	}

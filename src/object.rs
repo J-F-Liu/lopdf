@@ -269,7 +269,7 @@ impl Dictionary {
 	/// Extract object from dictionary, dereferencing the object if it
 	/// is a reference.
 	pub fn get_deref<'a>(&'a self, key: &[u8], doc: &'a Document) -> Result<&'a Object> {
-		doc.follow_references(self.get(key)?).map(|(_, object)| object)
+		doc.dereference(self.get(key)?).map(|(_, object)| object)
 	}
 
 	pub fn get_mut(&mut self, key: &[u8]) -> Result<&mut Object> {
