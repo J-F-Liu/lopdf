@@ -43,13 +43,13 @@ impl Document {
 
 	const DEREF_LIMIT : usize = 128;
 
-	fn follow_references(&self, mut id: ObjectId) -> Result<(ObjectId, &Object)> {
-		let mut object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+	pub(crate) fn follow_references<'a>(&'a self, mut object: &'a Object) -> Result<(Option<ObjectId>, &'a Object)> {
 		let mut nb_deref = 0;
+		let mut id = None;
 
 		while let Ok(ref_id) = object.as_reference() {
-			id = ref_id;
-			object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+			id = Some(ref_id);
+			object = self.objects.get(&ref_id).ok_or(Error::ObjectNotFound)?;
 
 			nb_deref += 1;
 			if nb_deref > Self::DEREF_LIMIT {
@@ -62,14 +62,16 @@ impl Document {
 
 	/// Get object by object id, will iteratively dereference a referenced object.
 	pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
-		self.follow_references(id).map(|(_, object)| object)
+		let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+		self.follow_references(object).map(|(_, object)| object)
 	}
 
 	/// Get mutable reference to object by object id, will iteratively dereference a referenced object.
 	pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
-		let (id, _) = self.follow_references(id)?;
+		let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+		let (ref_id, _) = self.follow_references(object)?;
 
-		Ok(self.objects.get_mut(&id).unwrap())
+		Ok(self.objects.get_mut(&ref_id.unwrap_or(id)).unwrap())
 	}
 
 	/// Get dictionary object by id.
