@@ -1,4 +1,4 @@
-use crate::{Error, Result};
+use crate::{Document, Error, Result};
 use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
 use log::warn;
 use std::fmt;
@@ -264,6 +264,12 @@ impl Dictionary {
 
 	pub fn get(&self, key: &[u8]) -> Result<&Object> {
 		self.0.get(key).ok_or(Error::DictKey)
+	}
+
+	/// Extract object from dictionary, dereferencing the object if it
+	/// is a reference.
+	pub fn get_deref<'a>(&'a self, key: &[u8], doc: &'a Document) -> Result<&'a Object> {
+		doc.dereference(self.get(key)?).map(|(_, object)| object)
 	}
 
 	pub fn get_mut(&mut self, key: &[u8]) -> Result<&mut Object> {

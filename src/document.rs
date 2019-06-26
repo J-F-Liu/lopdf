@@ -41,29 +41,43 @@ impl Document {
 		}
 	}
 
-	/// Get object by object id, will recursively dereference a referenced object.
-	pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
-		if let Some(object) = self.objects.get(&id) {
-			if let Ok(id) = object.as_reference() {
-				return self.get_object(id);
-			} else {
-				return Ok(object);
+	const DEREF_LIMIT : usize = 128;
+
+	/// Follow references if the supplied object is a reference.
+	///
+	/// Returns a tuple of an optional object id and final object.
+	/// The object id will be None if the object was not a
+	/// reference. Otherwise, it will be the last object id in the
+	/// reference chain.
+	pub fn dereference<'a>(&'a self, mut object: &'a Object) -> Result<(Option<ObjectId>, &'a Object)> {
+		let mut nb_deref = 0;
+		let mut id = None;
+
+		while let Ok(ref_id) = object.as_reference() {
+			id = Some(ref_id);
+			object = self.objects.get(&ref_id).ok_or(Error::ObjectNotFound)?;
+
+			nb_deref += 1;
+			if nb_deref > Self::DEREF_LIMIT {
+				return Err(Error::ReferenceLimit);
 			}
 		}
-		Err(Error::ObjectNotFound)
+
+		Ok((id, object))
+	}
+
+	/// Get object by object id, will iteratively dereference a referenced object.
+	pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
+		let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+		self.dereference(object).map(|(_, object)| object)
 	}
 
 	/// Get mutable reference to object by object id, will iteratively dereference a referenced object.
 	pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
-		let mut object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
-		let mut cur_id = id;
+		let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+		let (ref_id, _) = self.dereference(object)?;
 
-		while let Ok(id) = object.as_reference() {
-			cur_id = id;
-			object = self.objects.get(&cur_id).ok_or(Error::ObjectNotFound)?;
-		}
-
-		Ok(self.objects.get_mut(&cur_id).unwrap())
+		Ok(self.objects.get_mut(&ref_id.unwrap_or(id)).unwrap())
 	}
 
 	/// Get dictionary object by id.
@@ -114,9 +128,11 @@ impl Document {
 		self.trailer.get(b"Root").and_then(Object::as_reference).and_then(|id| self.get_dictionary(id))
 	}
 
+	const PAGE_TREE_DEPTH_LIMIT : usize = 256;
+
 	/// Get page numbers and corresponding object ids.
 	pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
-		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>) {
+		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>, depth: usize) {
 			if let Ok(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get(b"Kids")).and_then(Object::as_array) {
 				for kid in kids {
 					if let Ok(kid_id) = kid.as_reference() {
@@ -127,7 +143,9 @@ impl Document {
 									*page_number += 1;
 								}
 								"Pages" => {
-									collect_pages(doc, kid_id, page_number, pages);
+									if depth <= Document::PAGE_TREE_DEPTH_LIMIT {
+										collect_pages(doc, kid_id, page_number, pages, depth+1);
+									}
 								}
 								_ => {}
 							}
@@ -140,7 +158,7 @@ impl Document {
 		let mut pages = BTreeMap::new();
 		let mut page_number = 1;
 		if let Ok(page_tree_id) = self.catalog().and_then(|cat| cat.get(b"Pages")).and_then(Object::as_reference) {
-			collect_pages(self, page_tree_id, &mut page_number, &mut pages);
+			collect_pages(self, page_tree_id, &mut page_number, &mut pages, 0);
 		}
 		pages
 	}
