@@ -20,18 +20,18 @@ impl Document {
 	#[inline]
 	pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
 		let file = File::open(path)?;
-		let buffer = Vec::with_capacity(file.metadata()?.len() as usize);
-		Self::load_internal(file, buffer)
+		let capacity = Some(file.metadata()?.len() as usize);
+		Self::load_internal(file, capacity)
 	}
 
 	/// Load a PDF document from an arbitrary source.
 	#[inline]
 	pub fn load_from<R: Read>(source: R) -> Result<Document> {
-		let buffer = Vec::<u8>::new();
-		Self::load_internal(source, buffer)
+		Self::load_internal(source, None)
 	}
 
-	fn load_internal<R: Read>(mut source: R, mut buffer: Vec<u8>) -> Result<Document> {
+	fn load_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<Document> {
+		let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
 		source.read_to_end(&mut buffer)?;
 
 		let mut reader = Reader {
