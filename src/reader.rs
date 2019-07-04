@@ -1,5 +1,6 @@
 use log::{error, warn};
 use std::cmp;
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -44,8 +45,16 @@ impl Document {
 
 	/// Load a PDF document from a memory slice.
 	pub fn load_mem(buffer: &[u8]) -> Result<Document> {
+		buffer.try_into()
+	}
+}
+
+impl TryInto<Document> for &[u8] {
+	type Error = Error;
+
+	fn try_into(self) -> Result<Document> {
 		let mut reader = Reader {
-			buffer,
+			buffer: self,
 			document: Document::new(),
 		};
 		reader.read()?;
