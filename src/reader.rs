@@ -34,12 +34,10 @@ impl Document {
 		let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
 		source.read_to_end(&mut buffer)?;
 
-		let reader = Reader {
+		Reader {
 			buffer: &buffer,
 			document: Document::new(),
-		};
-
-		reader.read()
+		}.read()
 	}
 
 	/// Load a PDF document from a memory slice.
@@ -52,11 +50,10 @@ impl TryInto<Document> for &[u8] {
 	type Error = Error;
 
 	fn try_into(self) -> Result<Document> {
-		let reader = Reader {
+		Reader {
 			buffer: self,
 			document: Document::new(),
-		};
-		reader.read()
+		}.read()
 	}
 }
 
