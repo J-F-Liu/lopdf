@@ -34,13 +34,12 @@ impl Document {
 		let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
 		source.read_to_end(&mut buffer)?;
 
-		let mut reader = Reader {
+		let reader = Reader {
 			buffer: &buffer,
 			document: Document::new(),
 		};
 
-		reader.read()?;
-		Ok(reader.document)
+		reader.read()
 	}
 
 	/// Load a PDF document from a memory slice.
@@ -53,12 +52,11 @@ impl TryInto<Document> for &[u8] {
 	type Error = Error;
 
 	fn try_into(self) -> Result<Document> {
-		let mut reader = Reader {
+		let reader = Reader {
 			buffer: self,
 			document: Document::new(),
 		};
-		reader.read()?;
-		Ok(reader.document)
+		reader.read()
 	}
 }
 
@@ -69,7 +67,7 @@ pub struct Reader<'a> {
 
 impl <'a> Reader<'a> {
 	/// Read whole document.
-	fn read(&mut self) -> Result<()> {
+	fn read(mut self) -> Result<Document> {
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
 		let version = parser::header(&self.buffer).ok_or(Error::Header)?;
@@ -79,7 +77,7 @@ impl <'a> Reader<'a> {
 			return Err(Error::Xref(XrefError::Start));
 		}
 
-		let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], self)?;
+		let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
 
 		// Read previous Xrefs of linearized or incremental updated document.
 		let mut prev_xref_start = trailer.remove(b"Prev");
@@ -145,7 +143,7 @@ impl <'a> Reader<'a> {
 			let _ = self.set_stream_content(object_id);
 		}
 
-		Ok(())
+		Ok(self.document)
 	}
 
 	fn set_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
