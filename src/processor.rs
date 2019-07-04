@@ -65,12 +65,16 @@ impl Document {
 	pub fn prune_objects(&mut self) -> Vec<ObjectId> {
 		let mut ids = vec![];
 		let refs = self.traverse_objects(|_| {});
-		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
-			if !refs.contains(&id) {
-				self.objects.remove(&id);
-				ids.push(id);
+		for id in self.objects.keys() {
+			if !refs.contains(id) {
+				ids.push(*id);
 			}
 		}
+
+		for id in &ids {
+			self.objects.remove(id);
+		}
+
 		ids
 	}
 
@@ -107,12 +111,16 @@ impl Document {
 	/// Delete zero length stream objects.
 	pub fn delete_zero_length_streams(&mut self) -> Vec<ObjectId> {
 		let mut ids = vec![];
-		for id in self.objects.keys().cloned().collect::<Vec<ObjectId>>() {
-			if self.objects.get(&id).and_then(|o| Object::as_stream(o).ok()).map(|stream| stream.content.is_empty()).unwrap_or(false) {
-				self.delete_object(id);
-				ids.push(id);
+		for id in self.objects.keys() {
+			if self.objects.get(id).and_then(|o| Object::as_stream(o).ok()).map(|stream| stream.content.is_empty()).unwrap_or(false) {
+				ids.push(*id);
 			}
 		}
+
+		for id in &ids {
+			self.delete_object(*id);
+		}
+
 		ids
 	}
 
