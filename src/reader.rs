@@ -15,7 +15,7 @@ use crate::{Error, Result};
 use crate::error::XrefError;
 
 impl Document {
-	/// Load PDF document from specified file path.
+	/// Load a PDF document from a specified file path.
 	#[inline]
 	pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
 		let file = File::open(path)?;
@@ -23,7 +23,7 @@ impl Document {
 		Self::load_internal(file, buffer)
 	}
 
-	/// Load PDF document from arbitrary source
+	/// Load a PDF document from an arbitrary source.
 	#[inline]
 	pub fn load_from<R: Read>(source: R) -> Result<Document> {
 		let buffer = Vec::<u8>::new();
@@ -34,21 +34,31 @@ impl Document {
 		source.read_to_end(&mut buffer)?;
 
 		let mut reader = Reader {
-			buffer,
+			buffer: &buffer,
 			document: Document::new(),
 		};
 
 		reader.read()?;
 		Ok(reader.document)
 	}
+
+	/// Load a PDF document from a memory slice.
+	pub fn load_mem(buffer: &[u8]) -> Result<Document> {
+		let mut reader = Reader {
+			buffer,
+			document: Document::new(),
+		};
+		reader.read()?;
+		Ok(reader.document)
+	}
 }
 
-pub struct Reader {
-	buffer: Vec<u8>,
+pub struct Reader<'a> {
+	buffer: &'a [u8],
 	document: Document,
 }
 
-impl Reader {
+impl <'a> Reader<'a> {
 	/// Read whole document.
 	fn read(&mut self) -> Result<()> {
 		// The document structure can be expressed in PEG as:

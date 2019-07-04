@@ -102,7 +102,7 @@ fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
 	})
 }
 
-fn stream(reader: &Reader) -> Parser<'_, u8, Stream> {
+fn stream<'a>(reader: &'a Reader) -> Parser<'a, u8, Stream> {
 	(dictionary() - space() - seq(b"stream") - eol())
 		>> move |dict: Dictionary| {
 			if let Ok(length) = dict.get(b"Length").and_then(|value| {
@@ -144,7 +144,7 @@ fn _direct_object<'a>() -> Parser<'a, u8, Object> {
 		- space()
 }
 
-fn object(reader: &Reader) -> Parser<'_, u8, Object> {
+fn object<'a>(reader: &'a Reader) -> Parser<'a, u8, Object> {
 	(seq(b"null").map(|_| Object::Null)
 		| seq(b"true").map(|_| Object::Boolean(true))
 		| seq(b"false").map(|_| Object::Boolean(false))
@@ -164,7 +164,7 @@ pub fn indirect_object(input: &[u8], offset: usize, reader: &Reader) -> Result<(
 	_indirect_object(reader).parse_at(input, offset).map(|(out, _)| out).map_err(|_| Error::Parse{ offset })
 }
 
-fn _indirect_object(reader: &Reader) -> Parser<'_, u8, (ObjectId, Object)> {
+fn _indirect_object<'a>(reader: &'a Reader) -> Parser<'a, u8, (ObjectId, Object)> {
 	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
 }
 
@@ -194,11 +194,11 @@ fn trailer<'a>() -> Parser<'a, u8, Dictionary> {
 	seq(b"trailer") * space() * dictionary() - space()
 }
 
-pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> Result<(Xref, Dictionary)> {
+pub fn xref_and_trailer<'a>(input: &'a [u8], reader: &'a Reader) -> Result<(Xref, Dictionary)> {
 	_xref_and_trailer(reader).parse(input).map_err(|_| Error::Xref(XrefError::Parse))
 }
 
-fn _xref_and_trailer(reader: &Reader) -> Parser<u8, (Xref, Dictionary)> {
+fn _xref_and_trailer<'a>(reader: &'a Reader) -> Parser<'a, u8, (Xref, Dictionary)> {
 	(xref() + trailer()).convert(|(mut xref, trailer)| -> Result<_> {
 		xref.size = trailer.get(b"Size").and_then(Object::as_i64).map_err(|_| Error::Trailer)? as u32;
 		Ok((xref, trailer))
