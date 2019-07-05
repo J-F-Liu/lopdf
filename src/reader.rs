@@ -1,5 +1,6 @@
 use log::{error, warn};
 use std::cmp;
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -15,42 +16,55 @@ use crate::{Error, Result};
 use crate::error::XrefError;
 
 impl Document {
-	/// Load PDF document from specified file path.
+	/// Load a PDF document from a specified file path.
 	#[inline]
 	pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
 		let file = File::open(path)?;
-		let buffer = Vec::with_capacity(file.metadata()?.len() as usize);
-		Self::load_internal(file, buffer)
+		let capacity = Some(file.metadata()?.len() as usize);
+		Self::load_internal(file, capacity)
 	}
 
-	/// Load PDF document from arbitrary source
+	/// Load a PDF document from an arbitrary source.
 	#[inline]
 	pub fn load_from<R: Read>(source: R) -> Result<Document> {
-		let buffer = Vec::<u8>::new();
-		Self::load_internal(source, buffer)
+		Self::load_internal(source, None)
 	}
 
-	fn load_internal<R: Read>(mut source: R, mut buffer: Vec<u8>) -> Result<Document> {
+	fn load_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<Document> {
+		let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
 		source.read_to_end(&mut buffer)?;
 
-		let mut reader = Reader {
-			buffer,
+		Reader {
+			buffer: &buffer,
 			document: Document::new(),
-		};
+		}.read()
+	}
 
-		reader.read()?;
-		Ok(reader.document)
+	/// Load a PDF document from a memory slice.
+	pub fn load_mem(buffer: &[u8]) -> Result<Document> {
+		buffer.try_into()
 	}
 }
 
-pub struct Reader {
-	buffer: Vec<u8>,
+impl TryInto<Document> for &[u8] {
+	type Error = Error;
+
+	fn try_into(self) -> Result<Document> {
+		Reader {
+			buffer: self,
+			document: Document::new(),
+		}.read()
+	}
+}
+
+pub struct Reader<'a> {
+	buffer: &'a [u8],
 	document: Document,
 }
 
-impl Reader {
+impl <'a> Reader<'a> {
 	/// Read whole document.
-	fn read(&mut self) -> Result<()> {
+	fn read(mut self) -> Result<Document> {
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
 		let version = parser::header(&self.buffer).ok_or(Error::Header)?;
@@ -60,7 +74,7 @@ impl Reader {
 			return Err(Error::Xref(XrefError::Start));
 		}
 
-		let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], self)?;
+		let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
 
 		// Read previous Xrefs of linearized or incremental updated document.
 		let mut prev_xref_start = trailer.remove(b"Prev");
@@ -126,7 +140,7 @@ impl Reader {
 			let _ = self.set_stream_content(object_id);
 		}
 
-		Ok(())
+		Ok(self.document)
 	}
 
 	fn set_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
