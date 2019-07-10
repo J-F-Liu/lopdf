@@ -133,7 +133,7 @@ impl Document {
 		self.page_iter().enumerate().map(|(i, p)| ((i+1) as u32, p)).collect()
 	}
 
-	pub fn page_iter<'a>(&'a self) -> impl Iterator<Item=ObjectId> + 'a {
+	pub fn page_iter(&self) -> impl Iterator<Item=ObjectId> + '_ {
 		PageTreeIter::new(self)
 	}
 
