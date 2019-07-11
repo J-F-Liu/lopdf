@@ -232,8 +232,7 @@ impl Document {
 	}
 
 	pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) -> Result<()>{
-		let pages = self.get_pages();
-		let page_id = *pages.get(&page_number).ok_or(Error::PageNumberNotFound(page_number))?;
+		let page_id = self.page_iter().nth(page_number as usize - 1).ok_or(Error::PageNumberNotFound(page_number))?;
 		let encodings = self
 			.get_page_fonts(page_id)
 			.into_iter()

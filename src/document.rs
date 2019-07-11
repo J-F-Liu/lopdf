@@ -128,39 +128,13 @@ impl Document {
 		self.trailer.get(b"Root").and_then(Object::as_reference).and_then(|id| self.get_dictionary(id))
 	}
 
-	const PAGE_TREE_DEPTH_LIMIT : usize = 256;
-
 	/// Get page numbers and corresponding object ids.
 	pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
-		fn collect_pages(doc: &Document, page_tree_id: ObjectId, page_number: &mut u32, pages: &mut BTreeMap<u32, ObjectId>, depth: usize) {
-			if let Ok(kids) = doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get(b"Kids")).and_then(Object::as_array) {
-				for kid in kids {
-					if let Ok(kid_id) = kid.as_reference() {
-						if let Ok(type_name) = doc.get_dictionary(kid_id).and_then(Dictionary::type_name) {
-							match type_name {
-								"Page" => {
-									pages.insert(*page_number, kid_id);
-									*page_number += 1;
-								}
-								"Pages" => {
-									if depth <= Document::PAGE_TREE_DEPTH_LIMIT {
-										collect_pages(doc, kid_id, page_number, pages, depth+1);
-									}
-								}
-								_ => {}
-							}
-						}
-					}
-				}
-			}
-		}
+		self.page_iter().enumerate().map(|(i, p)| ((i+1) as u32, p)).collect()
+	}
 
-		let mut pages = BTreeMap::new();
-		let mut page_number = 1;
-		if let Ok(page_tree_id) = self.catalog().and_then(|cat| cat.get(b"Pages")).and_then(Object::as_reference) {
-			collect_pages(self, page_tree_id, &mut page_number, &mut pages, 0);
-		}
-		pages
+	pub fn page_iter(&self) -> impl Iterator<Item=ObjectId> + '_ {
+		PageTreeIter::new(self)
 	}
 
 	/// Get content stream object ids of a page.
@@ -294,3 +268,72 @@ impl Default for Document {
 		Self::new()
 	}
 }
+
+struct PageTreeIter<'a> {
+	doc: &'a Document,
+	stack: Vec<&'a [Object]>,
+	kids: Option<&'a [Object]>,
+}
+
+impl <'a> PageTreeIter<'a> {
+	const PAGE_TREE_DEPTH_LIMIT: usize = 256;
+
+	fn new(doc: &'a Document) -> Self {
+		if let Ok(page_tree_id) = doc.catalog().and_then(|cat| cat.get(b"Pages")).and_then(Object::as_reference) {
+			Self { doc, kids: Self::kids(doc, page_tree_id), stack: Vec::with_capacity(32) }
+		} else {
+			Self { doc, kids: None, stack: Vec::new() }
+		}
+	}
+
+	fn kids(doc: &Document, page_tree_id: ObjectId) -> Option<&[Object]> {
+		doc.get_dictionary(page_tree_id).and_then(|page_tree| page_tree.get(b"Kids")).and_then(Object::as_array).map(|k| k.as_slice()).ok()
+	}
+}
+
+impl Iterator for PageTreeIter<'_> {
+	type Item = ObjectId;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		loop {
+			while let Some((kid, new_kids)) = self.kids.and_then(|k| k.split_first()) {
+				self.kids = Some(new_kids);
+
+				if let Ok(kid_id) = kid.as_reference() {
+					if let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::type_name) {
+						match type_name {
+							"Page" => {
+								return Some(kid_id);
+							},
+							"Pages" => {
+								if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT {
+									let kids = self.kids.unwrap();
+									if !kids.is_empty() {
+										self.stack.push(kids);
+									}
+									self.kids = Self::kids(self.doc, kid_id);
+								}
+							},
+							_ => {}
+						}
+					}
+				}
+			}
+
+			// Current level exhausted, try to pop.
+			if let kids @ Some(_) = self.stack.pop() {
+				self.kids = kids;
+			} else {
+				return None;
+			}
+		}
+	}
+
+	fn size_hint(&self) -> (usize, Option<usize>) {
+		let stack_len: usize = self.stack.iter().map(|s| s.len()).sum();
+
+		(self.kids.map(|k| k.len()).unwrap_or(0) + stack_len, None)
+	}
+}
+
+impl std::iter::FusedIterator for PageTreeIter<'_> {}
