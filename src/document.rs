@@ -7,6 +7,7 @@ use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use log::info;
 use std::collections::BTreeMap;
+use std::cmp::max;
 use std::io::Write;
 use std::str;
 
@@ -330,9 +331,23 @@ impl Iterator for PageTreeIter<'_> {
 	}
 
 	fn size_hint(&self) -> (usize, Option<usize>) {
-		let stack_len: usize = self.stack.iter().map(|s| s.len()).sum();
+		let kids = self.kids.unwrap_or(&[]);
 
-		(self.kids.map(|k| k.len()).unwrap_or(0) + stack_len, None)
+		let nb_pages: usize = kids.iter().chain(self.stack.iter().flat_map(|k| k.iter())).map(|kid| {
+			if let Ok(dict) = kid.as_reference().and_then(|id| self.doc.get_dictionary(id)) {
+				if let Ok("Pages") = dict.type_name() {
+					let count = dict.get_deref(b"Count", self.doc).and_then(Object::as_i64).unwrap_or(0);
+					// Don't let page count go backwards in case of an invalid document.
+					max(0, count) as usize
+				} else {
+					1
+				}
+			} else {
+				1
+			}
+		}).sum();
+
+		(nb_pages, Some(nb_pages))
 	}
 }
 
