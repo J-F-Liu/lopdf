@@ -116,7 +116,7 @@ impl <'a> Reader<'a> {
 
 		self.document.objects = self.document.reference_table.entries.par_iter().filter_map(|(_, entry)| {
 			if let XrefEntry::Normal { offset, .. } = *entry {
-				let (object_id, mut object) = self.read_object(offset as usize)
+				let (object_id, mut object) = self.read_object(offset as usize, None)
 					.map_err(|e| error!("Object load error: {:?}", e)).ok()?;
 				if let Ok(ref mut stream) = object.as_stream_mut() {
 					if stream.dict.type_is(b"ObjStm") {
@@ -182,17 +182,17 @@ impl <'a> Reader<'a> {
 
 	pub fn get_object(&self, id: ObjectId) -> Result<Object> {
 		let offset = self.get_offset(id)?;
-		let (_, obj) = self.read_object(offset as usize)?;
+		let (_, obj) = self.read_object(offset as usize, Some(id))?;
 
 		Ok(obj)
 	}
 
-	fn read_object(&self, offset: usize) -> Result<(ObjectId, Object)> {
+	fn read_object(&self, offset: usize, expected_id: Option<ObjectId>) -> Result<(ObjectId, Object)> {
 		if offset > self.buffer.len() {
 			return Err(Error::Offset(offset));
 		}
 
-		parser::indirect_object(&self.buffer, offset, self)
+		parser::indirect_object(&self.buffer, offset, expected_id, self)
 	}
 
 	fn get_xref_start(buffer: &[u8]) -> Result<usize> {
