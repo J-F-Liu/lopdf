@@ -284,23 +284,28 @@ fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 	terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
 }
 
-pub fn indirect_object<'a>(input: &'a [u8], offset: usize, reader: &Reader) -> crate::Result<(ObjectId, Object)> {
-	let (_, (id, mut object)) = _indirect_object(&input[offset..], reader).map_err(|_| Error::Parse{ offset })?;
+pub fn indirect_object<'a>(input: &'a [u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader) -> crate::Result<(ObjectId, Object)> {
+	let (id, mut object) = _indirect_object(&input[offset..], offset, expected_id, reader)?;
 
 	offset_stream(&mut object, offset);
 
 	Ok((id, object))
 }
 
-fn _indirect_object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, (ObjectId, Object)> {
-	let (i, object_id) = terminated(object_id, pair(tag(b"obj"), space))(input)?;
+fn _indirect_object<'a>(input: &'a [u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader) -> crate::Result<(ObjectId, Object)> {
+	let (i, object_id) = terminated(object_id, pair(tag(b"obj"), space))(input).map_err(|_| Error::Parse{ offset })?;
+	if let Some(expected_id) = expected_id {
+		if object_id != expected_id {
+			return Err(crate::error::Error::ObjectIdMismatch);
+		}
+	}
 
 	let object_offset = input.len() - i.len();
-	let (i, mut object) = terminated(|i| object(i, reader), tuple((space, opt(tag(b"endobj")), space)))(i)?;
+	let (_, mut object) = terminated(|i| object(i, reader), tuple((space, opt(tag(b"endobj")), space)))(i).map_err(|_| Error::Parse{ offset })?;
 
 	offset_stream(&mut object, object_offset);
 
-	Ok((i, (object_id, object)))
+	Ok((object_id, object))
 }
 
 pub fn header(input: &[u8]) -> Option<String> {
@@ -341,11 +346,13 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> crate::Result<(Xref, D
 					Ok((xref, trailer))
 				}),
 
-		map(|i| _indirect_object(i, reader),
-				|(_, obj)| match obj {
-					Object::Stream(stream) => decode_xref_stream(stream),
-					_ => Err(Error::Xref(XrefError::Parse))
-				})
+		(|input| _indirect_object(input, 0, None, reader).map(|(_, obj)| {
+			let res = match obj {
+				Object::Stream(stream) => decode_xref_stream(stream),
+				_ => Err(Error::Xref(XrefError::Parse))
+			};
+			(input, res)
+		}).map_err(|_| nom::Err::Error(())))
 	))(input).map(|(_, o)| o).unwrap_or(Err(Error::Trailer))
 }
 

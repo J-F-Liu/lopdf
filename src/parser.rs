@@ -160,12 +160,16 @@ fn object<'a>(reader: &'a Reader) -> Parser<'a, u8, Object> {
 		- space()
 }
 
-pub fn indirect_object(input: &[u8], offset: usize, reader: &Reader) -> Result<(ObjectId, Object)> {
-	_indirect_object(reader).parse_at(input, offset).map(|(out, _)| out).map_err(|_| Error::Parse{ offset })
+pub fn indirect_object(input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader) -> Result<(ObjectId, Object)> {
+	_indirect_object(expected_id, reader).parse_at(input, offset).map(|(out, _)| out).map_err(|_| Error::Parse{ offset })
 }
 
-fn _indirect_object<'a>(reader: &'a Reader) -> Parser<'a, u8, (ObjectId, Object)> {
-	object_id() - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
+fn _indirect_object<'a>(expected_id: Option<ObjectId>, reader: &'a Reader) -> Parser<'a, u8, (ObjectId, Object)> {
+	object_id().convert(move |id| match expected_id {
+		Some(expected_id) if expected_id == id => Ok(id),
+		Some(_) => Err(()),
+		None => Ok(id),
+	}) - seq(b"obj") - space() + object(reader) - space() - seq(b"endobj").opt() - space()
 }
 
 pub fn header(input: &[u8]) -> Option<String> {
@@ -202,7 +206,7 @@ fn _xref_and_trailer<'a>(reader: &'a Reader) -> Parser<'a, u8, (Xref, Dictionary
 	(xref() + trailer()).convert(|(mut xref, trailer)| -> Result<_> {
 		xref.size = trailer.get(b"Size").and_then(Object::as_i64).map_err(|_| Error::Trailer)? as u32;
 		Ok((xref, trailer))
-	}) | _indirect_object(reader).convert(|(_, obj)| match obj {
+	}) | _indirect_object(None, reader).convert(|(_, obj)| match obj {
 		Object::Stream(stream) => decode_xref_stream(stream),
 		_ => Err(Error::Xref(XrefError::Parse)),
 	})
