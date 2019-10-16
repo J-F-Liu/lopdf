@@ -3,6 +3,7 @@ use crate::{Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
+#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
 use rayon::prelude::*;
 
 #[derive(Debug)]
@@ -27,14 +28,18 @@ impl ObjectStream {
 		let numbers: Vec<_> = numbers_str.split_whitespace().map(|number| u32::from_str(number).ok()).collect();
 		let len = numbers.len() / 2 * 2; // Ensure only pairs.
 
-		let objects = numbers[..len].par_chunks(2).filter_map(|chunk| {
+		let chunks_filter_map = |chunk: &[_]| {
 			let id = chunk[0]?;
 			let offset = first_offset + chunk[1]? as usize;
 
 			let object = parser::direct_object(&stream.content[offset..])?;
 
 			Some(((id, 0), object))
-		}).collect();
+		};
+		#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+		let objects = numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect();
+		#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
+		let objects = numbers[..len].chunks(2).filter_map(chunks_filter_map).collect();
 
 		Ok(ObjectStream{ objects })
 	}

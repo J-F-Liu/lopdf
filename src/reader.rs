@@ -6,6 +6,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 
+#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
 use rayon::prelude::*;
 
 use super::parser;
@@ -114,7 +115,7 @@ impl <'a> Reader<'a> {
 		let zero_length_streams = Mutex::new(vec![]);
 		let object_streams = Mutex::new(vec![]);
 
-		self.document.objects = self.document.reference_table.entries.par_iter().filter_map(|(_, entry)| {
+		let entries_filter_map = |(_, entry): (&_, &_)| {
 			if let XrefEntry::Normal { offset, .. } = *entry {
 				let (object_id, mut object) = self.read_object(offset as usize, None)
 					.map_err(|e| error!("Object load error: {:?}", e)).ok()?;
@@ -132,8 +133,15 @@ impl <'a> Reader<'a> {
 			} else {
 				None
 			}
-		}).collect();
-
+		};
+		#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+		{
+			self.document.objects =	self.document.reference_table.entries.par_iter().filter_map(entries_filter_map).collect();
+		}
+		#[cfg(all(target_arch =	"wasm32", not(target_os	= "emscripten")))]
+		{
+			self.document.objects =	self.document.reference_table.entries.iter().filter_map(entries_filter_map).collect();
+		}
 		self.document.objects.extend(object_streams.into_inner().unwrap());
 
 		for object_id in zero_length_streams.into_inner().unwrap() {
