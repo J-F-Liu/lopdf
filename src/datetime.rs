@@ -5,8 +5,6 @@ use chrono::prelude::*;
 use time::strptime;
 use time::{strftime, Tm};
 
-const TIME_FMT_DECODE_STR: &str = "%Y%m%d%H%M%S%z";
-
 #[cfg(feature = "chrono_time")]
 impl From<DateTime<Local>> for Object {
 	fn from(date: DateTime<Local>) -> Self {
@@ -29,8 +27,8 @@ fn convert_utc_offset(bytes: &mut [u8]) {
 }
 
 #[cfg(feature = "chrono_time")]
-impl From<DateTime<UTC>> for Object {
-	fn from(date: DateTime<UTC>) -> Self {
+impl From<DateTime<Utc>> for Object {
+	fn from(date: DateTime<Utc>) -> Self {
 		Object::string_literal(date.format("D:%Y%m%d%H%M%SZ").to_string())
 	}
 }
@@ -65,8 +63,10 @@ impl Object {
 
 	#[cfg(feature = "chrono_time")]
 	pub fn as_datetime(&self) -> Option<DateTime<Local>> {
+	#[cfg(feature = "chrono_time")]
+		const TIME_FMT_DECODE_STR: &str = "%Y%m%d%H%M%S%#z";
 		let text = self.datetime_string()?;
-		Local.datetime_from_str(&text, TIME_FMT_DECODE_STR).ok()
+		DateTime::parse_from_str(&text, TIME_FMT_DECODE_STR).map(|date| date.with_timezone(&Local)).ok()
 	}
 
 	/// WARNING: `tm_wday` (weekday), `tm_yday` (day index in year), `tm_isdst`
@@ -75,6 +75,7 @@ impl Object {
 	/// however, be calculated manually
 	#[cfg(not(feature = "chrono_time"))]
 	pub fn as_datetime(&self) -> Option<Tm> {
+		const TIME_FMT_DECODE_STR: &str = "%Y%m%d%H%M%S%z";
 		let text = self.datetime_string()?;
 		strptime(&text, TIME_FMT_DECODE_STR).ok()
 	}
@@ -82,11 +83,20 @@ impl Object {
 
 #[cfg(feature = "chrono_time")]
 #[test]
-fn parse_datetime() {
+fn parse_datetime_local() {
 	let time = Local::now().with_nanosecond(0).unwrap();
 	let text: Object = time.into();
 	let time2 = text.as_datetime();
 	assert_eq!(time2, Some(time));
+}
+
+#[cfg(feature = "chrono_time")]
+#[test]
+fn parse_datetime_utc() {
+	let time = Utc::now().with_nanosecond(0).unwrap();
+	let text: Object = time.into();
+	let time2 = text.as_datetime();
+	assert_eq!(time2, Some(time.with_timezone(&Local)));
 }
 
 #[cfg(not(feature = "chrono_time"))]
