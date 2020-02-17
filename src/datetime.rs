@@ -63,10 +63,12 @@ impl Object {
 
 	#[cfg(feature = "chrono_time")]
 	pub fn as_datetime(&self) -> Option<DateTime<Local>> {
-	#[cfg(feature = "chrono_time")]
-		const TIME_FMT_DECODE_STR: &str = "%Y%m%d%H%M%S%#z";
 		let text = self.datetime_string()?;
-		DateTime::parse_from_str(&text, TIME_FMT_DECODE_STR).map(|date| date.with_timezone(&Local)).ok()
+		let from_date = |date| FixedOffset::east(0).from_utc_date(&date).and_hms(0, 0, 0);
+		DateTime::parse_from_str(&text, "%Y%m%d%H%M%S%#z")
+			.or_else(|_| DateTime::parse_from_str(&text, "%Y%m%d%H%M%#z"))
+			.or_else(|_| NaiveDate::parse_from_str(&text, "%Y%m%d").map(from_date))
+			.map(|date| date.with_timezone(&Local)).ok()
 	}
 
 	/// WARNING: `tm_wday` (weekday), `tm_yday` (day index in year), `tm_isdst`
@@ -97,6 +99,21 @@ fn parse_datetime_utc() {
 	let text: Object = time.into();
 	let time2 = text.as_datetime();
 	assert_eq!(time2, Some(time.with_timezone(&Local)));
+}
+
+#[cfg(feature = "chrono_time")]
+#[test]
+fn parse_datetime_seconds_missing() {
+	// this is the example from the PDF reference, version 1.7, chapter 3.8.3
+	let text = Object::string_literal("D:199812231952-08'00'");
+	assert!(text.as_datetime().is_some());
+}
+
+#[cfg(feature = "chrono_time")]
+#[test]
+fn parse_datetime_time_missing() {
+	let text = Object::string_literal("D:20040229");
+	assert!(text.as_datetime().is_some());
 }
 
 #[cfg(not(feature = "chrono_time"))]
