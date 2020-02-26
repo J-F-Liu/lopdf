@@ -16,9 +16,9 @@ edition = "2018"
 pom = "3.0.0"
 time = "0.1.40"
 flate2 = "1.0.3"
-linked-hash-map = "0.3.0"
+linked-hash-map = "0.4.2"
 dtoa = "0.4.1"
-itoa = "0.3.1"
+itoa = "0.4.5"
 encoding = "0.2"
 image = { version = "0.20.0", optional = true }
 chrono = { version = "0.4.3", optional = true }
