@@ -232,7 +232,8 @@ impl <'a> Reader<'a> {
 			seek_pos += 1;
 
 			if index == pattern.len() {
-				return Some(seek_pos - index);
+				let res = seek_pos - index;
+				return Self::search_substring(buffer, pattern, res + 1).or(Some(res));
 			}
 		}
 
