@@ -206,6 +206,7 @@ impl <'a> Reader<'a> {
 	fn get_xref_start(buffer: &[u8]) -> Result<usize> {
 		let seek_pos = buffer.len() - cmp::min(buffer.len(), 512);
 		Self::search_substring(buffer, b"%%EOF", seek_pos)
+			.and_then(|eof_pos| if eof_pos > 25 { Some(eof_pos) } else { None })
 			.and_then(|eof_pos| Self::search_substring(buffer, b"startxref", eof_pos - 25))
 			.ok_or(Error::Xref(XrefError::Start))
 			.and_then(|xref_pos| if xref_pos <= buffer.len() {
