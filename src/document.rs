@@ -296,8 +296,14 @@ impl Iterator for PageTreeIter<'_> {
 	type Item = ObjectId;
 
 	fn next(&mut self) -> Option<Self::Item> {
+		let mut objcount = self.doc.objects.len();
 		loop {
 			while let Some((kid, new_kids)) = self.kids.and_then(|k| k.split_first()) {
+				if objcount == 0 {
+					return None;
+				}
+				objcount -= 1;
+				
 				self.kids = Some(new_kids);
 
 				if let Ok(kid_id) = kid.as_reference() {
