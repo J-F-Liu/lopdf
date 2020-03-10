@@ -248,3 +248,9 @@ fn load_document() {
 	assert_eq!(doc.version, "1.5");
 	doc.save("test_2_load.pdf").unwrap();
 }
+
+#[test]
+#[should_panic(expected = "Xref(Start)")]
+fn load_short_document() {
+	let _doc = Document::load_mem(b"%PDF-1.5\n%%EOF\n").unwrap();
+}
