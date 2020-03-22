@@ -63,9 +63,28 @@ pub struct Reader<'a> {
 	document: Document,
 }
 
+const MAX_BRACKET: usize = 100;
+
 impl <'a> Reader<'a> {
 	/// Read whole document.
 	fn read(mut self) -> Result<Document> {
+		fn max_bracket_depth(b: &[u8]) -> usize {
+			let mut cd = 0;
+			let mut md = 0;
+			for b in b.iter() {
+				if *b == b'(' {
+					cd += 1;
+					md = cd.max(md);
+				} else if *b == b')' && cd > 0 {
+					cd -= 1;
+				}
+			}
+			md
+		}
+		if max_bracket_depth(&self.buffer) > MAX_BRACKET {
+			return Err(Error::BracketLimit);
+		}
+
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
 		let version = parser::header(&self.buffer).ok_or(Error::Header)?;
@@ -253,4 +272,46 @@ fn load_document() {
 #[should_panic(expected = "Xref(Start)")]
 fn load_short_document() {
 	let _doc = Document::load_mem(b"%PDF-1.5\n%%EOF\n").unwrap();
+}
+
+#[test]
+fn load_many_shallow_brackets() {
+	let content: String = std::iter::repeat("()").take(MAX_BRACKET*10).map(|x| x.chars()).flatten().collect();
+    const STREAM_CRUFT: usize = 33;
+    let doc = format!("%PDF-1.5
+1 0 obj<</Type/Pages/Kids[5 0 R]/Count 1/Resources 3 0 R/MediaBox[0 0 595 842]>>endobj
+2 0 obj<</Type/Font/Subtype/Type1/BaseFont/Courier>>endobj
+3 0 obj<</Font<</F1 2 0 R>>>>endobj
+5 0 obj<</Type/Page/Parent 1 0 R/Contents[4 0 R]>>endobj
+6 0 obj<</Type/Catalog/Pages 1 0 R>>endobj
+4 0 obj<</Length {}>>stream
+BT
+/F1 48 Tf
+100 600 Td
+({}) Tj
+ET
+endstream endobj\n", content.len() + STREAM_CRUFT, content);
+    let doc = format!("{}xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000096 00000 n 
+0000000155 00000 n 
+0000000291 00000 n 
+0000000191 00000 n 
+0000000248 00000 n 
+trailer
+<</Root 6 0 R/Size 7>>
+startxref
+{}
+%%EOF", doc, doc.len());
+
+	let _doc = Document::load_mem(doc.as_bytes()).unwrap();
+}
+
+#[test]
+#[should_panic(expected = "BracketLimit")]
+fn load_too_deep_brackets() {
+	let buf: Vec<_> = std::iter::repeat(b'(').take(MAX_BRACKET+1).chain(std::iter::repeat(b')').take(MAX_BRACKET+1)).collect();
+	let _doc = Document::load_mem(&buf).unwrap();
 }
