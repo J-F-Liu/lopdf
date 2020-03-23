@@ -49,6 +49,7 @@ fn paeth_predict(left: u8, above: u8, upperleft: u8) -> u8 {
 pub fn decode_row(filter: FilterType, bpp: usize, previous: &[u8], current: &mut [u8]) {
 	use self::FilterType::*;
 	let len = current.len();
+	let bpp = bpp.min(len);
 
 	match filter {
 		None => (),
@@ -108,6 +109,7 @@ pub fn decode_frame(content: &[u8], bytes_per_pixel: usize, pixels_per_row: usiz
 pub fn encode_row(method: FilterType, bpp: usize, previous: &[u8], current: &mut [u8]) {
 	use self::FilterType::*;
 	let len = current.len();
+	let bpp = bpp.min(len);
 
 	match method {
 		None => (),
