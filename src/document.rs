@@ -274,6 +274,7 @@ struct PageTreeIter<'a> {
 	doc: &'a Document,
 	stack: Vec<&'a [Object]>,
 	kids: Option<&'a [Object]>,
+	iter_limit: usize,
 }
 
 impl <'a> PageTreeIter<'a> {
@@ -281,9 +282,9 @@ impl <'a> PageTreeIter<'a> {
 
 	fn new(doc: &'a Document) -> Self {
 		if let Ok(page_tree_id) = doc.catalog().and_then(|cat| cat.get(b"Pages")).and_then(Object::as_reference) {
-			Self { doc, kids: Self::kids(doc, page_tree_id), stack: Vec::with_capacity(32) }
+			Self { doc, kids: Self::kids(doc, page_tree_id), stack: Vec::with_capacity(32), iter_limit: doc.objects.len() }
 		} else {
-			Self { doc, kids: None, stack: Vec::new() }
+			Self { doc, kids: None, stack: Vec::new(), iter_limit: doc.objects.len() }
 		}
 	}
 
@@ -296,13 +297,12 @@ impl Iterator for PageTreeIter<'_> {
 	type Item = ObjectId;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let mut objcount = self.doc.objects.len();
 		loop {
 			while let Some((kid, new_kids)) = self.kids.and_then(|k| k.split_first()) {
-				if objcount == 0 {
+				if self.iter_limit == 0 {
 					return None;
 				}
-				objcount -= 1;
+				self.iter_limit -= 1;
 				
 				self.kids = Some(new_kids);
 
