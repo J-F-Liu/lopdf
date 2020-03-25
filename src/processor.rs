@@ -173,7 +173,7 @@ impl Document {
 		let mut text = String::new();
 		let pages = self.get_pages();
 		for page_number in page_numbers {
-			let page_id = pages[page_number];
+			let page_id = *pages.get(page_number).ok_or(Error::PageNumberNotFound(*page_number))?;
 			let fonts = self.get_page_fonts(page_id);
 			let encodings = fonts.into_iter().map(|(name, font)| (name, font.get_font_encoding())).collect::<BTreeMap<Vec<u8>, &str>>();
 			let content_data = self.get_page_content(page_id)?;
@@ -182,7 +182,10 @@ impl Document {
 			for operation in &content.operations {
 				match operation.operator.as_ref() {
 					"Tf" => {
-						let current_font = operation.operands[0].as_name()?;
+						let current_font =
+							operation.operands.get(0)
+							.ok_or(Error::Syntax("missing font operand".to_string()))?
+							.as_name()?;
 						current_encoding = encodings.get(current_font).cloned();
 					}
 					"Tj" | "TJ" => {
@@ -244,7 +247,10 @@ impl Document {
 		for operation in &mut content.operations {
 			match operation.operator.as_ref() {
 				"Tf" => {
-					let current_font = operation.operands[0].as_name()?;
+					let current_font =
+						operation.operands.get(0)
+						.ok_or(Error::Syntax("missing font operand".to_string()))?
+						.as_name()?;
 					current_encoding = encodings.get(current_font).map(std::string::String::as_str);
 				}
 				"Tj" => {

@@ -16,6 +16,7 @@ pub enum Error {
 	Trailer,
 	Type,
 	UTF8,
+	Syntax(String),
 	Xref(XrefError),
 	#[cfg(feature = "embed_image")]
 	Image(image::ImageError),
@@ -38,6 +39,7 @@ impl fmt::Display for Error {
 			Error::Trailer => write!(f, "Invalid file trailer"),
 			Error::Type => write!(f, "An object does not have the expected type"),
 			Error::UTF8 => write!(f, "UTF-8 error"),
+			Error::Syntax(msg) => write!(f, "Syntax error: {}", msg),
 			Error::Xref(e) => write!(f, "Invalid cross-reference table ({})", e),
 			#[cfg(feature = "embed_image")]
 			Error::Image(e) => e.fmt(f),

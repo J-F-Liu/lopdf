@@ -175,7 +175,16 @@ impl <'a> Reader<'a> {
 		let stream = self.document.get_object_mut(object_id).and_then(Object::as_stream_mut)?;
 		let start = stream.start_position.ok_or(Error::ObjectNotFound)?;
 
+		if length < 0 {
+			return Err(Error::Syntax("Negative stream length.".to_string()));
+		}
+
 		let end = start + length as usize;
+
+		if end > self.buffer.len() {
+			return Err(Error::Syntax("Stream extends after document end.".to_string()));
+		}
+
 		stream.set_content(self.buffer[start..end].to_vec());
 		Ok(())
 	}
