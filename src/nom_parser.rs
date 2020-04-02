@@ -157,30 +157,34 @@ impl <'a> ILS<'a> {
 	}
 }
 
-fn inner_literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
-	fold_many0(
+fn inner_literal_string(depth: usize) -> impl Fn(&[u8]) -> NomResult<Vec<u8>> {
+	move |input| fold_many0(
 		alt((
 			map(take_while1(is_direct_literal_string), ILS::Direct),
 			map(escape_sequence, ILS::Escape),
 			map(eol, |_| ILS::EOL),
-			map(nested_literal_string, ILS::Nested),
+			map(nested_literal_string(depth), ILS::Nested),
 		)),
 		Vec::new(),
 		|mut out: Vec<u8>, value| { value.push(&mut out); out }
 	)(input)
 }
 
-fn nested_literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
-	map(delimited(tag(b"("), inner_literal_string, tag(b")")),
-		|mut content| {
-			content.insert(0, b'(');
-			content.push(b')');
-			content
-		})(input)
+fn nested_literal_string(depth: usize) -> impl Fn(&[u8]) -> NomResult<Vec<u8>> {
+	move |input| if depth == 0 {
+		map(verify(tag(b"too deep" as &[u8]), |_: &[u8]| false), |_| vec![])(input)
+	} else {
+		map(delimited(tag(b"("), inner_literal_string(depth - 1), tag(b")")),
+			|mut content| {
+				content.insert(0, b'(');
+				content.push(b')');
+				content
+			})(input)
+	}
 }
 
 fn literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
-	delimited(tag(b"("), inner_literal_string, tag(b")"))(input)
+	delimited(tag(b"("), inner_literal_string(crate::reader::MAX_BRACKET), tag(b")"))(input)
 }
 
 #[inline]

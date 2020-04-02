@@ -63,28 +63,12 @@ pub struct Reader<'a> {
 	document: Document,
 }
 
-const MAX_BRACKET: usize = 100;
+/// Maximum allowed embedding of literal strings.
+pub const MAX_BRACKET: usize = 100;
 
 impl <'a> Reader<'a> {
 	/// Read whole document.
 	fn read(mut self) -> Result<Document> {
-		fn max_bracket_depth(b: &[u8]) -> usize {
-			let mut cd = 0;
-			let mut md = 0;
-			for b in b.iter() {
-				if *b == b'(' {
-					cd += 1;
-					md = cd.max(md);
-				} else if *b == b')' && cd > 0 {
-					cd -= 1;
-				}
-			}
-			md
-		}
-		if max_bracket_depth(&self.buffer) > MAX_BRACKET {
-			return Err(Error::BracketLimit);
-		}
-
 		// The document structure can be expressed in PEG as:
 		//   document <- header indirect_object* xref trailer xref_start
 		let version = parser::header(&self.buffer).ok_or(Error::Header)?;
