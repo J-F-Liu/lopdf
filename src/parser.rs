@@ -63,9 +63,17 @@ fn escape_sequence<'a>() -> Parser<'a, u8, Vec<u8>> {
 			| empty().map(|_| vec![]))
 }
 
-fn nested_literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
+fn nested_literal_string<'a>(depth: usize) -> Parser<'a, u8, Vec<u8>> {
+	if depth == 0 {
+		return Parser::new(move |_: &'a [u8], pos: usize| Err(pom::Error::Custom{
+			message: "Brackets embedded to deep.".to_string(),
+			position: pos,
+			inner: Some(Box::new(())),
+		}))
+	}
+
 	sym(b'(')
-		* (none_of(b"\\()").repeat(1..) | escape_sequence() | call(nested_literal_string)).repeat(0..).map(|segments| {
+		* (none_of(b"\\()").repeat(1..) | escape_sequence() | call(move || nested_literal_string(depth - 1))).repeat(0..).map(|segments| {
 			let mut bytes = segments.into_iter().fold(vec![b'('], |mut bytes, mut segment| {
 				bytes.append(&mut segment);
 				bytes
@@ -77,7 +85,7 @@ fn nested_literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 
 fn literal_string<'a>() -> Parser<'a, u8, Vec<u8>> {
 	sym(b'(')
-		* (none_of(b"\\()").repeat(1..) | escape_sequence() | nested_literal_string())
+		* (none_of(b"\\()").repeat(1..) | escape_sequence() | nested_literal_string(crate::reader::MAX_BRACKET))
 			.repeat(0..)
 			.map(|segments| segments.concat())
 		- sym(b')')
