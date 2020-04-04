@@ -270,8 +270,8 @@ fn load_short_document() {
 #[test]
 fn load_many_shallow_brackets() {
 	let content: String = std::iter::repeat("()").take(MAX_BRACKET*10).map(|x| x.chars()).flatten().collect();
-    const STREAM_CRUFT: usize = 33;
-    let doc = format!("%PDF-1.5
+	const STREAM_CRUFT: usize = 33;
+	let doc = format!("%PDF-1.5
 1 0 obj<</Type/Pages/Kids[5 0 R]/Count 1/Resources 3 0 R/MediaBox[0 0 595 842]>>endobj
 2 0 obj<</Type/Font/Subtype/Type1/BaseFont/Courier>>endobj
 3 0 obj<</Font<</F1 2 0 R>>>>endobj
@@ -284,7 +284,7 @@ BT
 ({}) Tj
 ET
 endstream endobj\n", content.len() + STREAM_CRUFT, content);
-    let doc = format!("{}xref
+	let doc = format!("{}xref
 0 7
 0000000000 65535 f 
 0000000009 00000 n 
@@ -303,8 +303,44 @@ startxref
 }
 
 #[test]
-#[should_panic(expected = "BracketLimit")]
 fn load_too_deep_brackets() {
-	let buf: Vec<_> = std::iter::repeat(b'(').take(MAX_BRACKET+1).chain(std::iter::repeat(b')').take(MAX_BRACKET+1)).collect();
-	let _doc = Document::load_mem(&buf).unwrap();
+	let content: Vec<u8> = std::iter::repeat(b'(').take(MAX_BRACKET+1).chain(std::iter::repeat(b')').take(MAX_BRACKET+1)).collect();
+	let content = String::from_utf8(content).unwrap();
+	const STREAM_CRUFT: usize = 33;
+	let doc = format!("%PDF-1.5
+1 0 obj<</Type/Pages/Kids[5 0 R]/Count 1/Resources 3 0 R/MediaBox[0 0 595 842]>>endobj
+2 0 obj<</Type/Font/Subtype/Type1/BaseFont/Courier>>endobj
+3 0 obj<</Font<</F1 2 0 R>>>>endobj
+5 0 obj<</Type/Page/Parent 1 0 R/Contents[7 0 R 4 0 R]>>endobj
+6 0 obj<</Type/Catalog/Pages 1 0 R>>endobj
+7 0 obj<</Length 45>>stream
+BT /F1 48 Tf 100 600 Td (Hello World!) Tj ET
+endstream
+endobj
+4 0 obj<</Length {}>>stream
+BT
+/F1 48 Tf
+100 600 Td
+({}) Tj
+ET
+endstream endobj\n", content.len() + STREAM_CRUFT, content);
+	let doc = format!("{}xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000096 00000 n 
+0000000155 00000 n 
+0000000387 00000 n 
+0000000191 00000 n 
+0000000254 00000 n 
+0000000297 00000 n 
+trailer
+<</Root 6 0 R/Size 7>>
+startxref
+{}
+%%EOF", doc, doc.len());
+
+	let doc = Document::load_mem(doc.as_bytes()).unwrap();
+	let pages = doc.get_pages().keys().map(|r| *r).collect::<Vec<_>>();
+	assert_eq!("Hello World!\n", doc.extract_text(&pages).unwrap());
 }
