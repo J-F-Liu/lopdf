@@ -68,7 +68,7 @@ fn nested_literal_string<'a>(depth: usize) -> Parser<'a, u8, Vec<u8>> {
 		return Parser::new(move |_: &'a [u8], pos: usize| Err(pom::Error::Custom{
 			message: "Brackets embedded to deep.".to_string(),
 			position: pos,
-			inner: Some(Box::new(())),
+			inner: None,
 		}))
 	}
 
