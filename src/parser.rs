@@ -221,7 +221,7 @@ fn _xref_and_trailer<'a>(reader: &'a Reader) -> Parser<'a, u8, (Xref, Dictionary
 }
 
 pub fn xref_start(input: &[u8]) -> Option<i64> {
-	(seq(b"startxref") * eol() * integer() - eol() - seq(b"%%EOF") - space()).parse(input).ok()
+	(seq(b"startxref") * white_space() * integer() - white_space() - seq(b"%%EOF") - space()).parse(input).ok()
 }
 
 // The following code create parser to parse content stream.
