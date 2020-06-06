@@ -52,3 +52,15 @@ fn test_get_object() {
 	assert!(doc.get_object(id).is_ok());
 	assert!(doc.get_object(id2).is_ok());
 }
+
+fn get_mut() -> Result<()> {
+	let mut doc = Document::load("assets/example.pdf")?;
+	let arr = doc.get_object_mut((5,0))?.as_dict_mut()?.get_mut(b"Contents")?.as_array_mut()?;
+	arr[0] = arr[0].clone();
+	Ok(())
+}
+
+#[test]
+fn test_get_mut() {
+	assert!(get_mut().is_ok());
+}

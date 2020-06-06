@@ -183,10 +183,10 @@ impl Object {
 		}
 	}
 
-	pub fn as_array_mut(&mut self) -> Option<&mut Vec<Object>> {
+	pub fn as_array_mut(&mut self) -> Result<&mut Vec<Object>> {
 		match *self {
-			Object::Array(ref mut arr) => Some(arr),
-			_ => None,
+			Object::Array(ref mut arr) => Ok(arr),
+			_ => Err(Error::Type),
 		}
 	}
 
