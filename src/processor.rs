@@ -254,14 +254,12 @@ impl Document {
 					current_encoding = encodings.get(current_font).map(std::string::String::as_str);
 				}
 				"Tj" => {
-					for operand in &mut operation.operands {
-						if let Object::String(ref mut bytes, _) = *operand {
-							let decoded_text = Document::decode_text(current_encoding, bytes);
-							info!("{}", decoded_text);
-							if decoded_text == text {
-								let encoded_bytes = Document::encode_text(current_encoding, other_text);
-								*bytes = encoded_bytes;
-							}
+					for bytes in operation.operands.iter_mut().flat_map(Object::as_str_mut) {
+						let decoded_text = Document::decode_text(current_encoding, bytes);
+						info!("{}", decoded_text);
+						if decoded_text == text {
+							let encoded_bytes = Document::encode_text(current_encoding, other_text);
+							*bytes = encoded_bytes;
 						}
 					}
 				}

@@ -169,38 +169,18 @@ impl Object {
 		Ok(str::from_utf8(self.as_name()?)?)
 	}
 
-	fn as_string(&self, format: StringFormat) -> Result<&[u8]> {
-		use StringFormat::*;
-		match (self, format) {
-			(Object::String(string, Literal), Literal) => Ok(string.as_ref()),
-			(Object::String(string, Hexadecimal), Hexadecimal) => Ok(string.as_ref()),
+	pub fn as_str(&self) -> Result<&[u8]> {
+		match self {
+			Object::String(string, _) => Ok(string),
 			_ => Err(Error::Type)
 		}
 	}
 
-	fn as_string_mut(&mut self, format: StringFormat) -> Result<&mut Vec<u8>> {
-		use StringFormat::*;
-		match (self, format) {
-			(Object::String(string, Literal), Literal) => Ok(string),
-			(Object::String(string, Hexadecimal), Hexadecimal) => Ok(string),
+	pub fn as_str_mut(&mut self) -> Result<&mut Vec<u8>> {
+		match self {
+			Object::String(string, _) => Ok(string),
 			_ => Err(Error::Type)
 		}
-	}
-
-	pub fn as_literal_string(&self) -> Result<&[u8]> {
-		self.as_string(StringFormat::Literal)
-	}
-
-	pub fn as_literal_string_mut(&mut self) -> Result<&mut Vec<u8>> {
-		self.as_string_mut(StringFormat::Literal)
-	}
-
-	pub fn as_hexadecimal_string(&self) -> Result<&[u8]> {
-		self.as_string(StringFormat::Hexadecimal)
-	}
-
-	pub fn as_hexadecimal_string_mut(&mut self) -> Result<&mut Vec<u8>> {
-		self.as_string_mut(StringFormat::Hexadecimal)
 	}
 
 	pub fn as_reference(&self) -> Result<ObjectId> {
