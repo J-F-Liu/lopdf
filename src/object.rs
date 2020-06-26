@@ -169,6 +169,20 @@ impl Object {
 		Ok(str::from_utf8(self.as_name()?)?)
 	}
 
+	pub fn as_str(&self) -> Result<&[u8]> {
+		match self {
+			Object::String(string, _) => Ok(string),
+			_ => Err(Error::Type)
+		}
+	}
+
+	pub fn as_str_mut(&mut self) -> Result<&mut Vec<u8>> {
+		match self {
+			Object::String(string, _) => Ok(string),
+			_ => Err(Error::Type)
+		}
+	}
+
 	pub fn as_reference(&self) -> Result<ObjectId> {
 		match *self {
 			Object::Reference(ref id) => Ok(*id),
