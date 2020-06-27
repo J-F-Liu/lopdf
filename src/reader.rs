@@ -6,7 +6,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 
-#[cfg(feature = "use_rayon")]
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
 use super::parser;
@@ -137,11 +137,11 @@ impl <'a> Reader<'a> {
 				None
 			}
 		};
-		#[cfg(feature = "use_rayon")]
+		#[cfg(feature = "rayon")]
 		{
 			self.document.objects =	self.document.reference_table.entries.par_iter().filter_map(entries_filter_map).collect();
 		}
-		#[cfg(not(feature = "use_rayon"))]
+		#[cfg(not(feature = "rayon"))]
 		{
 			self.document.objects =	self.document.reference_table.entries.iter().filter_map(entries_filter_map).collect();
 		}

@@ -32,7 +32,6 @@ default = ["chrono_time"]
 chrono_time = ["chrono"]
 embed_image = ["image"]
 nom_parser = ["nom"]
-use_rayon = ["rayon"]
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }
