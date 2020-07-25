@@ -23,7 +23,7 @@ encoding = "0.2"
 image = { version = "0.20.0", optional = true }
 chrono = { version = "0.4.3", optional = true }
 log = "0.4.6"
-rayon = "1.0"
+rayon = { version = "1.0", optional = true }
 nom = { version = "5.0.0-alpha2", optional = true }
 lzw = "0.10"
 

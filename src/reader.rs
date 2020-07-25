@@ -6,7 +6,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 
-#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
 use super::parser;
@@ -137,11 +137,11 @@ impl <'a> Reader<'a> {
 				None
 			}
 		};
-		#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+		#[cfg(feature = "rayon")]
 		{
 			self.document.objects =	self.document.reference_table.entries.par_iter().filter_map(entries_filter_map).collect();
 		}
-		#[cfg(all(target_arch =	"wasm32", not(target_os	= "emscripten")))]
+		#[cfg(not(feature = "rayon"))]
 		{
 			self.document.objects =	self.document.reference_table.entries.iter().filter_map(entries_filter_map).collect();
 		}

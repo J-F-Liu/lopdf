@@ -3,7 +3,7 @@ use crate::{Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+#[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
 #[derive(Debug)]
@@ -36,9 +36,9 @@ impl ObjectStream {
 
 			Some(((id, 0), object))
 		};
-		#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+		#[cfg(feature = "rayon")]
 		let objects = numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect();
-		#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
+		#[cfg(not(feature = "rayon"))]
 		let objects = numbers[..len].chunks(2).filter_map(chunks_filter_map).collect();
 
 		Ok(ObjectStream{ objects })
