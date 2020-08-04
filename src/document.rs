@@ -1,4 +1,4 @@
-use super::content::Content;
+use super::content::{Content, Operation};
 use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Dictionary, Object, ObjectId};
 use crate::xref::Xref;
@@ -175,7 +175,7 @@ impl Document {
 	}
 
 	/// Get decoded page content;
-	pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Result<Content> {
+	pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Result<Content<Vec<Operation>>> {
 		let content_data = self.get_page_content(page_id)?;
 		Content::decode(&content_data)
 	}

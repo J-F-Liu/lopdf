@@ -20,15 +20,15 @@ impl Operation {
 }
 
 #[derive(Debug, Clone)]
-pub struct Content {
-	pub operations: Vec<Operation>,
+pub struct Content<Operations: AsRef<[Operation]> = Vec<Operation>> {
+	pub operations: Operations,
 }
 
-impl Content {
+impl<Operations: AsRef<[Operation]>> Content<Operations> {
 	/// Encode content operations.
 	pub fn encode(&self) -> Result<Vec<u8>> {
 		let mut buffer = Vec::new();
-		for operation in &self.operations {
+		for operation in self.operations.as_ref() {
 			for operand in &operation.operands {
 				Writer::write_object(&mut buffer, operand)?;
 				buffer.write_all(b" ")?;
@@ -38,16 +38,18 @@ impl Content {
 		}
 		Ok(buffer)
 	}
+}
 
+impl Content<Vec<Operation>> {
 	/// Decode content operations.
-	pub fn decode(data: &[u8]) -> Result<Content> {
+	pub fn decode(data: &[u8]) -> Result<Self> {
 		parser::content(data).ok_or(Error::ContentDecode)
 	}
 }
 
 impl Stream {
 	/// Decode content after decoding all stream filters.
-	pub fn decode_content(&self) -> Result<Content> {
+	pub fn decode_content(&self) -> Result<Content<Vec<Operation>>> {
 		Content::decode(&self.content)
 	}
 }

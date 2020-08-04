@@ -398,11 +398,11 @@ fn operation(input: &[u8]) -> NomResult<Operation> {
 		|(operands, operator)| Operation { operator, operands })(input)
 }
 
-fn _content(input: &[u8]) -> NomResult<Content> {
+fn _content(input: &[u8]) -> NomResult<Content<Vec<Operation>>> {
 	preceded(content_space, map(many0(operation), |operations| Content { operations }))(input)
 }
 
-pub fn content(input: &[u8]) -> Option<Content> {
+pub fn content(input: &[u8]) -> Option<Content<Vec<Operation>>> {
 	strip_nom(_content(input))
 }
 
