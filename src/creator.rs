@@ -130,16 +130,4 @@ fn create_document() {
 	doc.compress();
 
 	doc.save("test_1_create.pdf").unwrap();
-
-	// test load_from() and save_to()
-	use std::fs::File;
-	use std::io::Cursor;
-
-	let in_file = File::open("test_1_create.pdf").unwrap();
-	let mut in_doc = Document::load_from(in_file).unwrap();
-
-	let out_buf = Vec::<u8>::new();
-	let mut memory_cursor = Cursor::new(out_buf);
-	in_doc.save_to(&mut memory_cursor).unwrap();
-	assert!(!memory_cursor.get_ref().is_empty());
 }

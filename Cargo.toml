@@ -13,7 +13,7 @@ keywords = ["pdf", "editing"]
 edition = "2018"
 
 [dependencies]
-pom = "3.0.0"
+pom = { version = "3.0.0", optional = true }
 time = "0.1.40"
 flate2 = "1.0.3"
 linked-hash-map = "0.4.2"
@@ -28,10 +28,15 @@ nom = { version = "5.0.0-alpha2", optional = true }
 lzw = "0.10"
 
 [features]
-default = ["chrono_time"]
+default = ["chrono_time", "pom_parser"]
 chrono_time = ["chrono"]
 embed_image = ["image"]
 nom_parser = ["nom"]
+pom_parser = ["pom"]
+
+[[example]]
+name = "add_barcode"
+required-features = ["pom_parser"]
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }

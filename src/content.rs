@@ -1,7 +1,6 @@
-use super::parser;
-use super::{Object, Stream};
+use super::Object;
 use std::io::Write;
-use crate::{Error, Result};
+use crate::Result;
 use crate::writer::Writer;
 
 #[derive(Debug, Clone)]
@@ -37,19 +36,5 @@ impl<Operations: AsRef<[Operation]>> Content<Operations> {
 			buffer.write_all(b"\n")?;
 		}
 		Ok(buffer)
-	}
-}
-
-impl Content<Vec<Operation>> {
-	/// Decode content operations.
-	pub fn decode(data: &[u8]) -> Result<Self> {
-		parser::content(data).ok_or(Error::ContentDecode)
-	}
-}
-
-impl Stream {
-	/// Decode content after decoding all stream filters.
-	pub fn decode_content(&self) -> Result<Content<Vec<Operation>>> {
-		Content::decode(&self.content)
 	}
 }
