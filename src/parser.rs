@@ -253,7 +253,7 @@ fn operation<'a>() -> Parser<'a, u8, Operation> {
 	operation.map(|(operands, operator)| Operation { operator, operands })
 }
 
-pub fn content(input: &[u8]) -> Option<Content> {
+pub fn content(input: &[u8]) -> Option<Content<Vec<Operation>>> {
 	(content_space() * operation().repeat(0..).map(|operations| Content { operations })).parse(input).ok()
 }
 
