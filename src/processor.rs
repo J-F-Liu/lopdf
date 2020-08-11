@@ -1,7 +1,5 @@
-use crate::content::Content;
 use crate::{Document, Object, ObjectId};
-use crate::{Error, Result};
-use log::info;
+use crate::Result;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
@@ -155,54 +153,6 @@ impl Document {
 		self.max_id = new_id - 1;
 	}
 
-	pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
-		fn collect_text(text: &mut String, encoding: Option<&str>, operands: &[Object]) {
-			for operand in operands.iter() {
-				match *operand {
-					Object::String(ref bytes, _) => {
-						let decoded_text = Document::decode_text(encoding, bytes);
-						text.push_str(&decoded_text);
-					}
-					Object::Array(ref arr) => {
-						collect_text(text, encoding, arr);
-					}
-					_ => {}
-				}
-			}
-		}
-		let mut text = String::new();
-		let pages = self.get_pages();
-		for page_number in page_numbers {
-			let page_id = *pages.get(page_number).ok_or(Error::PageNumberNotFound(*page_number))?;
-			let fonts = self.get_page_fonts(page_id);
-			let encodings = fonts.into_iter().map(|(name, font)| (name, font.get_font_encoding())).collect::<BTreeMap<Vec<u8>, &str>>();
-			let content_data = self.get_page_content(page_id)?;
-			let content = Content::decode(&content_data)?;
-			let mut current_encoding = None;
-			for operation in &content.operations {
-				match operation.operator.as_ref() {
-					"Tf" => {
-						let current_font =
-							operation.operands.get(0)
-							.ok_or(Error::Syntax("missing font operand".to_string()))?
-							.as_name()?;
-						current_encoding = encodings.get(current_font).cloned();
-					}
-					"Tj" | "TJ" => {
-						collect_text(&mut text, current_encoding, &operation.operands);
-					}
-					"ET" => {
-						if !text.ends_with('\n') {
-							text.push('\n')
-						}
-					}
-					_ => {}
-				}
-			}
-		}
-		Ok(text)
-	}
-
 	pub fn change_content_stream(&mut self, stream_id: ObjectId, content: Vec<u8>) {
 		if let Some(content_stream) = self.objects.get_mut(&stream_id) {
 			if let Object::Stream(ref mut stream) = *content_stream {
@@ -232,42 +182,6 @@ impl Document {
 			_ => {}
 		}
 		Ok(())
-	}
-
-	pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) -> Result<()>{
-		let page_id = self.page_iter().nth(page_number as usize - 1).ok_or(Error::PageNumberNotFound(page_number))?;
-		let encodings = self
-			.get_page_fonts(page_id)
-			.into_iter()
-			.map(|(name, font)| (name, font.get_font_encoding().to_owned()))
-			.collect::<BTreeMap<Vec<u8>, String>>();
-		let content_data = self.get_page_content(page_id)?;
-		let mut content = Content::decode(&content_data)?;
-		let mut current_encoding = None;
-		for operation in &mut content.operations {
-			match operation.operator.as_ref() {
-				"Tf" => {
-					let current_font =
-						operation.operands.get(0)
-						.ok_or(Error::Syntax("missing font operand".to_string()))?
-						.as_name()?;
-					current_encoding = encodings.get(current_font).map(std::string::String::as_str);
-				}
-				"Tj" => {
-					for bytes in operation.operands.iter_mut().flat_map(Object::as_str_mut) {
-						let decoded_text = Document::decode_text(current_encoding, bytes);
-						info!("{}", decoded_text);
-						if decoded_text == text {
-							let encoded_bytes = Document::encode_text(current_encoding, other_text);
-							*bytes = encoded_bytes;
-						}
-					}
-				}
-				_ => {}
-			}
-		}
-		let modified_content = content.encode()?;
-		self.change_page_content(page_id, modified_content)
 	}
 
 	pub fn extract_stream(&self, stream_id: ObjectId, decompress: bool) -> Result<()> {

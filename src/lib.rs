@@ -12,8 +12,12 @@ pub mod content;
 mod creator;
 mod encodings;
 pub mod filters;
-#[cfg_attr(feature = "nom_parser", path = "nom_parser.rs")]
+#[cfg(feature = "pom_parser")]
 mod parser;
+#[cfg(feature = "nom_parser")]
+#[path = "nom_parser.rs"]
+mod parser;
+mod parser_aux;
 mod processor;
 mod reader;
 mod writer;

@@ -1,7 +1,5 @@
-use super::content::*;
 use super::Object::*;
-use super::{Dictionary, Document, ObjectId, Stream};
-use crate::Result;
+use super::{Dictionary, Stream};
 
 #[cfg(feature = "embed_image")]
 use image::{self, ColorType, GenericImageView, ImageFormat};
@@ -64,44 +62,6 @@ pub fn image<P: AsRef<Path>>(path: P) -> Result<Stream> {
 		// Ignore any compression error.
 		let _ = img_object.compress();
 		Ok(img_object)
-	}
-}
-
-impl Document {
-	#[cfg(feature = "embed_image")]
-	pub fn insert_image(&mut self, page_id: ObjectId, img_object: Stream, position: (f64, f64), size: (f64, f64)) -> Result<()> {
-		let img_id = self.add_object(img_object);
-		let img_name = format!("X{}", img_id.0);
-
-		let mut content = self.get_and_decode_page_content(page_id)?;
-		// content.operations.insert(0, Operation::new("q", vec![]));
-		// content.operations.push(Operation::new("Q", vec![]));
-		content.operations.push(Operation::new("q", vec![]));
-		content
-			.operations
-			.push(Operation::new("cm", vec![size.0.into(), 0.into(), 0.into(), size.1.into(), position.0.into(), position.1.into()]));
-		content.operations.push(Operation::new("Do", vec![Name(img_name.as_bytes().to_vec())]));
-		content.operations.push(Operation::new("Q", vec![]));
-		let modified_content = content.encode()?;
-		self.add_xobject(page_id, img_name, img_id)?;
-
-		self.change_page_content(page_id, modified_content)
-	}
-
-	pub fn insert_form_object(&mut self, page_id: ObjectId, form_obj: Stream) -> Result<()> {
-		let form_id = self.add_object(form_obj);
-		let form_name = format!("X{}", form_id.0);
-
-		let mut content = self.get_and_decode_page_content(page_id)?;
-		content.operations.insert(0, Operation::new("q", vec![]));
-		content.operations.push(Operation::new("Q", vec![]));
-		// content.operations.push(Operation::new("q", vec![]));
-		content.operations.push(Operation::new("Do", vec![Name(form_name.as_bytes().to_vec())]));
-		// content.operations.push(Operation::new("Q", vec![]));
-		let modified_content = content.encode()?;
-		self.add_xobject(page_id, form_name, form_id)?;
-
-		self.change_page_content(page_id, modified_content)
 	}
 }
 
