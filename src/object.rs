@@ -331,6 +331,10 @@ impl Dictionary {
 			.and_then(Object::as_name_str)
 			.unwrap_or("StandardEncoding")
 	}
+
+	pub fn extend(&mut self, other: &Dictionary) {
+		self.0.extend(other.to_owned().0)
+	}
 }
 
 #[macro_export]
