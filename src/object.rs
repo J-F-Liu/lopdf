@@ -271,6 +271,7 @@ impl fmt::Debug for Object {
 }
 
 impl Dictionary {
+<<<<<<< HEAD
     pub fn new() -> Dictionary {
         Dictionary(LinkedHashMap::new())
     }
