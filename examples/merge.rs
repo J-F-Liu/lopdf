@@ -1,8 +1,6 @@
 #[macro_use]
 extern crate lopdf;
 
-use std::collections::BTreeMap;
-
 use lopdf::content::{Content, Operation};
 use lopdf::{Document, Object, ObjectId, Stream};
 
@@ -64,27 +62,13 @@ fn main() {
     let mut max_id = 1;
 
     // Collect all Documents Objects grouped by a map
-    let mut documents_pages = BTreeMap::new();
-    let mut documents_objects = BTreeMap::new();
-
+    let mut documents_objects = Vec::new();
     for mut document in documents {
         document.renumber_objects_with(max_id);
 
         max_id = document.max_id + 1;
 
-        documents_pages.extend(
-            document
-                .get_pages()
-                .into_iter()
-                .map(|(_, object_id)| {
-                    (
-                        object_id,
-                        document.get_object(object_id).unwrap().to_owned(),
-                    )
-                })
-                .collect::<BTreeMap<ObjectId, Object>>(),
-        );
-        documents_objects.extend(document.objects);
+        documents_objects.push(document.objects);
     }
 
     // Initialize a new empty document
@@ -94,68 +78,79 @@ fn main() {
     let mut catalog_object: Option<(ObjectId, Object)> = None;
     let mut pages_object: Option<(ObjectId, Object)> = None;
 
-    // Process all objects except "Page" type
-    for (object_id, object) in documents_objects.iter() {
-        // We have to ignore "Page" (as are processed later), "Outlines" and "Outline" objects
-        // All other objects should be collected and inserted into the main Document
-        match object.type_name().unwrap_or("") {
-            "Catalog" => {
-                // Collect a first "Catalog" object and use it for the future "Pages"
-                catalog_object = Some((
-                    if let Some((id, _)) = catalog_object {
-                        id
-                    } else {
-                        *object_id
-                    },
-                    object.clone(),
-                ));
-            }
-            "Pages" => {
-                // Collect and update a first "Pages" object and use it for the future "Catalog"
-                // We have also to merge all dictionaries of the old and the new "Pages" object
-                if let Ok(dictionary) = object.as_dict() {
-                    let mut dictionary = dictionary.clone();
-                    if let Some((_, ref object)) = pages_object {
-                        if let Ok(old_dictionary) = object.as_dict() {
-                            dictionary.extend(old_dictionary);
-                        }
-                    }
-
-                    pages_object = Some((
-                        if let Some((id, _)) = pages_object {
+    // Iter on all Documents Objects collected before
+    let mut pages: Vec<ObjectId> = Vec::new();
+    for document_objects in documents_objects {
+        // Process all objects except "Page" type
+        for (object_id, object) in document_objects.iter() {
+            // We have to ignore "Page" (as are processed later), "Outlines" and "Outline" objects
+            // All other objects should be collected and inserted into the main Document
+            match object.type_name().unwrap_or("") {
+                "Catalog" => {
+                    // Collect a first "Catalog" object and use it for the future "Pages"
+                    catalog_object = Some((
+                        if let Some((id, _)) = catalog_object {
                             id
                         } else {
                             *object_id
                         },
-                        Object::Dictionary(dictionary),
+                        object.clone(),
                     ));
                 }
-            }
-            "Page" => {}     // Ignored, processed later and separately
-            "Outlines" => {} // Ignored, not supported yet
-            "Outline" => {}  // Ignored, not supported yet
-            _ => {
-                document.objects.insert(*object_id, object.clone());
+                "Pages" => {
+                    // Collect and update a first "Pages" object and use it for the future "Catalog"
+                    // We have also to merge all dictionaries of the old and the new "Pages" object
+                    if let Ok(dictionary) = object.as_dict() {
+                        let mut dictionary = dictionary.clone();
+                        if let Some((_, ref object)) = pages_object {
+                            if let Ok(old_dictionary) = object.as_dict() {
+                                dictionary.extend(old_dictionary);
+                            }
+                        }
+
+                        pages_object = Some((
+                            if let Some((id, _)) = pages_object {
+                                id
+                            } else {
+                                *object_id
+                            },
+                            Object::Dictionary(dictionary),
+                        ));
+                    }
+                }
+                "Page" => {}     // Ignored, processed later and separately
+                "Outlines" => {} // Ignored, not supported yet
+                "Outline" => {}  // Ignored, not supported yet
+                _ => {
+                    document.objects.insert(*object_id, object.clone());
+                }
             }
         }
-    }
 
-    // If no "Pages" found abort
-    if pages_object.is_none() {
-        println!("Pages root not found.");
+        // If no "Pages" found abort
+        if pages_object.is_none() {
+            println!("Pages root not found.");
 
-        return;
-    }
+            return;
+        }
 
-    // Iter over all "Page" and collect with the parent "Pages" created before
-    for (object_id, object) in documents_pages.iter() {
-        if let Ok(dictionary) = object.as_dict() {
-            let mut dictionary = dictionary.clone();
-            dictionary.set("Parent", pages_object.as_ref().unwrap().0);
+        // Iter over all "Page" and collect with the parent "Pages" created before
+        for (object_id, object) in document_objects.into_iter() {
+            match object.type_name().unwrap_or("") {
+                "Page" => {
+                    if let Ok(dictionary) = object.as_dict() {
+                        let mut dictionary = dictionary.clone();
+                        dictionary.set("Parent", pages_object.as_ref().unwrap().0);
 
-            document
-                .objects
-                .insert(*object_id, Object::Dictionary(dictionary));
+                        document
+                            .objects
+                            .insert(object_id, Object::Dictionary(dictionary));
+
+                        pages.push(object_id);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -171,19 +166,10 @@ fn main() {
 
     // Build a new "Pages" with updated fields
     if let Ok(dictionary) = pages_object.1.as_dict() {
+        let count = pages.len();
+
         let mut dictionary = dictionary.clone();
-
-        // Set new pages count
-        dictionary.set("Count", documents_pages.len() as u32);
-
-        // Set new "Kids" list (collected from documents pages) for "Pages"
-        dictionary.set(
-            "Kids",
-            documents_pages
-                .into_iter()
-                .map(|(object_id, _)| Object::Reference(object_id))
-                .collect::<Vec<_>>(),
-        );
+        dictionary.set("Count", count as u32);
 
         document
             .objects
