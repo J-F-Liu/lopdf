@@ -149,18 +149,13 @@ fn main() {
 
     // Iter over all "Page" and collect with the parent "Pages" created before
     for (object_id, object) in documents_pages.iter() {
-        match object.type_name().unwrap_or("") {
-            "Page" => {
-                if let Ok(dictionary) = object.as_dict() {
-                    let mut dictionary = dictionary.clone();
-                    dictionary.set("Parent", pages_object.as_ref().unwrap().0);
+        if let Ok(dictionary) = object.as_dict() {
+            let mut dictionary = dictionary.clone();
+            dictionary.set("Parent", pages_object.as_ref().unwrap().0);
 
-                    document
-                        .objects
-                        .insert(*object_id, Object::Dictionary(dictionary));
-                }
-            }
-            _ => {}
+            document
+                .objects
+                .insert(*object_id, Object::Dictionary(dictionary));
         }
     }
 
