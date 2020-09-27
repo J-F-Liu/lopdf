@@ -40,8 +40,15 @@ pub fn image<P: AsRef<Path>>(path: P) -> Result<Stream> {
 #[cfg(feature = "embed_image")]
 pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     let img = image::load_from_memory(buffer.as_ref())?;
+
     let (width, height) = img.dimensions();
-    let bits = img.color().bits_per_pixel();
+
+    // It looks like Adobe Illustrator uses a predictor offset of 2 bytes rather than 1 byte as
+    // the PNG specification suggests. This seems to come from the fact that the PNG specification
+    // doesn't allow 4-bit color images (only 8-bit and 16-bit color). With 1-bit, 2-bit and 4-bit
+    // mono images there isn't the same problem because there's only one component.
+    let bits = img.color().bits_per_pixel() / 3;
+
     let color_space = match img.color() {
         ColorType::La8 => b"DeviceGray".to_vec(),
         ColorType::Rgb8 => b"DeviceRGB".to_vec(),

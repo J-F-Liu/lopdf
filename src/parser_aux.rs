@@ -134,9 +134,9 @@ impl Document {
         let img_id = self.add_object(img_object);
         let img_name = format!("X{}", img_id.0);
 
+        self.add_xobject(page_id, img_name.as_bytes(), img_id)?;
+
         let mut content = self.get_and_decode_page_content(page_id)?;
-        // content.operations.insert(0, Operation::new("q", vec![]));
-        // content.operations.push(Operation::new("Q", vec![]));
         content.operations.push(Operation::new("q", vec![]));
         content.operations.push(Operation::new(
             "cm",
@@ -153,10 +153,9 @@ impl Document {
             .operations
             .push(Operation::new("Do", vec![Name(img_name.as_bytes().to_vec())]));
         content.operations.push(Operation::new("Q", vec![]));
-        let modified_content = content.encode()?;
-        self.add_xobject(page_id, img_name, img_id)?;
+        content.operations.push(Operation::new("Q", vec![]));
 
-        self.change_page_content(page_id, modified_content)
+        self.change_page_content(page_id, content.encode()?)
     }
 
     pub fn insert_form_object(&mut self, page_id: ObjectId, form_obj: Stream) -> Result<()> {
