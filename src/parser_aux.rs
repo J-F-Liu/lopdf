@@ -1,6 +1,5 @@
 #![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 
-use crate::{parser, Dictionary, Object, ObjectId, Stream};
 use crate::{
     content::{Content, Operation},
     document::Document,
@@ -9,6 +8,7 @@ use crate::{
     xref::{Xref, XrefEntry},
     Error, Result,
 };
+use crate::{parser, Dictionary, Object, ObjectId, Stream};
 use log::info;
 use std::{
     collections::BTreeMap,
@@ -31,10 +31,7 @@ impl Stream {
 
 impl Document {
     /// Get decoded page content;
-    pub fn get_and_decode_page_content(
-        &self,
-        page_id: ObjectId,
-    ) -> Result<Content<Vec<Operation>>> {
+    pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Result<Content<Vec<Operation>>> {
         let content_data = self.get_page_content(page_id)?;
         Content::decode(&content_data)
     }
@@ -57,9 +54,7 @@ impl Document {
         let mut text = String::new();
         let pages = self.get_pages();
         for page_number in page_numbers {
-            let page_id = *pages
-                .get(page_number)
-                .ok_or(Error::PageNumberNotFound(*page_number))?;
+            let page_id = *pages.get(page_number).ok_or(Error::PageNumberNotFound(*page_number))?;
             let fonts = self.get_page_fonts(page_id);
             let encodings = fonts
                 .into_iter()
@@ -134,11 +129,7 @@ impl Document {
     }
 
     pub fn insert_image(
-        &mut self,
-        page_id: ObjectId,
-        img_object: Stream,
-        position: (f64, f64),
-        size: (f64, f64),
+        &mut self, page_id: ObjectId, img_object: Stream, position: (f64, f64), size: (f64, f64),
     ) -> Result<()> {
         let img_id = self.add_object(img_object);
         let img_name = format!("X{}", img_id.0);
@@ -158,10 +149,9 @@ impl Document {
                 position.1.into(),
             ],
         ));
-        content.operations.push(Operation::new(
-            "Do",
-            vec![Name(img_name.as_bytes().to_vec())],
-        ));
+        content
+            .operations
+            .push(Operation::new("Do", vec![Name(img_name.as_bytes().to_vec())]));
         content.operations.push(Operation::new("Q", vec![]));
         let modified_content = content.encode()?;
         self.add_xobject(page_id, img_name, img_id)?;
@@ -177,10 +167,9 @@ impl Document {
         content.operations.insert(0, Operation::new("q", vec![]));
         content.operations.push(Operation::new("Q", vec![]));
         // content.operations.push(Operation::new("q", vec![]));
-        content.operations.push(Operation::new(
-            "Do",
-            vec![Name(form_name.as_bytes().to_vec())],
-        ));
+        content
+            .operations
+            .push(Operation::new("Do", vec![Name(form_name.as_bytes().to_vec())]));
         // content.operations.push(Operation::new("Q", vec![]));
         let modified_content = content.encode()?;
         self.add_xobject(page_id, form_name, form_id)?;
@@ -244,14 +233,9 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
                     }
                     2 => {
                         //compressed object
-                        let container =
-                            read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
-                        let index =
-                            read_big_endian_integer(&mut reader, bytes3.as_mut_slice())? as u16;
-                        xref.insert(
-                            (start + j) as u32,
-                            XrefEntry::Compressed { container, index },
-                        );
+                        let container = read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
+                        let index = read_big_endian_integer(&mut reader, bytes3.as_mut_slice())? as u16;
+                        xref.insert((start + j) as u32, XrefEntry::Compressed { container, index });
                     }
                     _ => {}
                 }

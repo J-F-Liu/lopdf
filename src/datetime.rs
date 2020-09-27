@@ -49,7 +49,8 @@ impl From<OffsetDateTime> for Object {
             // UTC offset in the form +HHMM or -HHMM (empty string if the the object is naive).
             let timezone = date.format("%z");
             let timezone_str_start = date.format("%Y%m%d%H%M%S");
-            let mut timezone_str = format!("D:{}{}:{}'", timezone_str_start, &timezone[..3], &timezone[3..]).into_bytes();
+            let mut timezone_str =
+                format!("D:{}{}:{}'", timezone_str_start, &timezone[..3], &timezone[3..]).into_bytes();
             convert_utc_offset(&mut timezone_str);
             timezone_str
         })
@@ -60,7 +61,14 @@ impl Object {
     // Parses the `D`, `:` and `\` out of a `Object::String` to parse the date time
     fn datetime_string(&self) -> Option<String> {
         if let Object::String(ref bytes, _) = self {
-            String::from_utf8(bytes.iter().filter(|b| ![b'D', b':', b'\''].contains(b)).cloned().collect()).ok()
+            String::from_utf8(
+                bytes
+                    .iter()
+                    .filter(|b| ![b'D', b':', b'\''].contains(b))
+                    .cloned()
+                    .collect(),
+            )
+            .ok()
         } else {
             None
         }
@@ -73,7 +81,8 @@ impl Object {
         DateTime::parse_from_str(&text, "%Y%m%d%H%M%S%#z")
             .or_else(|_| DateTime::parse_from_str(&text, "%Y%m%d%H%M%#z"))
             .or_else(|_| NaiveDate::parse_from_str(&text, "%Y%m%d").map(from_date))
-            .map(|date| date.with_timezone(&Local)).ok()
+            .map(|date| date.with_timezone(&Local))
+            .ok()
     }
 
     /// WARNING: `tm_wday` (weekday), `tm_yday` (day index in year), `tm_isdst`

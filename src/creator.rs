@@ -1,5 +1,5 @@
-use crate::{Error, Result};
 use crate::{Dictionary, Document, Object, ObjectId};
+use crate::{Error, Result};
 
 impl Document {
     /// Create new PDF document with version.
@@ -52,7 +52,9 @@ impl Document {
         }
     }
 
-    pub fn add_xobject<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId) -> Result<()> {
+    pub fn add_xobject<N: Into<Vec<u8>>>(
+        &mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId,
+    ) -> Result<()> {
         if let Ok(resources) = self.get_or_create_resources(page_id).and_then(Object::as_dict_mut) {
             if !resources.has(b"XObject") {
                 resources.set("XObject", Dictionary::new());
@@ -63,7 +65,9 @@ impl Document {
         Ok(())
     }
 
-    pub fn add_graphics_state<N: Into<Vec<u8>>>(&mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId) -> Result<()> {
+    pub fn add_graphics_state<N: Into<Vec<u8>>>(
+        &mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId,
+    ) -> Result<()> {
         if let Ok(resources) = self.get_or_create_resources(page_id).and_then(Object::as_dict_mut) {
             if !resources.has(b"ExtGState") {
                 resources.set("ExtGState", Dictionary::new());
@@ -82,21 +86,21 @@ fn create_document() {
 
     let mut doc = Document::with_version("1.5");
     let info_id = doc.add_object(dictionary! {
-		"Title" => Object::string_literal("Create PDF document example"),
-		"Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
-		"CreationDate" => time::OffsetDateTime::now_utc(),
-	});
+        "Title" => Object::string_literal("Create PDF document example"),
+        "Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
+        "CreationDate" => time::OffsetDateTime::now_utc(),
+    });
     let pages_id = doc.new_object_id();
     let font_id = doc.add_object(dictionary! {
-		"Type" => "Font",
-		"Subtype" => "Type1",
-		"BaseFont" => "Courier",
-	});
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Courier",
+    });
     let resources_id = doc.add_object(dictionary! {
-		"Font" => dictionary! {
-			"F1" => font_id,
-		},
-	});
+        "Font" => dictionary! {
+            "F1" => font_id,
+        },
+    });
     let content = Content {
         operations: vec![
             Operation::new("BT", vec![]),
@@ -108,22 +112,22 @@ fn create_document() {
     };
     let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
     let page_id = doc.add_object(dictionary! {
-		"Type" => "Page",
-		"Parent" => pages_id,
-		"Contents" => content_id,
-	});
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+    });
     let pages = dictionary! {
-		"Type" => "Pages",
-		"Kids" => vec![page_id.into()],
-		"Count" => 1,
-		"Resources" => resources_id,
-		"MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
-	};
+        "Type" => "Pages",
+        "Kids" => vec![page_id.into()],
+        "Count" => 1,
+        "Resources" => resources_id,
+        "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+    };
     doc.objects.insert(pages_id, Object::Dictionary(pages));
     let catalog_id = doc.add_object(dictionary! {
-		"Type" => "Catalog",
-		"Pages" => pages_id,
-	});
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
     doc.trailer.set("Root", catalog_id);
     doc.trailer.set("Info", info_id);
     doc.compress();

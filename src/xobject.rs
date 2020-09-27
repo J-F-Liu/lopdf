@@ -18,10 +18,7 @@ pub fn form(boundingbox: Vec<f64>, matrix: Vec<f64>, content: Vec<u8>) -> Stream
         "BBox",
         Object::Array(boundingbox.into_iter().map(Object::Real).collect()),
     );
-    dict.set(
-        "Matrix",
-        Object::Array(matrix.into_iter().map(Object::Real).collect()),
-    );
+    dict.set("Matrix", Object::Array(matrix.into_iter().map(Object::Real).collect()));
     let mut xobject = Stream::new(dict, content);
     // Ignore any compression error.
     let _ = xobject.compress();
@@ -92,7 +89,6 @@ fn insert_image() {
     let pages = doc.get_pages();
     let page_id = *pages.get(&1).expect(&format!("Page {} not exist.", 1));
     let img = xobject::image("assets/pdf_icon.jpg").unwrap();
-    doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0))
-        .unwrap();
+    doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0)).unwrap();
     doc.save("test_5_image.pdf").unwrap();
 }

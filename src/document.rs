@@ -49,10 +49,7 @@ impl Document {
     /// The object id will be None if the object was not a
     /// reference. Otherwise, it will be the last object id in the
     /// reference chain.
-    pub fn dereference<'a>(
-        &'a self,
-        mut object: &'a Object,
-    ) -> Result<(Option<ObjectId>, &'a Object)> {
+    pub fn dereference<'a>(&'a self, mut object: &'a Object) -> Result<(Option<ObjectId>, &'a Object)> {
         let mut nb_deref = 0;
         let mut id = None;
 
@@ -88,10 +85,7 @@ impl Document {
         for (_, object_id) in self.get_pages() {
             let page = self.get_object(object_id)?.as_dict()?;
             let annots = page.get(b"Annots")?.as_array()?;
-            let objects_ids = annots
-                .iter()
-                .map(|object| object.as_reference())
-                .collect::<Vec<_>>();
+            let objects_ids = annots.iter().map(|object| object.as_reference()).collect::<Vec<_>>();
 
             if objects_ids.iter().any(|object_id| {
                 if let Ok(object_id) = object_id {
@@ -114,36 +108,22 @@ impl Document {
 
     /// Traverse objects from trailer recursively, return all referenced object IDs.
     pub fn traverse_objects<A: Fn(&mut Object) -> ()>(&mut self, action: A) -> Vec<ObjectId> {
-        fn traverse_array<A: Fn(&mut Object) -> ()>(
-            array: &mut Vec<Object>,
-            action: &A,
-            refs: &mut Vec<ObjectId>,
-        ) {
+        fn traverse_array<A: Fn(&mut Object) -> ()>(array: &mut Vec<Object>, action: &A, refs: &mut Vec<ObjectId>) {
             for item in array.iter_mut() {
                 traverse_object(item, action, refs);
             }
         }
-        fn traverse_dictionary<A: Fn(&mut Object) -> ()>(
-            dict: &mut Dictionary,
-            action: &A,
-            refs: &mut Vec<ObjectId>,
-        ) {
+        fn traverse_dictionary<A: Fn(&mut Object) -> ()>(dict: &mut Dictionary, action: &A, refs: &mut Vec<ObjectId>) {
             for (_, v) in dict.iter_mut() {
                 traverse_object(v, action, refs);
             }
         }
-        fn traverse_object<A: Fn(&mut Object) -> ()>(
-            object: &mut Object,
-            action: &A,
-            refs: &mut Vec<ObjectId>,
-        ) {
+        fn traverse_object<A: Fn(&mut Object) -> ()>(object: &mut Object, action: &A, refs: &mut Vec<ObjectId>) {
             action(object);
             match *object {
                 Object::Array(ref mut array) => traverse_array(array, action, refs),
                 Object::Dictionary(ref mut dict) => traverse_dictionary(dict, action, refs),
-                Object::Stream(ref mut stream) => {
-                    traverse_dictionary(&mut stream.dict, action, refs)
-                }
+                Object::Stream(ref mut stream) => traverse_dictionary(&mut stream.dict, action, refs),
                 Object::Reference(id) => {
                     if !refs.contains(&id) {
                         refs.push(id);
@@ -174,10 +154,7 @@ impl Document {
 
     /// Get page numbers and corresponding object ids.
     pub fn get_pages(&self) -> BTreeMap<u32, ObjectId> {
-        self.page_iter()
-            .enumerate()
-            .map(|(i, p)| ((i + 1) as u32, p))
-            .collect()
+        self.page_iter().enumerate().map(|(i, p)| ((i + 1) as u32, p)).collect()
     }
 
     pub fn page_iter(&self) -> impl Iterator<Item = ObjectId> + '_ {
@@ -224,11 +201,7 @@ impl Document {
 
     /// Get resources used by a page.
     pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
-        fn collect_resources(
-            page_node: &Dictionary,
-            resource_ids: &mut Vec<ObjectId>,
-            doc: &Document,
-        ) {
+        fn collect_resources(page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document) {
             if let Ok(resources_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
                 resource_ids.push(resources_id);
             }
@@ -253,9 +226,7 @@ impl Document {
     /// Get fonts used by a page.
     pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<Vec<u8>, &Dictionary> {
         fn collect_fonts_from_resources<'a>(
-            resources: &'a Dictionary,
-            fonts: &mut BTreeMap<Vec<u8>, &'a Dictionary>,
-            doc: &'a Document,
+            resources: &'a Dictionary, fonts: &mut BTreeMap<Vec<u8>, &'a Dictionary>, doc: &'a Document,
         ) {
             if let Ok(font_dict) = resources.get(b"Font").and_then(Object::as_dict) {
                 for (name, value) in font_dict.iter() {
@@ -292,9 +263,7 @@ impl Document {
                 "MacRomanEncoding" => bytes_to_string(encodings::MAC_ROMAN_ENCODING, bytes),
                 "MacExpertEncoding" => bytes_to_string(encodings::MAC_EXPERT_ENCODING, bytes),
                 "WinAnsiEncoding" => bytes_to_string(encodings::WIN_ANSI_ENCODING, bytes),
-                "UniGB-UCS2-H" | "UniGB−UTF16−H" => {
-                    UTF_16BE.decode(bytes, DecoderTrap::Ignore).unwrap()
-                }
+                "UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.decode(bytes, DecoderTrap::Ignore).unwrap(),
                 "Identity-H" => "?Identity-H Unimplemented?".to_string(), // Unimplemented
                 _ => String::from_utf8_lossy(bytes).to_string(),
             }
@@ -310,9 +279,7 @@ impl Document {
                 "MacRomanEncoding" => string_to_bytes(encodings::MAC_ROMAN_ENCODING, text),
                 "MacExpertEncoding" => string_to_bytes(encodings::MAC_EXPERT_ENCODING, text),
                 "WinAnsiEncoding" => string_to_bytes(encodings::WIN_ANSI_ENCODING, text),
-                "UniGB-UCS2-H" | "UniGB−UTF16−H" => {
-                    UTF_16BE.encode(text, EncoderTrap::Ignore).unwrap()
-                }
+                "UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.encode(text, EncoderTrap::Ignore).unwrap(),
                 "Identity-H" => vec![], // Unimplemented
                 _ => text.as_bytes().to_vec(),
             }
@@ -383,11 +350,7 @@ impl Iterator for PageTreeIter<'_> {
                 self.kids = Some(new_kids);
 
                 if let Ok(kid_id) = kid.as_reference() {
-                    if let Ok(type_name) = self
-                        .doc
-                        .get_dictionary(kid_id)
-                        .and_then(Dictionary::type_name)
-                    {
+                    if let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::type_name) {
                         match type_name {
                             "Page" => {
                                 return Some(kid_id);
@@ -423,15 +386,9 @@ impl Iterator for PageTreeIter<'_> {
             .iter()
             .chain(self.stack.iter().flat_map(|k| k.iter()))
             .map(|kid| {
-                if let Ok(dict) = kid
-                    .as_reference()
-                    .and_then(|id| self.doc.get_dictionary(id))
-                {
+                if let Ok(dict) = kid.as_reference().and_then(|id| self.doc.get_dictionary(id)) {
                     if let Ok("Pages") = dict.type_name() {
-                        let count = dict
-                            .get_deref(b"Count", self.doc)
-                            .and_then(Object::as_i64)
-                            .unwrap_or(0);
+                        let count = dict.get_deref(b"Count", self.doc).and_then(Object::as_i64).unwrap_or(0);
                         // Don't let page count go backwards in case of an invalid document.
                         max(0, count) as usize
                     } else {

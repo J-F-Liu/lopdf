@@ -1,6 +1,5 @@
 format_strings = false
 reorder_imports = true
-hard_tabs = true
-fn_args_layout = "Block"
-max_width = 200
-ideal_width = 120
+fn_args_layout = "Compressed"
+max_width = 120
+comment_width = 120
