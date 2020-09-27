@@ -124,8 +124,14 @@ impl Document {
 
 	/// Renumber objects, normally called after delete_unused_objects.
 	pub fn renumber_objects(&mut self) {
+		self.renumber_objects_with(1)
+	}
+
+	/// Renumber objects with a custom starting id, this is very useful in case of multiple
+	/// document objects insertion in a single main document
+	pub fn renumber_objects_with(&mut self, starting_id: u32) {
 		let mut replace = BTreeMap::new();
-		let mut new_id = 1;
+		let mut new_id = starting_id;
 		let mut ids = self.objects.keys().cloned().collect::<Vec<ObjectId>>();
 		ids.sort();
 
@@ -133,23 +139,34 @@ impl Document {
 			if id.0 != new_id {
 				replace.insert(id, (new_id, id.1));
 			}
+
 			new_id += 1;
 		}
 
-		// replace order is from small to big
+		let mut objects = BTreeMap::new();
+
+		// remove and collect all removed objects
 		for (old, new) in &replace {
 			if let Some(object) = self.objects.remove(old) {
-				self.objects.insert(new.clone(), object);
+				objects.insert(new.clone(), object);
 			}
 		}
 
-		let action = |object: &mut Object| if let Object::Reference(ref mut id) = *object {
-			if replace.contains_key(&id) {
-				*id = replace[id];
+		// insert new replaced keys objects
+		for (new, object) in objects {
+			self.objects.insert(new, object);
+		}
+
+		let action = |object: &mut Object| {
+			if let Object::Reference(ref mut id) = *object {
+				if replace.contains_key(&id) {
+					*id = replace[id];
+				}
 			}
 		};
 
 		self.traverse_objects(action);
+
 		self.max_id = new_id - 1;
 	}
 
