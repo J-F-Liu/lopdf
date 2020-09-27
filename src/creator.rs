@@ -23,6 +23,24 @@ impl Document {
         id
     }
 
+    /// Remove PDF object from document's object list.
+    pub fn remove_object(&mut self, object_id: &ObjectId) -> Result<()> {
+        for (_, page_id) in self.get_pages() {
+            let page = self.get_object_mut(page_id)?.as_dict_mut()?;
+            let annots = page.get_mut(b"Annots")?.as_array_mut()?;
+
+            annots.retain(|object| {
+                if let Ok(id) = object.as_reference() {
+                    return !(id == *object_id);
+                }
+
+                true
+            });
+        }
+
+        Ok(())
+    }
+
     fn get_or_create_resources_mut(&mut self, page_id: ObjectId) -> Result<&mut Object> {
         let page = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
         if page.has(b"Resources") {
@@ -53,26 +71,42 @@ impl Document {
     }
 
     pub fn add_xobject<N: Into<Vec<u8>>>(
-        &mut self, page_id: ObjectId, xobject_name: N, xobject_id: ObjectId,
+        &mut self,
+        page_id: ObjectId,
+        xobject_name: N,
+        xobject_id: ObjectId,
     ) -> Result<()> {
-        if let Ok(resources) = self.get_or_create_resources(page_id).and_then(Object::as_dict_mut) {
+        if let Ok(resources) = self
+            .get_or_create_resources(page_id)
+            .and_then(Object::as_dict_mut)
+        {
             if !resources.has(b"XObject") {
                 resources.set("XObject", Dictionary::new());
             }
-            let xobjects = resources.get_mut(b"XObject").and_then(Object::as_dict_mut)?;
+            let xobjects = resources
+                .get_mut(b"XObject")
+                .and_then(Object::as_dict_mut)?;
             xobjects.set(xobject_name, Object::Reference(xobject_id));
         }
         Ok(())
     }
 
     pub fn add_graphics_state<N: Into<Vec<u8>>>(
-        &mut self, page_id: ObjectId, gs_name: N, gs_id: ObjectId,
+        &mut self,
+        page_id: ObjectId,
+        gs_name: N,
+        gs_id: ObjectId,
     ) -> Result<()> {
-        if let Ok(resources) = self.get_or_create_resources(page_id).and_then(Object::as_dict_mut) {
+        if let Ok(resources) = self
+            .get_or_create_resources(page_id)
+            .and_then(Object::as_dict_mut)
+        {
             if !resources.has(b"ExtGState") {
                 resources.set("ExtGState", Dictionary::new());
             }
-            let states = resources.get_mut(b"ExtGState").and_then(Object::as_dict_mut)?;
+            let states = resources
+                .get_mut(b"ExtGState")
+                .and_then(Object::as_dict_mut)?;
             states.set(gs_name, Object::Reference(gs_id));
         }
         Ok(())
