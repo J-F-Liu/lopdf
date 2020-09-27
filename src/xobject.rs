@@ -1,17 +1,27 @@
-use super::Object::*;
-use crate::{Dictionary, Result, Stream};
+use crate::*;
+use crate::{Dictionary, Stream};
 
 #[cfg(feature = "embed_image")]
 use image::{self, ColorType, GenericImageView, ImageFormat};
+
 #[cfg(feature = "embed_image")]
 use std::path::Path;
 
+#[cfg(feature = "embed_image")]
+use crate::Result;
+
 pub fn form(boundingbox: Vec<f64>, matrix: Vec<f64>, content: Vec<u8>) -> Stream {
     let mut dict = Dictionary::new();
-    dict.set("Type", Name(b"XObject".to_vec()));
-    dict.set("Subtype", Name(b"Form".to_vec()));
-    dict.set("BBox", Array(boundingbox.into_iter().map(Real).collect()));
-    dict.set("Matrix", Array(matrix.into_iter().map(Real).collect()));
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Form".to_vec()));
+    dict.set(
+        "BBox",
+        Object::Array(boundingbox.into_iter().map(Object::Real).collect()),
+    );
+    dict.set(
+        "Matrix",
+        Object::Array(matrix.into_iter().map(Object::Real).collect()),
+    );
     let mut xobject = Stream::new(dict, content);
     // Ignore any compression error.
     let _ = xobject.compress();
@@ -22,43 +32,52 @@ pub fn form(boundingbox: Vec<f64>, matrix: Vec<f64>, content: Vec<u8>) -> Stream
 pub fn image<P: AsRef<Path>>(path: P) -> Result<Stream> {
     use std::fs::File;
     use std::io::prelude::*;
-    let img = image::open(&path)?;
-    let (width, height) = img.dimensions();
-    let (color_space, bits) = match img.color() {
-        ColorType::Gray(bits) => (b"DeviceGray".to_vec(), bits),
-        ColorType::RGB(bits) => (b"DeviceRGB".to_vec(), bits),
-        ColorType::Palette(bits) => (b"Indexed".to_vec(), bits),
-        ColorType::GrayA(bits) => (b"DeviceN".to_vec(), bits),
-        ColorType::RGBA(bits) => (b"DeviceN".to_vec(), bits),
-        ColorType::BGR(bits) => (b"DeviceN".to_vec(), bits),
-        ColorType::BGRA(bits) => (b"DeviceN".to_vec(), bits),
-    };
-
-    let mut dict = Dictionary::new();
-    dict.set("Type", Name(b"XObject".to_vec()));
-    dict.set("Subtype", Name(b"Image".to_vec()));
-    dict.set("Width", width);
-    dict.set("Height", height);
-    dict.set("ColorSpace", Name(color_space));
-    dict.set("BitsPerComponent", bits);
 
     let mut file = File::open(&path)?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
 
-    let is_jpeg = match image::guess_format(&buffer) {
+    image_from(buffer)
+}
+
+#[cfg(feature = "embed_image")]
+pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
+    let img = image::load_from_memory(buffer.as_ref())?;
+    let (width, height) = img.dimensions();
+    let bits = img.color().bits_per_pixel();
+    let color_space = match img.color() {
+        ColorType::La8 => b"DeviceGray".to_vec(),
+        ColorType::Rgb8 => b"DeviceRGB".to_vec(),
+        ColorType::Rgb16 => b"DeviceRGB".to_vec(),
+        ColorType::La16 => b"DeviceN".to_vec(),
+        ColorType::Rgba8 => b"DeviceN".to_vec(),
+        ColorType::Rgba16 => b"DeviceN".to_vec(),
+        ColorType::Bgr8 => b"DeviceN".to_vec(),
+        ColorType::Bgra8 => b"DeviceN".to_vec(),
+        _ => b"Indexed".to_vec(),
+    };
+
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Image".to_vec()));
+    dict.set("Width", width);
+    dict.set("Height", height);
+    dict.set("ColorSpace", Object::Name(color_space));
+    dict.set("BitsPerComponent", bits);
+
+    let is_jpeg = match image::guess_format(buffer.as_ref()) {
         Ok(format) => match format {
-            ImageFormat::JPEG => true,
+            ImageFormat::Jpeg => true,
             _ => false,
         },
         Err(_) => false,
     };
 
     if is_jpeg {
-        dict.set("Filter", Name(b"DCTDecode".to_vec()));
+        dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
         Ok(Stream::new(dict, buffer))
     } else {
-        let mut img_object = Stream::new(dict, img.raw_pixels());
+        let mut img_object = Stream::new(dict, img.to_bytes());
         // Ignore any compression error.
         let _ = img_object.compress();
         Ok(img_object)
