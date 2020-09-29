@@ -12,6 +12,7 @@ pub mod content;
 mod creator;
 mod encodings;
 pub mod filters;
+#[cfg(not(feature = "nom_parser"))]
 #[cfg(feature = "pom_parser")]
 mod parser;
 #[cfg(feature = "nom_parser")]

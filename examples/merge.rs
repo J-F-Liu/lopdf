@@ -76,12 +76,7 @@ fn main() {
             document
                 .get_pages()
                 .into_iter()
-                .map(|(_, object_id)| {
-                    (
-                        object_id,
-                        document.get_object(object_id).unwrap().to_owned(),
-                    )
-                })
+                .map(|(_, object_id)| (object_id, document.get_object(object_id).unwrap().to_owned()))
                 .collect::<BTreeMap<ObjectId, Object>>(),
         );
         documents_objects.extend(document.objects);
@@ -153,9 +148,7 @@ fn main() {
             let mut dictionary = dictionary.clone();
             dictionary.set("Parent", pages_object.as_ref().unwrap().0);
 
-            document
-                .objects
-                .insert(*object_id, Object::Dictionary(dictionary));
+            document.objects.insert(*object_id, Object::Dictionary(dictionary));
         }
     }
 
@@ -185,9 +178,7 @@ fn main() {
                 .collect::<Vec<_>>(),
         );
 
-        document
-            .objects
-            .insert(pages_object.0, Object::Dictionary(dictionary));
+        document.objects.insert(pages_object.0, Object::Dictionary(dictionary));
     }
 
     // Build a new "Catalog" with updated fields

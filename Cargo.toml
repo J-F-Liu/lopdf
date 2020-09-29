@@ -1,7 +1,7 @@
 [package]
 name = "lopdf"
-version = "0.25.0"
-authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
+version = "0.26.0"
+authors = ["Junfeng Liu <china.liujunfeng@gmail.com>", "Emulator <emulator@hotmail.it>"]
 homepage = "https://github.com/J-F-Liu/lopdf"
 documentation = "https://docs.rs/crate/lopdf/"
 repository = "https://github.com/J-F-Liu/lopdf.git"
@@ -9,23 +9,23 @@ license = "MIT"
 readme = "README.md"
 description = "A Rust library for PDF document manipulation."
 categories = ["text-processing"]
-keywords = ["pdf", "editing"]
+keywords = ["pdf", "editing", "manipulation", "merge"]
 edition = "2018"
 
 [dependencies]
-pom = { version = "3.0.0", optional = true }
-time = "0.1.40"
-flate2 = "1.0.3"
-linked-hash-map = "0.4.2"
-dtoa = "0.4.1"
-itoa = "0.4.5"
-encoding = "0.2"
-image = { version = "0.20.0", optional = true }
-chrono = { version = "0.4.3", optional = true }
-log = "0.4.6"
-rayon = { version = "1.0", optional = true }
-nom = { version = "5.0.0-alpha2", optional = true }
-lzw = "0.10"
+pom = { version = "^3.2", optional = true }
+time = "^0.2"
+flate2 = "^1.0"
+linked-hash-map = "^0.5"
+dtoa = "^0.4"
+itoa = "^0.4"
+encoding = "^0.2"
+image = { version = "^0.23", optional = true }
+chrono = { version = "^0.4", optional = true }
+log = "^0.4"
+rayon = { version = "^1.4", optional = true }
+nom = { version = "6.0.0-alpha2", optional = true }
+lzw = "^0.10"
 
 [features]
 default = ["chrono_time", "pom_parser"]

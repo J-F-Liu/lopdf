@@ -257,10 +257,7 @@ impl fmt::Debug for Object {
             Object::Name(ref name) => write!(f, "/{}", String::from_utf8_lossy(name)),
             Object::String(ref text, _) => write!(f, "({})", String::from_utf8_lossy(text)),
             Object::Array(ref array) => {
-                let items = array
-                    .iter()
-                    .map(|item| format!("{:?}", item))
-                    .collect::<Vec<String>>();
+                let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
                 write!(f, "[{}]", items.join(" "))
             }
             Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
@@ -338,24 +335,22 @@ impl Dictionary {
     }
 
     pub fn extend(&mut self, other: &Dictionary) {
-        let keep_both_objects = |new_dict: &mut LinkedHashMap<Vec<u8>, Object>,
-                                 key: &Vec<u8>,
-                                 value: &Object,
-                                 old_value: &Object| {
-            let mut final_array = Vec::new();
-            match value {
-                Object::Array(array) => {
-                    final_array.push(old_value.to_owned());
-                    final_array.extend(array.to_owned());
+        let keep_both_objects =
+            |new_dict: &mut LinkedHashMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: &Object| {
+                let mut final_array = Vec::new();
+                match value {
+                    Object::Array(array) => {
+                        final_array.push(old_value.to_owned());
+                        final_array.extend(array.to_owned());
+                    }
+                    _ => {
+                        final_array.push(value.to_owned());
+                        final_array.push(old_value.to_owned());
+                    }
                 }
-                _ => {
-                    final_array.push(value.to_owned());
-                    final_array.push(old_value.to_owned());
-                }
-            }
 
-            new_dict.insert(key.to_owned(), Object::Array(final_array));
-        };
+                new_dict.insert(key.to_owned(), Object::Array(final_array));
+            };
 
         let mut new_dict = LinkedHashMap::new();
         for (key, value) in other.0.iter() {
@@ -663,18 +658,11 @@ impl Stream {
         use crate::filters::png;
 
         if let Some(params) = params {
-            let predictor = params
-                .get(b"Predictor")
-                .and_then(Object::as_i64)
-                .unwrap_or(1);
+            let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
             if predictor >= 10 && predictor <= 15 {
-                let pixels_per_row =
-                    params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1) as usize;
+                let pixels_per_row = params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1) as usize;
                 let colors = params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1) as usize;
-                let bits = params
-                    .get(b"BitsPerComponent")
-                    .and_then(Object::as_i64)
-                    .unwrap_or(8) as usize;
+                let bits = params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8) as usize;
                 let bytes_per_pixel = colors * bits / 8;
                 data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row)?;
             }
