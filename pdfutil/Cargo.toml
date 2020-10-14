@@ -1,6 +1,6 @@
 [package]
 name = "pdfutil"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
 homepage = "https://github.com/J-F-Liu/lopdf/tree/master/pdfutil"
 documentation = "https://docs.rs/crate/lopdf/"
@@ -10,7 +10,7 @@ description = "A utility for PDF document manipulation."
 edition = "2018"
 
 [dependencies]
-lopdf = {version = "*", path = "../"}
+lopdf = {version = "0.26.0", path = "../"}
 clap = "2.21.1"
 log = "0.4.6"
 env_logger = "0.6.1"
