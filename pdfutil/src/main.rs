@@ -108,7 +108,7 @@ fn main() {
 					if let Some(pages) = args.value_of("pages") {
 						let page_numbers = compute_page_numbers(pages);
 						let text = doc.extract_text(&page_numbers);
-						info!("{}", text);
+						info!("{}", text.unwrap());
 					}
 				}
 				"replace_text" => {
