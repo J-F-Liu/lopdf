@@ -144,6 +144,13 @@ impl Object {
         }
     }
 
+    pub fn as_bool(&self) -> Result<bool> {
+        match *self {
+            Object::Boolean(ref value) => Ok(*value),
+            _ => Err(Error::Type),
+        }
+    }
+
     pub fn as_i64(&self) -> Result<i64> {
         match *self {
             Object::Integer(ref value) => Ok(*value),
