@@ -165,6 +165,16 @@ impl Object {
         }
     }
 
+    /// Get the object value as a float.
+    /// Unlike as_f64() this will also cast an Integer to a Real.
+    pub fn as_float(&self) -> Result<f64> {
+        match *self {
+            Object::Integer(ref value) => Ok(*value as f64),
+            Object::Real(ref value) => Ok(*value),
+            _ => Err(Error::Type),
+        }
+    }
+
     pub fn as_name(&self) -> Result<&[u8]> {
         match *self {
             Object::Name(ref name) => Ok(name),
