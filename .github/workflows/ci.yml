@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.continue-on-error || false }}
+
+    strategy:
+      matrix:
+        name:
+          - stable
+          - beta
+          - nightly
+          - "feat: no default features"
+          - "feat: all features"
+          - "feat: nom only"
+
+        include:
+          - name: beta
+            rust: beta
+          - name: nightly
+            rust: nightly
+            continue-on-error: true
+
+          - name: "feat: no default features"
+            features: "--no-default-features"
+          - name: "feat: all features"
+            features: "--all-features"
+          - name: "feat: nom only"
+            features: "--no-default-features --features nom_parser"
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          rust-version: ${{ matrix.rust || 'stable' }}
+
+      - name: Build
+        run: cargo build --verbose ${{ matrix.features }}
+      - name: Run tests
+        run: cargo test --verbose ${{ matrix.features }} -- --test-threads=1
+
+
+  pdfutil:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hecrj/setup-rust-action@v1
+
+      - name: Build
+        run: cargo build --verbose --manifest-path pdfutil/Cargo.toml
