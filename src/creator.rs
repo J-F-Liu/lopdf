@@ -31,7 +31,7 @@ impl Document {
 
             annots.retain(|object| {
                 if let Ok(id) = object.as_reference() {
-                    return !(id == *object_id);
+                    return id != *object_id;
                 }
 
                 true

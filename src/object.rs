@@ -138,10 +138,7 @@ impl Object {
     }
 
     pub fn is_null(&self) -> bool {
-        match *self {
-            Object::Null => true,
-            _ => false,
-        }
+        matches!(*self, Object::Null)
     }
 
     pub fn as_bool(&self) -> Result<bool> {
@@ -522,7 +519,7 @@ impl Stream {
     // Return first filter
     pub fn filter(&self) -> Result<String> {
         self.filters()
-            .and_then(|f| f.into_iter().nth(0).ok_or(Error::ObjectNotFound))
+            .and_then(|f| f.into_iter().next().ok_or(Error::ObjectNotFound))
     }
 
     pub fn filters(&self) -> Result<Vec<String>> {

@@ -116,13 +116,12 @@ fn main() {
 						let parts: Vec<&str> = text.splitn(2, ':').collect();
 						let page = u32::from_str(parts[0]).unwrap();
 						let words: Vec<&str> = parts[1].splitn(2, "=>").collect();
-						doc.replace_text(page, words[0], words[1]);
+						let _ = doc.replace_text(page, words[0], words[1]);
 					}
 				}
 				"print_streams" => for (_, object) in doc.objects.iter() {
-					match *object {
-						Object::Stream(ref stream) => info!("{:?}", stream.dict),
-						_ => (),
+					if let Object::Stream(ref stream) = *object {
+						info!("{:?}", stream.dict);
 					}
 				},
 				"extract_stream" => {
@@ -137,7 +136,7 @@ fn main() {
 						}
 					}
 				}
-				operation @ _ => {
+				operation => {
 					apply_operation(&mut doc, operation);
 				}
 			}
@@ -162,7 +161,7 @@ fn main() {
 			}
 			"delete_zero_length_streams" => {
 				let streams = doc.delete_zero_length_streams();
-				if streams.len() > 0 {
+				if !streams.is_empty() {
 					info!("Deleted {:?}", streams);
 				}
 			}
