@@ -142,7 +142,7 @@ impl Document {
         let mut replace = BTreeMap::new();
         let mut new_id = starting_id;
         let mut ids = self.objects.keys().cloned().collect::<Vec<ObjectId>>();
-        ids.sort();
+        ids.sort_unstable();
 
         for id in ids {
             if id.0 != new_id {
@@ -157,7 +157,7 @@ impl Document {
         // remove and collect all removed objects
         for (old, new) in &replace {
             if let Some(object) = self.objects.remove(old) {
-                objects.insert(new.clone(), object);
+                objects.insert(*new, object);
             }
         }
 

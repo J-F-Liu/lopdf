@@ -87,13 +87,13 @@ impl Document {
             let annots = page.get(b"Annots")?.as_array()?;
             let objects_ids = annots.iter().map(|object| object.as_reference()).collect::<Vec<_>>();
 
-            if objects_ids.iter().any(|object_id| {
+            let contains = objects_ids.iter().any(|object_id| {
                 if let Ok(object_id) = object_id {
                     return id == *object_id;
                 }
-
                 false
-            }) {
+            });
+            if contains {
                 return Ok(object_id);
             }
         }
@@ -107,18 +107,18 @@ impl Document {
     }
 
     /// Traverse objects from trailer recursively, return all referenced object IDs.
-    pub fn traverse_objects<A: Fn(&mut Object) -> ()>(&mut self, action: A) -> Vec<ObjectId> {
-        fn traverse_array<A: Fn(&mut Object) -> ()>(array: &mut Vec<Object>, action: &A, refs: &mut Vec<ObjectId>) {
+    pub fn traverse_objects<A: Fn(&mut Object)>(&mut self, action: A) -> Vec<ObjectId> {
+        fn traverse_array<A: Fn(&mut Object)>(array: &mut Vec<Object>, action: &A, refs: &mut Vec<ObjectId>) {
             for item in array.iter_mut() {
                 traverse_object(item, action, refs);
             }
         }
-        fn traverse_dictionary<A: Fn(&mut Object) -> ()>(dict: &mut Dictionary, action: &A, refs: &mut Vec<ObjectId>) {
+        fn traverse_dictionary<A: Fn(&mut Object)>(dict: &mut Dictionary, action: &A, refs: &mut Vec<ObjectId>) {
             for (_, v) in dict.iter_mut() {
                 traverse_object(v, action, refs);
             }
         }
-        fn traverse_object<A: Fn(&mut Object) -> ()>(object: &mut Object, action: &A, refs: &mut Vec<ObjectId>) {
+        fn traverse_object<A: Fn(&mut Object)>(object: &mut Object, action: &A, refs: &mut Vec<ObjectId>) {
             action(object);
             match *object {
                 Object::Array(ref mut array) => traverse_array(array, action, refs),

@@ -53,17 +53,11 @@ impl Xref {
 use self::XrefEntry::*;
 impl XrefEntry {
     pub fn is_normal(&self) -> bool {
-        match *self {
-            Normal { .. } => true,
-            _ => false,
-        }
+        matches!(*self, Normal { .. })
     }
 
     pub fn is_compressed(&self) -> bool {
-        match *self {
-            Compressed { .. } => true,
-            _ => false,
-        }
+        matches!(*self, Compressed { .. })
     }
 }
 

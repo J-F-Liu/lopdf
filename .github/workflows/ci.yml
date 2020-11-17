@@ -55,3 +55,15 @@ jobs:
 
       - name: Build
         run: cargo build --verbose --manifest-path pdfutil/Cargo.toml
+
+  clippy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hecrj/setup-rust-action@v1
+
+      - name: clippy for lopdf
+        run: cargo clippy
+      - name: clippy for pdfutil
+        run: cargo clippy --manifest-path pdfutil/Cargo.toml
