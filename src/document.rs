@@ -85,11 +85,11 @@ impl Document {
         for (_, object_id) in self.get_pages() {
             let page = self.get_object(object_id)?.as_dict()?;
             let annots = page.get(b"Annots")?.as_array()?;
-            let objects_ids = annots.iter().map(|object| object.as_reference()).collect::<Vec<_>>();
+            let mut objects_ids = annots.iter().map(Object::as_reference);
 
-            let contains = objects_ids.iter().any(|object_id| {
+            let contains = objects_ids.any(|object_id| {
                 if let Ok(object_id) = object_id {
-                    return id == *object_id;
+                    return id == object_id;
                 }
                 false
             });
