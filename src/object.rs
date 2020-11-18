@@ -528,18 +528,14 @@ impl Stream {
         if let Ok(name) = filter.as_name_str() {
             Ok(vec![name.into()])
         } else if let Ok(names) = filter.as_array() {
-            let out_names: Vec<_> = names
-                .iter()
-                .filter_map(|n| Object::as_name_str(n).ok())
-                .map(Into::into)
-                .collect();
-
             // It is an error if a single conversion fails.
-            if out_names.len() == names.len() {
-                Ok(out_names)
-            } else {
-                Err(Error::Type)
-            }
+            names
+                .iter()
+                .map(|n| match Object::as_name_str(n) {
+                    Ok(n) => Ok(String::from(n)),
+                    Err(_) => Err(Error::Type),
+                })
+                .collect()
         } else {
             Err(Error::Type)
         }
