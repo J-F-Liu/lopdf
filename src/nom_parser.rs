@@ -497,26 +497,36 @@ mod tests {
     fn parse_string() {
         let literal_string = |i| tstrip(literal_string(i));
 
-        assert_eq!(literal_string(b"()"), Some(b"".to_vec()));
-        assert_eq!(literal_string(b"(text())"), Some(b"text()".to_vec()));
-        assert_eq!(
-            literal_string(b"(text\r\n\\\\(nested\\t\\b\\f))"),
-            Some(b"text\n\\(nested\t\x08\x0C)".to_vec())
-        );
-        assert_eq!(
-            literal_string(b"(text\\0\\53\\053\\0053)"),
-            Some(b"text\0++\x053".to_vec())
-        );
-        assert_eq!(literal_string(b"(text line\\\n())"), Some(b"text line()".to_vec()));
-        assert_eq!(tstrip(name(b"/ABC#5f")), Some(b"ABC\x5F".to_vec()));
+        let data = vec![
+            ("()", ""),
+            ("(text())", "text()"),
+            ("(text\r\n\\\\(nested\\t\\b\\f))", "text\n\\(nested\t\x08\x0C)"),
+            // This set from the pom parser fails for the nom parser (missing '\r').
+            // ("(text\r\n\\\\(nested\\t\\b\\f))", "text\r\n\\(nested\t\x08\x0C)"),
+            ("(text\\0\\53\\053\\0053)", "text\0++\x053"),
+            ("(text line\\\n())", "text line()"),
+        ];
+
+        for (input, expected) in data {
+            assert_eq!(
+                literal_string(input.as_bytes()),
+                Some(expected.as_bytes().to_vec()),
+                "input: {:?} output: {:?}",
+                input,
+                expected,
+            );
+        }
     }
 
     #[test]
     fn parse_name() {
-        let text = b"/#cb#ce#cc#e5";
-        let name = tstrip(name(text));
-        println!("{:?}", name);
-        assert!(name.is_some());
+        let (text, expected) = (b"/ABC#5f", b"ABC\x5F");
+        let result = tstrip(name(text));
+        assert_eq!(result, Some(expected.to_vec()));
+
+        let (text, expected) = (b"/#cb#ce#cc#e5", b"\xcb\xce\xcc\xe5");
+        let result = tstrip(name(text));
+        assert_eq!(result, Some(expected.to_vec()));
     }
 
     #[test]
