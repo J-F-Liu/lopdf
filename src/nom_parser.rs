@@ -40,8 +40,8 @@ fn offset_stream(object: &mut Object, offset: usize) {
     }
 }
 
-fn eol(input: &[u8]) -> NomResult<()> {
-    map(alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r"))), |_| ())(input)
+fn eol(input: &[u8]) -> NomResult<&[u8]> {
+    alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r")))(input)
 }
 
 fn comment(input: &[u8]) -> NomResult<()> {
@@ -149,17 +149,15 @@ fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
 enum ILS<'a> {
     Direct(&'a [u8]),
     Escape(Option<u8>),
-    EOL,
+    EOL(&'a [u8]),
     Nested(Vec<u8>),
 }
 
 impl<'a> ILS<'a> {
     fn push(&self, output: &mut Vec<u8>) {
         match self {
-            ILS::Direct(d) => output.extend_from_slice(*d),
-            ILS::Escape(e) => output.extend(e.iter()),
-            // Any end of line in a string literal is treated as a line feed.
-            ILS::EOL => output.push(b'\n'),
+            ILS::Direct(s) | ILS::EOL(s) => output.extend_from_slice(s),
+            ILS::Escape(e) => output.extend(e),
             ILS::Nested(n) => output.extend_from_slice(n),
         }
     }
@@ -171,7 +169,7 @@ fn inner_literal_string(depth: usize) -> impl Fn(&[u8]) -> NomResult<Vec<u8>> {
             alt((
                 map(take_while1(is_direct_literal_string), ILS::Direct),
                 map(escape_sequence, ILS::Escape),
-                map(eol, |_| ILS::EOL),
+                map(eol, ILS::EOL),
                 map(nested_literal_string(depth), ILS::Nested),
             )),
             Vec::new(),
@@ -500,9 +498,7 @@ mod tests {
         let data = vec![
             ("()", ""),
             ("(text())", "text()"),
-            ("(text\r\n\\\\(nested\\t\\b\\f))", "text\n\\(nested\t\x08\x0C)"),
-            // This set from the pom parser fails for the nom parser (missing '\r').
-            // ("(text\r\n\\\\(nested\\t\\b\\f))", "text\r\n\\(nested\t\x08\x0C)"),
+            ("(text\r\n\\\\(nested\\t\\b\\f))", "text\r\n\\(nested\t\x08\x0C)"),
             ("(text\\0\\53\\053\\0053)", "text\0++\x053"),
             ("(text line\\\n())", "text line()"),
         ];
