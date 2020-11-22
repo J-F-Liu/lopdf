@@ -316,29 +316,34 @@ mod tests {
 
     #[test]
     fn parse_string() {
-        assert_eq!(literal_string().parse(b"()"), Ok(b"".to_vec()));
-        assert_eq!(literal_string().parse(b"(text())"), Ok(b"text()".to_vec()));
-        assert_eq!(
-            literal_string().parse(b"(text\r\n\\\\(nested\\t\\b\\f))"),
-            Ok(b"text\r\n\\(nested\t\x08\x0C)".to_vec())
-        );
-        assert_eq!(
-            literal_string().parse(b"(text\\0\\53\\053\\0053)"),
-            Ok(b"text\0++\x053".to_vec())
-        );
-        assert_eq!(
-            literal_string().parse(b"(text line\\\n())"),
-            Ok(b"text line()".to_vec())
-        );
-        assert_eq!(name().parse(b"/ABC#5f"), Ok(b"ABC\x5F".to_vec()));
+        let data = vec![
+            ("()", ""),
+            ("(text())", "text()"),
+            ("(text\r\n\\\\(nested\\t\\b\\f))", "text\r\n\\(nested\t\x08\x0C)"),
+            ("(text\\0\\53\\053\\0053)", "text\0++\x053"),
+            ("(text line\\\n())", "text line()"),
+        ];
+
+        for (input, expected) in data {
+            assert_eq!(
+                literal_string().parse(input.as_bytes()),
+                Ok(expected.as_bytes().to_vec()),
+                "input: {:?} output: {:?}",
+                input,
+                expected,
+            );
+        }
     }
 
     #[test]
     fn parse_name() {
-        let text = b"/#cb#ce#cc#e5";
-        let name = name().parse(text);
-        println!("{:?}", name);
-        assert_eq!(name.is_ok(), true);
+        let (text, expected) = (b"/ABC#5f", b"ABC\x5F");
+        let result = name().parse(text).ok();
+        assert_eq!(result, Some(expected.to_vec()));
+
+        let (text, expected) = (b"/#cb#ce#cc#e5", b"\xcb\xce\xcc\xe5");
+        let result = name().parse(text).ok();
+        assert_eq!(result, Some(expected.to_vec()));
     }
 
     #[test]
