@@ -1,12 +1,12 @@
 use super::encodings::{self, bytes_to_string, string_to_bytes};
-use super::{Dictionary, Object, ObjectId};
+use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::xref::Xref;
 use crate::{Error, Result};
 use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use log::info;
 use std::cmp::max;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::str;
 
@@ -27,6 +27,16 @@ pub struct Document {
 
     /// Current maximum object id within the document.
     pub max_id: u32,
+
+    /// Current maximum object id within Bookmarks.
+    pub max_bookmark_id: u32,
+
+    /// The bookmarks in the document. Render at the very end of document after renumbering objects.
+    pub bookmarks: Vec<u32>,
+
+    /// used to locate a stored Bookmark so children can be appended to it via its id. Otherwise we
+    /// need to do recrusive lookups and returns on the bookmarks internal layout Vec
+    pub bookmark_table: HashMap<u32, Bookmark>,
 }
 
 impl Document {
@@ -38,10 +48,51 @@ impl Document {
             reference_table: Xref::new(0),
             objects: BTreeMap::new(),
             max_id: 0,
+            max_bookmark_id: 0,
+            bookmarks: Vec::new(),
+            bookmark_table: HashMap::new(),
         }
     }
 
     const DEREF_LIMIT: usize = 128;
+
+    fn recrusive_fix_pages(&mut self, bookmarks: &[u32], first: bool) -> ObjectId {
+        if !bookmarks.is_empty() {
+            for id in bookmarks {
+                let (children, mut page) = match self.bookmark_table.get(id) {
+                    Some(n) => (n.children.clone(), n.page),
+                    None => return (0, 0),
+                };
+
+                if 0 == page.0 && !children.is_empty() {
+                    let objectid = self.recrusive_fix_pages(&children[..], false);
+
+                    let bookmark = self.bookmark_table.get_mut(id).unwrap();
+                    bookmark.page = objectid;
+                    page = objectid;
+                }
+
+                if !first && 0 != page.0 {
+                    return page;
+                }
+
+                if first && !children.is_empty() {
+                    self.recrusive_fix_pages(&children[..], first);
+                }
+            }
+        }
+
+        (0, 0)
+    }
+
+    /// Adjusts the Parents that have a ObjectId of (0,_) to that
+    /// of their first child. will recruse through all entries
+    /// till all parents of children are set. This should be
+    /// ran before building the final bookmark objects but after
+    /// renumbering of objects.
+    pub fn adjust_zero_pages(&mut self) {
+        self.recrusive_fix_pages(&self.bookmarks.clone(), true);
+    }
 
     /// Follow references if the supplied object is a reference.
     ///

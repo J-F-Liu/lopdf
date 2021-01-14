@@ -669,7 +669,7 @@ impl Stream {
 
         if let Some(params) = params {
             let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
-            if predictor >= 10 && predictor <= 15 {
+            if (10..=15).contains(&predictor) {
                 let pixels_per_row = params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1) as usize;
                 let colors = params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1) as usize;
                 let bits = params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8) as usize;

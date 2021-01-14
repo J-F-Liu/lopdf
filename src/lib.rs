@@ -8,9 +8,12 @@ mod object_stream;
 mod xref;
 pub use crate::document::Document;
 
+mod bookmarks;
+pub use crate::bookmarks::Bookmark;
 pub mod content;
 mod creator;
 mod encodings;
+mod error;
 pub mod filters;
 #[cfg(not(feature = "nom_parser"))]
 #[cfg(feature = "pom_parser")]
@@ -23,6 +26,4 @@ mod processor;
 mod reader;
 mod writer;
 pub mod xobject;
-
-mod error;
 pub use error::{Error, Result};
