@@ -133,7 +133,7 @@ impl Document {
 
             outline.set("Count", Object::Integer(count));
 
-            for (obj_id, obj) in processed.drain().take(1) {
+            for (obj_id, obj) in processed.drain() {
                 self.objects.insert(obj_id, obj.into());
             }
 
