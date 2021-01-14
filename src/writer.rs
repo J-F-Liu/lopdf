@@ -26,6 +26,7 @@ impl Document {
             inner: target,
             bytes_written: 0,
         };
+
         let mut xref = Xref::new(self.max_id + 1);
         writeln!(target, "%PDF-{}", self.version)?;
 
