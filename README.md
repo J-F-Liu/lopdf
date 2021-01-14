@@ -69,7 +69,7 @@ extern crate lopdf;
 use std::collections::BTreeMap;
 
 use lopdf::content::{Content, Operation};
-use lopdf::{Document, Object, ObjectId, Stream};
+use lopdf::{Document, Object, ObjectId, Stream, BookMark};
 
 pub fn generate_fake_document() -> Document {
     let mut doc = Document::with_version("1.5");
@@ -127,33 +127,39 @@ fn main() {
 
     // Define a starting max_id (will be used as start index for object_ids)
     let mut max_id = 1;
-
+    let mut pagenum = 1;
     // Collect all Documents Objects grouped by a map
     let mut documents_pages = BTreeMap::new();
     let mut documents_objects = BTreeMap::new();
+    let mut document = Document::with_version("1.5");
 
-    for mut document in documents {
-        document.renumber_objects_with(max_id);
+    for mut doc in documents {
+        let mut first = false;
+        doc.renumber_objects_with(max_id);
 
-        max_id = document.max_id + 1;
+        max_id = doc.max_id + 1;
 
         documents_pages.extend(
-            document
+            doc
                     .get_pages()
                     .into_iter()
                     .map(|(_, object_id)| {
+                        if !first {
+                            let bookmark = BookMark::new(String::from(format!("Page_{}", pagenum)), [0.0, 0.0, 1.0], 0, object_id);
+                            document.add_bookmark(bookmark, None);
+                            first = true;
+                            pagenum += 1;
+                        }
+
                         (
                             object_id,
-                            document.get_object(object_id).unwrap().to_owned(),
+                            doc.get_object(object_id).unwrap().to_owned(),
                         )
                     })
                     .collect::<BTreeMap<ObjectId, Object>>(),
         );
-        documents_objects.extend(document.objects);
+        documents_objects.extend(doc.objects);
     }
-
-    // Initialize a new empty document
-    let mut document = Document::with_version("1.5");
 
     // Catalog and Pages are mandatory
     let mut catalog_object: Option<(ObjectId, Object)> = None;
@@ -273,6 +279,19 @@ fn main() {
 
     // Reorder all new Document objects
     document.renumber_objects();
+
+     //Set any Bookmarks to the First child if they are not set to a page
+    document.adjust_zero_pages();
+
+    //Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
+    if let Some(n) = document.build_outline() {
+        if let Ok(x) = document.get_object_mut(catalog_object.0) {
+            if let Object::Dictionary(ref mut dict) = x {
+                dict.set("Outlines", Object::Reference(n));
+            }
+        }
+    }
+
     document.compress();
 
     // Save the merged PDF
