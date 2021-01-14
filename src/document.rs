@@ -1,5 +1,5 @@
 use super::encodings::{self, bytes_to_string, string_to_bytes};
-use super::{BookMark, Dictionary, Object, ObjectId};
+use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::xref::Xref;
 use crate::{Error, Result};
 use encoding::all::UTF_16BE;
@@ -36,7 +36,7 @@ pub struct Document {
 
     /// used to locate a stored Bookmark so children can be appended to it via its id. Otherwise we
     /// need to do recrusive lookups and returns on the bookmarks internal layout Vec
-    pub bookmark_table: HashMap<u32, BookMark>,
+    pub bookmark_table: HashMap<u32, Bookmark>,
 }
 
 impl Document {
@@ -57,14 +57,14 @@ impl Document {
     const DEREF_LIMIT: usize = 128;
 
     fn recrusive_fix_pages(&mut self, bookmarks: &[u32], first: bool) -> ObjectId {
-        if bookmarks.len() > 0 {
+        if !bookmarks.is_empty() {
             for id in bookmarks {
                 let (children, mut page) = match self.bookmark_table.get(id) {
                     Some(n) => (n.children.clone(), n.page),
                     None => return (0, 0),
                 };
 
-                if 0 == page.0 && children.len() > 0 {
+                if 0 == page.0 && !children.is_empty() {
                     let objectid = self.recrusive_fix_pages(&children[..], false);
 
                     let bookmark = self.bookmark_table.get_mut(id).unwrap();
@@ -76,7 +76,7 @@ impl Document {
                     return page;
                 }
 
-                if first && children.len() > 0 {
+                if first && !children.is_empty() {
                     self.recrusive_fix_pages(&children[..], first);
                 }
             }

@@ -61,27 +61,14 @@ pub struct Writer;
 
 impl Writer {
     fn need_separator(object: &Object) -> bool {
-        match *object {
-            Null => true,
-            Boolean(_) => true,
-            Integer(_) => true,
-            Real(_) => true,
-            Reference(_) => true,
-            _ => false,
-        }
+        matches!(*object, Null | Boolean(_) | Integer(_) | Real(_) | Reference(_))
     }
 
     fn need_end_separator(object: &Object) -> bool {
-        match *object {
-            Null => true,
-            Boolean(_) => true,
-            Integer(_) => true,
-            Real(_) => true,
-            Name(_) => true,
-            Reference(_) => true,
-            Object::Stream(_) => true,
-            _ => false,
-        }
+        matches!(
+            *object,
+            Null | Boolean(_) | Integer(_) | Real(_) | Name(_) | Reference(_) | Object::Stream(_)
+        )
     }
 
     fn write_xref(file: &mut dyn Write, xref: &Xref) -> Result<()> {

@@ -4,7 +4,7 @@ extern crate lopdf;
 use std::collections::BTreeMap;
 
 use lopdf::content::{Content, Operation};
-use lopdf::{BookMark, Document, Object, ObjectId, Stream};
+use lopdf::{Bookmark, Document, Object, ObjectId, Stream};
 
 pub fn generate_fake_document() -> Document {
     let mut doc = Document::with_version("1.5");
@@ -80,7 +80,7 @@ fn main() {
                 .map(|(_, object_id)| {
                     if !first {
                         let bookmark =
-                            BookMark::new(String::from(format!("Page_{}", pagenum)), [0.0, 0.0, 1.0], 0, object_id);
+                            Bookmark::new(String::from(format!("Page_{}", pagenum)), [0.0, 0.0, 1.0], 0, object_id);
                         document.add_bookmark(bookmark, None);
                         first = true;
                         pagenum += 1;

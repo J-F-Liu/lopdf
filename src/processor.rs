@@ -137,27 +137,27 @@ impl Document {
     }
 
     fn update_bookmark_pages(&mut self, bookmarks: &[u32], old: &ObjectId, new: &ObjectId) {
-        if bookmarks.len() > 0 {
-            for id in bookmarks {
-                let (children, page) = match self.bookmark_table.get(id) {
-                    Some(n) => (n.children.clone(), n.page),
-                    None => return,
-                };
+        for id in bookmarks {
+            let (children, page) = match self.bookmark_table.get(id) {
+                Some(n) => (n.children.clone(), n.page),
+                None => return,
+            };
 
-                if page == *old {
-                    let bookmark = self.bookmark_table.get_mut(id).unwrap();
-                    bookmark.page = *new;
-                }
+            if page == *old {
+                let bookmark = self.bookmark_table.get_mut(id).unwrap();
+                bookmark.page = *new;
+            }
 
-                if children.len() > 0 {
-                    self.update_bookmark_pages(&children[..], old, new);
-                }
+            if !children.is_empty() {
+                self.update_bookmark_pages(&children[..], old, new);
             }
         }
     }
 
     pub fn renumber_bookmarks(&mut self, old: &ObjectId, new: &ObjectId) {
-        self.update_bookmark_pages(&self.bookmarks.clone(), old, new);
+        if !self.bookmarks.is_empty() {
+            self.update_bookmark_pages(&self.bookmarks.clone(), old, new);
+        }
     }
 
     /// Renumber objects with a custom starting id, this is very useful in case of multiple

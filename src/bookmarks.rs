@@ -2,7 +2,7 @@ use super::{Dictionary, Document, Object, ObjectId};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct BookMark {
+pub struct Bookmark {
     /// Children, Must be a Collection that allows for insertion of the same page ID.
     pub children: Vec<u32>,
     pub title: String,
@@ -14,9 +14,9 @@ pub struct BookMark {
     pub id: u32,
 }
 
-impl BookMark {
-    pub fn new(title: String, color: [f32; 3], format: u32, page: ObjectId) -> BookMark {
-        BookMark {
+impl Bookmark {
+    pub fn new(title: String, color: [f32; 3], format: u32, page: ObjectId) -> Bookmark {
+        Bookmark {
             children: Vec::new(),
             title,
             format,
@@ -28,7 +28,7 @@ impl BookMark {
 }
 
 impl Document {
-    pub fn add_bookmark(&mut self, mut bookmark: BookMark, parent: Option<u32>) -> u32 {
+    pub fn add_bookmark(&mut self, mut bookmark: Bookmark, parent: Option<u32>) -> u32 {
         self.max_bookmark_id += 1;
         let id = self.max_bookmark_id;
 
@@ -80,19 +80,16 @@ impl Document {
 
             if first.is_none() {
                 first = Some(id);
-            } else {
-                if let Some(x) = last {
-                    let inner_object = processed.get_mut(&x).unwrap();
-                    inner_object.set("Next", id);
-                    child.set("Prev", x);
-                }
+            } else if let Some(x) = last {
+                let inner_object = processed.get_mut(&x).unwrap();
+                inner_object.set("Next", id);
+                child.set("Prev", x);
             }
 
-            last = Some(id.into());
+            last = Some(id);
 
-            if bookmark.children.len() > 0 {
-                let (c_first, c_last, c_count) =
-                    self.outline_child(maxid, (id.into(), &bookmark.children[..]), processed);
+            if !bookmark.children.is_empty() {
+                let (c_first, c_last, c_count) = self.outline_child(maxid, (id, &bookmark.children[..]), processed);
 
                 if let Some(n) = c_first {
                     child.set("First", n);
@@ -115,13 +112,13 @@ impl Document {
     pub fn build_outline(&mut self) -> Option<ObjectId> {
         let mut processed: HashMap<ObjectId, Dictionary> = HashMap::new();
 
-        if self.bookmarks.len() > 0 {
+        if !self.bookmarks.is_empty() {
             let mut outline = Dictionary::new();
             let mut maxid = self.max_id;
             maxid += 1;
             let id: ObjectId = (maxid, 0);
 
-            let (first, last, count) = self.outline_child(&mut maxid, (id.into(), &self.bookmarks[..]), &mut processed);
+            let (first, last, count) = self.outline_child(&mut maxid, (id, &self.bookmarks[..]), &mut processed);
 
             if let Some(n) = first {
                 outline.set("First", n);

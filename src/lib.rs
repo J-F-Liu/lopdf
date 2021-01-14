@@ -9,7 +9,7 @@ mod xref;
 pub use crate::document::Document;
 
 mod bookmarks;
-pub use crate::bookmarks::BookMark;
+pub use crate::bookmarks::Bookmark;
 pub mod content;
 mod creator;
 mod encodings;
