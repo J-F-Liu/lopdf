@@ -597,7 +597,7 @@ impl Stream {
     }
 
     fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {
-        use lzw::{Decoder, DecoderEarlyChange, MsbReader};
+        use weezl::{BitOrder, decode::Decoder};
         const MIN_BITS: u8 = 9;
 
         let early_change = params
@@ -606,43 +606,22 @@ impl Stream {
             .map(|v| v != 0)
             .unwrap_or(true);
 
-        let output = if early_change {
-            Self::decompress_lzw_loop(
-                input,
-                DecoderEarlyChange::new(MsbReader::new(), MIN_BITS - 1),
-                DecoderEarlyChange::decode_bytes,
-            )
+        let mut decoder = if early_change {
+            Decoder::with_tiff_size_switch(BitOrder::Msb, MIN_BITS - 1)
         } else {
-            Self::decompress_lzw_loop(
-                input,
-                Decoder::new(MsbReader::new(), MIN_BITS - 1),
-                Decoder::decode_bytes,
-            )
+            Decoder::new(BitOrder::Msb, MIN_BITS - 1)
         };
 
+        let output = Self::decompress_lzw_loop(input, &mut decoder);
         Self::decompress_predictor(output, params)
     }
 
-    fn decompress_lzw_loop<F, D>(mut input: &[u8], mut decoder: D, decode: F) -> Vec<u8>
-    where
-        F: for<'d> Fn(&'d mut D, &[u8]) -> std::io::Result<(usize, &'d [u8])>,
-    {
-        let mut output = Vec::with_capacity(input.len() * 2);
+    fn decompress_lzw_loop(input: &[u8], decoder: &mut weezl::decode::Decoder) -> Vec<u8> {
+        let mut output = vec![];
 
-        loop {
-            match decode(&mut decoder, input) {
-                Ok((consumed_bytes, out_bytes)) => {
-                    output.extend(out_bytes);
-                    input = &input[consumed_bytes..];
-                    if input.is_empty() || consumed_bytes == 0 {
-                        break;
-                    }
-                }
-                Err(err) => {
-                    warn!("{}", err);
-                    break;
-                }
-            }
+        let result = decoder.into_stream(&mut output).decode_all(input);
+        if let Err(err) = result.status {
+            warn!("{}", err);
         }
 
         output
