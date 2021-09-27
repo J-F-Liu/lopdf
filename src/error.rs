@@ -1,5 +1,7 @@
-use std::fmt;
 use crate::encryption;
+use std::fmt;
+
+use crate::encodings::cmap::UnicodeCMapError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -28,6 +30,8 @@ pub enum Error {
     /// To many brackets nested.
     // TODO: This does not seem to be used.
     BracketLimit,
+    /// Could not parse ToUnicodeCMap.
+    ToUnicodeCMap(UnicodeCMapError),
     /// The file trailer was invalid.
     Trailer,
     /// The object does not have the expected type.
@@ -62,6 +66,7 @@ impl fmt::Display for Error {
             Error::PageNumberNotFound(p) => write!(f, "Page number {} could not be found", p),
             Error::Parse { offset, .. } => write!(f, "Invalid object at byte {}", offset),
             Error::ReferenceLimit => write!(f, "Could not dereference an object; possible reference loop"),
+            Error::ToUnicodeCMap(err) => write!(f, "ToUnicode CMap error: {}", err),
             Error::BracketLimit => write!(f, "Too deep embedding of ()'s."),
             Error::Trailer => write!(f, "Invalid file trailer"),
             Error::Type => write!(f, "An object does not have the expected type"),
@@ -121,6 +126,12 @@ impl From<std::string::FromUtf8Error> for Error {
 impl From<std::str::Utf8Error> for Error {
     fn from(_err: std::str::Utf8Error) -> Self {
         Error::UTF8
+    }
+}
+
+impl From<UnicodeCMapError> for Error {
+    fn from(cmap_err: UnicodeCMapError) -> Self {
+        Error::ToUnicodeCMap(cmap_err)
     }
 }
 

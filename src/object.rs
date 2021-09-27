@@ -1,3 +1,6 @@
+use crate::encodings;
+use crate::encodings::cmap::ToUnicodeCMap;
+use crate::encodings::Encoding;
 use crate::{Document, Error, Result};
 use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
 use log::warn;
@@ -353,10 +356,21 @@ impl Dictionary {
         self.0.iter_mut()
     }
 
-    pub fn get_font_encoding(&self) -> &str {
-        self.get(b"Encoding")
-            .and_then(Object::as_name_str)
-            .unwrap_or("StandardEncoding")
+    pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
+        match self.get(b"Encoding").and_then(Object::as_name_str) {
+            Ok("StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
+            Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
+            Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
+            Ok("Identity-H") => {
+                let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
+                let content = stream.get_plain_content()?;
+                let cmap = ToUnicodeCMap::parse(content)?;
+                Ok(Encoding::UnicodeMapEncoding(cmap))
+            }
+            Ok(name) => Ok(Encoding::SimpleEncoding(name)),
+            Err(_) => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+        }
     }
 
     pub fn extend(&mut self, other: &Dictionary) {
@@ -552,6 +566,13 @@ impl Stream {
         self.dict.remove(b"Filter");
         self.dict.set("Length", content.len() as i64);
         self.content = content;
+    }
+
+    pub fn get_plain_content(&self) -> Result<Vec<u8>> {
+        match self.filters() {
+            Ok(vec) if vec.len() > 0 => self.decompressed_content(),
+            _ => Ok(self.content.clone()),
+        }
     }
 
     pub fn compress(&mut self) -> Result<()> {

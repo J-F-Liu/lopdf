@@ -35,6 +35,9 @@ time = { version = "^0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.1"
 indexmap = "2.2.3"
+rangemap = "0.1.13"
+encoding = "0.2"
+
 
 [dev-dependencies]
 tempfile = "3.3"

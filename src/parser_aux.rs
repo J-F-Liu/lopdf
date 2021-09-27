@@ -3,13 +3,13 @@
 use crate::{
     content::{Content, Operation},
     document::Document,
+    encodings::Encoding,
     error::XrefError,
     object::Object::Name,
     xref::{Xref, XrefEntry, XrefType},
     Error, Result,
 };
 use crate::{parser, Dictionary, Object, ObjectId, Stream};
-use log::info;
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read},
@@ -44,15 +44,14 @@ impl Document {
     }
 
     pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
-        fn collect_text(text: &mut String, encoding: Option<&str>, operands: &[Object]) {
+        fn collect_text(text: &mut String, encoding: Option<&Encoding>, operands: &[Object]) -> Result<()> {
             for operand in operands.iter() {
                 match *operand {
                     Object::String(ref bytes, _) => {
-                        let decoded_text = Document::decode_text(encoding, bytes);
-                        text.push_str(&decoded_text);
+                        text.push_str(&Document::decode_text(encoding, bytes)?);
                     }
                     Object::Array(ref arr) => {
-                        collect_text(text, encoding, arr);
+                        collect_text(text, encoding, arr)?;
                         text.push(' ');
                     }
                     Object::Integer(i) => {
@@ -63,16 +62,17 @@ impl Document {
                     _ => {}
                 }
             }
+            Ok(())
         }
         let mut text = String::new();
         let pages = self.get_pages();
         for page_number in page_numbers {
             let page_id = *pages.get(page_number).ok_or(Error::PageNumberNotFound(*page_number))?;
             let fonts = self.get_page_fonts(page_id);
-            let encodings = fonts
+            let encodings: BTreeMap<Vec<u8>, Encoding> = fonts
                 .into_iter()
-                .map(|(name, font)| (name, font.get_font_encoding()))
-                .collect::<BTreeMap<Vec<u8>, &str>>();
+                .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
+                .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
             let content_data = self.get_page_content(page_id)?;
             let content = Content::decode(&content_data)?;
             let mut current_encoding = None;
@@ -84,10 +84,10 @@ impl Document {
                             .first()
                             .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
                             .as_name()?;
-                        current_encoding = encodings.get(current_font).cloned();
+                        current_encoding = encodings.get(current_font);
                     }
                     "Tj" | "TJ" => {
-                        collect_text(&mut text, current_encoding, &operation.operands);
+                        collect_text(&mut text, current_encoding, &operation.operands)?;
                     }
                     "ET" => {
                         if !text.ends_with('\n') {
@@ -107,11 +107,11 @@ impl Document {
             .page_iter()
             .nth(page)
             .ok_or(Error::PageNumberNotFound(page_number))?;
-        let encodings = self
+        let encodings: BTreeMap<Vec<u8>, Encoding> = self
             .get_page_fonts(page_id)
             .into_iter()
-            .map(|(name, font)| (name, font.get_font_encoding().to_owned()))
-            .collect::<BTreeMap<Vec<u8>, String>>();
+            .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
+            .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
         let content_data = self.get_page_content(page_id)?;
         let mut content = Content::decode(&content_data)?;
         let mut current_encoding = None;
@@ -123,12 +123,11 @@ impl Document {
                         .first()
                         .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
                         .as_name()?;
-                    current_encoding = encodings.get(current_font).map(std::string::String::as_str);
+                    current_encoding = encodings.get(current_font);
                 }
                 "Tj" => {
                     for bytes in operation.operands.iter_mut().flat_map(Object::as_str_mut) {
-                        let decoded_text = Document::decode_text(current_encoding, bytes);
-                        info!("{}", decoded_text);
+                        let decoded_text = Document::decode_text(current_encoding, bytes)?;
                         if decoded_text == text {
                             let encoded_bytes = Document::encode_text(current_encoding, other_text);
                             *bytes = encoded_bytes;

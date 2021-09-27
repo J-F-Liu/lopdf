@@ -1,6 +1,7 @@
 use super::glyphnames::Glyph;
 
-pub const MAC_ROMAN_ENCODING: [Option<u16>; 256] = [
+pub type ByteToGlyphMap = [Option<u16>; 256];
+pub const MAC_ROMAN_ENCODING: ByteToGlyphMap = [
     None,
     None,
     None,
@@ -259,7 +260,7 @@ pub const MAC_ROMAN_ENCODING: [Option<u16>; 256] = [
     Some(Glyph::caron),
 ];
 
-pub const MAC_EXPERT_ENCODING: [Option<u16>; 256] = [
+pub const MAC_EXPERT_ENCODING: ByteToGlyphMap = [
     None,
     None,
     None,
@@ -518,7 +519,7 @@ pub const MAC_EXPERT_ENCODING: [Option<u16>; 256] = [
     None,
 ];
 
-pub const WIN_ANSI_ENCODING: [Option<u16>; 256] = [
+pub const WIN_ANSI_ENCODING: ByteToGlyphMap = [
     None,
     None,
     None,
@@ -777,7 +778,7 @@ pub const WIN_ANSI_ENCODING: [Option<u16>; 256] = [
     Some(Glyph::ydieresis),
 ];
 
-pub const STANDARD_ENCODING: [Option<u16>; 256] = [
+pub const STANDARD_ENCODING: ByteToGlyphMap = [
     None,
     None,
     None,
@@ -1037,7 +1038,7 @@ pub const STANDARD_ENCODING: [Option<u16>; 256] = [
 ];
 
 #[allow(dead_code)]
-pub const EXPERT_ENCODING: [Option<u16>; 256] = [
+pub const EXPERT_ENCODING: ByteToGlyphMap = [
     None,
     None,
     None,
@@ -1297,7 +1298,7 @@ pub const EXPERT_ENCODING: [Option<u16>; 256] = [
 ];
 
 #[allow(dead_code)]
-pub const SYMBOL_ENCODING: [Option<u16>; 256] = [
+pub const SYMBOL_ENCODING: ByteToGlyphMap = [
     None,
     None,
     None,
