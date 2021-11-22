@@ -113,58 +113,129 @@ impl Document {
     }
 }
 
-#[test]
-fn create_document() {
-    use super::content::*;
-    use super::Stream;
+#[cfg(test)]
+pub mod tests {
+    use std::fs::remove_file;
+    use std::path::Path;
+    use std::sync::Mutex;
 
-    let mut doc = Document::with_version("1.5");
-    let info_id = doc.add_object(dictionary! {
-        "Title" => Object::string_literal("Create PDF document example"),
-        "Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
-        "CreationDate" => time::OffsetDateTime::now_utc(),
-    });
-    let pages_id = doc.new_object_id();
-    let font_id = doc.add_object(dictionary! {
-        "Type" => "Font",
-        "Subtype" => "Type1",
-        "BaseFont" => "Courier",
-    });
-    let resources_id = doc.add_object(dictionary! {
-        "Font" => dictionary! {
-            "F1" => font_id,
-        },
-    });
-    let content = Content {
-        operations: vec![
-            Operation::new("BT", vec![]),
-            Operation::new("Tf", vec!["F1".into(), 48.into()]),
-            Operation::new("Td", vec![100.into(), 600.into()]),
-            Operation::new("Tj", vec![Object::string_literal("Hello World!")]),
-            Operation::new("ET", vec![]),
-        ],
-    };
-    let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
-    let page_id = doc.add_object(dictionary! {
-        "Type" => "Page",
-        "Parent" => pages_id,
-        "Contents" => content_id,
-    });
-    let pages = dictionary! {
-        "Type" => "Pages",
-        "Kids" => vec![page_id.into()],
-        "Count" => 1,
-        "Resources" => resources_id,
-        "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
-    };
-    doc.objects.insert(pages_id, Object::Dictionary(pages));
-    let catalog_id = doc.add_object(dictionary! {
-        "Type" => "Catalog",
-        "Pages" => pages_id,
-    });
-    doc.trailer.set("Root", catalog_id);
-    doc.trailer.set("Info", info_id);
-    doc.compress();
+    use crate::content::*;
+    use crate::{Document, Object, Stream};
+    use lazy_static::lazy_static;
 
-    doc.save("test_1_create.pdf").unwrap();
+    lazy_static! {
+        /// Tests that save and share files are vulnerable to race conditions
+        /// Use a mutex so only one test at a time has access to update it
+        /// The lock will last for the length of the let block in the tests
+        static ref DOC_FILE_MUTEX: Mutex<()> = Mutex::new(());
+    }
+
+    /// Create and return a document for testing
+    pub fn create_document() -> Document {
+        let mut doc = Document::with_version("1.5");
+        let info_id = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Create PDF document example"),
+            "Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
+            "CreationDate" => time::OffsetDateTime::now_utc(),
+        });
+        let pages_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Courier",
+        });
+        let resources_id = doc.add_object(dictionary! {
+            "Font" => dictionary! {
+                "F1" => font_id,
+            },
+        });
+        let content = Content {
+            operations: vec![
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec!["F1".into(), 48.into()]),
+                Operation::new("Td", vec![100.into(), 600.into()]),
+                Operation::new("Tj", vec![Object::string_literal("Hello World!")]),
+                Operation::new("ET", vec![]),
+            ],
+        };
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => content_id,
+        });
+        let pages = dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page_id.into()],
+            "Count" => 1,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+        };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc.trailer.set("Info", info_id);
+        doc.compress();
+
+        doc
+    }
+
+    /// Save a document
+    pub fn save_document(filename: &String, doc: &mut Document) {
+        let res = doc.save(filename);
+
+        assert!(match res {
+            Ok(_file) => true,
+            Err(_e) => false,
+        });
+    }
+
+    /// Remove a document
+    pub fn remove_document(filename: &String) {
+        let path = Path::new(&filename);
+
+        assert_ne!(path.as_os_str(), "");
+        assert_ne!(path.as_os_str(), "/");
+
+        let exists = path.exists();
+        assert!(exists);
+
+        if exists {
+            remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn create_document_creates_document() {
+        let filename = String::from("test_1_create.pdf");
+        let path = Path::new(&filename);
+        let mut doc = create_document();
+
+        {
+            let _m = DOC_FILE_MUTEX.lock().unwrap();
+            save_document(&filename, &mut doc);
+            assert!(path.exists());
+            remove_document(&filename);
+        }
+    }
+
+    #[test]
+    fn remove_document_removes_document() {
+        let filename = String::from("test_1_create.pdf");
+
+        let path = Path::new(&filename);
+
+        let mut doc = create_document();
+
+        {
+            let _m = DOC_FILE_MUTEX.lock().unwrap();
+            save_document(&filename, &mut doc);
+            assert!(path.exists());
+            remove_document(&filename);
+            assert!(!path.exists());
+        }
+    }
 }
