@@ -134,6 +134,7 @@ fn stream<'a>(reader: &'a Reader) -> Parser<'a, u8, Stream> {
                 }
                 value.as_i64()
             }) {
+                assert!(length >= 0, "invalid negative stream length");
                 let stream = take(length as usize) - eol().opt() - seq(b"endstream").expect("endstream");
                 stream.map(move |data| Stream::new(dict.clone(), data.to_vec()))
             } else {

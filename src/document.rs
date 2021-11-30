@@ -263,7 +263,7 @@ impl Document {
             {
                 collect_resources(page_tree, resource_ids, doc);
             }
-        };
+        }
 
         let mut resource_dict = None;
         let mut resource_ids = Vec::new();
@@ -291,7 +291,7 @@ impl Document {
                     }
                 }
             }
-        };
+        }
 
         let mut fonts = BTreeMap::new();
         let (resource_dict, resource_ids) = self.get_page_resources(page_id);
