@@ -134,7 +134,10 @@ fn stream<'a>(reader: &'a Reader) -> Parser<'a, u8, Stream> {
                 }
                 value.as_i64()
             }) {
-                assert!(length >= 0, "invalid negative stream length");
+                if length < 0 {
+                    println!("Warning: invalid stream length {}", length);
+                    return empty().map(move |_| Stream::new(dict.clone(), vec![]));
+                }
                 let stream = take(length as usize) - eol().opt() - seq(b"endstream").expect("endstream");
                 stream.map(move |data| Stream::new(dict.clone(), data.to_vec()))
             } else {
