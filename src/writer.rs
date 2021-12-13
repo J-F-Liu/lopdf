@@ -127,7 +127,7 @@ impl Writer {
                 let _ = itoa::write(file, *value);
                 Ok(())
             }
-            Real(ref value) => file.write_all(format!("{:.02?}", *value).as_bytes()),
+            Real(ref value) => file.write_all(format!("{}", *value).as_bytes()),
             Name(ref name) => Writer::write_name(file, name),
             String(ref text, ref format) => Writer::write_string(file, text, format),
             Array(ref array) => Writer::write_array(file, array),
