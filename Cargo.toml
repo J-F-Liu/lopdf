@@ -1,6 +1,6 @@
 [package]
 name = "lopdf"
-version = "0.26.0"
+version = "0.27.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>", "Emulator <emulator@hotmail.it>"]
 homepage = "https://github.com/J-F-Liu/lopdf"
 documentation = "https://docs.rs/crate/lopdf/"
