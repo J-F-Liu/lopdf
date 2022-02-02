@@ -92,7 +92,7 @@ impl<'a> Reader<'a> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
             let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
-            xref.extend_no_replacement(prev_xref);
+            xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
@@ -102,7 +102,7 @@ impl<'a> Reader<'a> {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
                 let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
-                xref.extend_no_replacement(prev_xref);
+                xref.merge(prev_xref);
             }
 
             prev_xref_start = prev_trailer.remove(b"Prev");
