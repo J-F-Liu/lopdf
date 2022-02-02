@@ -124,10 +124,10 @@ impl Writer {
                 }
             }
             Integer(ref value) => {
-                let _ = itoa::write(file, *value);
-                Ok(())
+                let mut buf = itoa::Buffer::new();
+                file.write_all(buf.format(*value).as_bytes())
             }
-            Real(ref value) => file.write_all(format!("{}", *value).as_bytes()),
+            Real(ref value) => write!(file, "{}", value),
             Name(ref name) => Writer::write_name(file, name),
             String(ref text, ref format) => Writer::write_string(file, text, format),
             Array(ref array) => Writer::write_array(file, array),
