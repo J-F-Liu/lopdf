@@ -32,7 +32,9 @@ impl Xref {
         self.entries.insert(id, entry);
     }
 
-    pub fn extend(&mut self, xref: Xref) {
+    /// Combine Xref entries. Only add them if they do not exists already.
+    /// Do not replace existing entries.
+    pub fn merge(&mut self, xref: Xref) {
         for (id, entry) in xref.entries {
             self.entries.entry(id).or_insert(entry);
         }

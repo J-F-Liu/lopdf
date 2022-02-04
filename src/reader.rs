@@ -92,7 +92,7 @@ impl<'a> Reader<'a> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
             let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
-            xref.extend(prev_xref);
+            xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
@@ -102,7 +102,7 @@ impl<'a> Reader<'a> {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
                 let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
-                xref.extend(prev_xref);
+                xref.merge(prev_xref);
             }
 
             prev_xref_start = prev_trailer.remove(b"Prev");
@@ -135,6 +135,8 @@ impl<'a> Reader<'a> {
                     if stream.dict.type_is(b"ObjStm") {
                         let obj_stream = ObjectStream::new(stream).ok()?;
                         let mut object_streams = object_streams.lock().unwrap();
+                        // TODO: Is insert and replace intended behavior?
+                        // See https://github.com/J-F-Liu/lopdf/issues/160 for more info
                         object_streams.extend(obj_stream.objects);
                     } else if stream.content.is_empty() {
                         let mut zero_length_streams = zero_length_streams.lock().unwrap();
@@ -166,7 +168,10 @@ impl<'a> Reader<'a> {
                 .filter_map(entries_filter_map)
                 .collect();
         }
-        self.document.objects.extend(object_streams.into_inner().unwrap());
+        // Only add entries, but never replace entries
+        for (id, entry) in object_streams.into_inner().unwrap() {
+            self.document.objects.entry(id).or_insert(entry);
+        }
 
         for object_id in zero_length_streams.into_inner().unwrap() {
             let _ = self.set_stream_content(object_id);
