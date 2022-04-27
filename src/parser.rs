@@ -225,7 +225,7 @@ fn xref<'a>() -> Parser<'a, u8, Xref> {
         - take(2);
     let xref_section =
         integer().map(|i| i as usize) - sym(b' ') + integer() - sym(b' ').opt() - eol() + xref_entry.repeat(0..);
-    let xref = seq(b"xref") * eol() * xref_section.repeat(1..) - space();
+    let xref = seq(b"xref") * sym(b' ').opt() * eol() * xref_section.repeat(1..) - space();
     xref.map(|sections| {
         sections
             .into_iter()
