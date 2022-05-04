@@ -1,16 +1,16 @@
 [package]
-name = "pdfutil"
-version = "0.4.0"
 authors = ["Junfeng Liu <china.liujunfeng@gmail.com>"]
-homepage = "https://github.com/J-F-Liu/lopdf/tree/master/pdfutil"
-documentation = "https://docs.rs/crate/lopdf/"
-repository = "https://github.com/J-F-Liu/lopdf.git"
-license = "MIT"
 description = "A utility for PDF document manipulation."
+documentation = "https://docs.rs/crate/lopdf/"
 edition = "2018"
+homepage = "https://github.com/J-F-Liu/lopdf/tree/master/pdfutil"
+license = "MIT"
+name = "pdfutil"
+repository = "https://github.com/J-F-Liu/lopdf.git"
+version = "0.4.0"
 
 [dependencies]
-lopdf = {version = "0.26.0", path = "../"}
 clap = "2.21.1"
-log = "0.4.6"
 env_logger = "0.6.1"
+log = "0.4.6"
+lopdf = {version = "*", path = "../"}
