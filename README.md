@@ -11,8 +11,7 @@ A Rust library for PDF document manipulation.
 * Create PDF document
 
 ```rust
-#[macro_use]
-extern crate lopdf;
+use lopdf::dictionary;
 use lopdf::{Document, Object, Stream};
 use lopdf::content::{Content, Operation};
 
@@ -63,13 +62,12 @@ doc.save("example.pdf").unwrap();
 * Merge PDF documents
 
 ```rust
-#[macro_use]
-extern crate lopdf;
+use lopdf::dictionary;
 
 use std::collections::BTreeMap;
 
 use lopdf::content::{Content, Operation};
-use lopdf::{Document, Object, ObjectId, Stream, BookMark};
+use lopdf::{Document, Object, ObjectId, Stream, Bookmark};
 
 pub fn generate_fake_document() -> Document {
     let mut doc = Document::with_version("1.5");
@@ -116,7 +114,7 @@ pub fn generate_fake_document() -> Document {
     doc
 }
 
-fn main() {
+fn main() -> std::io::Result<()> {
     // Generate a stack of Documents to merge
     let documents = vec![
         generate_fake_document(),
@@ -145,7 +143,7 @@ fn main() {
                     .into_iter()
                     .map(|(_, object_id)| {
                         if !first {
-                            let bookmark = BookMark::new(String::from(format!("Page_{}", pagenum)), [0.0, 0.0, 1.0], 0, object_id);
+                            let bookmark = Bookmark::new(String::from(format!("Page_{}", pagenum)), [0.0, 0.0, 1.0], 0, object_id);
                             document.add_bookmark(bookmark, None);
                             first = true;
                             pagenum += 1;
@@ -215,7 +213,7 @@ fn main() {
     if pages_object.is_none() {
         println!("Pages root not found.");
 
-        return;
+        return Ok(());
     }
 
     // Iter over all "Page" and collect with the parent "Pages" created before
@@ -234,7 +232,7 @@ fn main() {
     if catalog_object.is_none() {
         println!("Catalog root not found.");
 
-        return;
+        return Ok(());
     }
 
     let catalog_object = catalog_object.unwrap();
@@ -296,16 +294,20 @@ fn main() {
 
     // Save the merged PDF
     document.save("merged.pdf").unwrap();
+
+    Ok(())
 }
 ```
 
 * Modify PDF document
 
 ```rust
-let mut doc = Document::load("example.pdf")?;
+use lopdf::Document;
+
+let mut doc = Document::load("example.pdf").unwrap();
 doc.version = "1.4".to_string();
 doc.replace_text(1, "Hello World!", "Modified text!");
-doc.save("modified.pdf")?;
+doc.save("modified.pdf").unwrap();
 ```
 
 ## FAQ
