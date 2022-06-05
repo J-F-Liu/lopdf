@@ -304,10 +304,15 @@ fn main() -> std::io::Result<()> {
 ```rust
 use lopdf::Document;
 
-let mut doc = Document::load("example.pdf").unwrap();
-doc.version = "1.4".to_string();
-doc.replace_text(1, "Hello World!", "Modified text!");
-doc.save("modified.pdf").unwrap();
+// For this example to work a parser feature needs to be enabled
+#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
+{
+    let mut doc = Document::load("example.pdf").unwrap();
+
+    doc.version = "1.4".to_string();
+    doc.replace_text(1, "Hello World!", "Modified text!");
+    doc.save("modified.pdf").unwrap();
+}
 ```
 
 ## FAQ
