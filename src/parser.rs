@@ -28,14 +28,14 @@ fn space<'a>() -> Parser<'a, u8, ()> {
 
 fn integer<'a>() -> Parser<'a, u8, i64> {
     let number = one_of(b"+-").opt() + one_of(b"0123456789").repeat(1..);
-    number.collect().convert(str::from_utf8).convert(|s| i64::from_str(&s))
+    number.collect().convert(str::from_utf8).convert(i64::from_str)
 }
 
 fn real<'a>() -> Parser<'a, u8, f64> {
     let number = one_of(b"+-").opt()
         + ((one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..))
             | (sym(b'.') - one_of(b"0123456789").repeat(1..)));
-    number.collect().convert(str::from_utf8).convert(|s| f64::from_str(&s))
+    number.collect().convert(str::from_utf8).convert(f64::from_str)
 }
 
 fn hex_char<'a>() -> Parser<'a, u8, u8> {
@@ -149,10 +149,10 @@ fn stream<'a>(reader: &'a Reader) -> Parser<'a, u8, Stream> {
 fn object_id<'a>() -> Parser<'a, u8, ObjectId> {
     let id = one_of(b"0123456789")
         .repeat(1..)
-        .convert(|v| u32::from_str(&str::from_utf8(&v).unwrap()));
+        .convert(|v| u32::from_str(str::from_utf8(&v).unwrap()));
     let gen = one_of(b"0123456789")
         .repeat(1..)
-        .convert(|v| u16::from_str(&str::from_utf8(&v).unwrap()));
+        .convert(|v| u16::from_str(str::from_utf8(&v).unwrap()));
     id - space() + gen - space()
 }
 

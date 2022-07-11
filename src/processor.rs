@@ -43,7 +43,7 @@ impl Document {
     pub fn delete_pages(&mut self, page_numbers: &[u32]) {
         let pages = self.get_pages();
         for page_number in page_numbers {
-            if let Some(page) = pages.get(&page_number).and_then(|page_id| self.delete_object(*page_id)) {
+            if let Some(page) = pages.get(page_number).and_then(|page_id| self.delete_object(*page_id)) {
                 let mut page_tree_ref = page
                     .as_dict()
                     .and_then(|dict| dict.get(b"Parent"))
@@ -196,7 +196,7 @@ impl Document {
 
         let action = |object: &mut Object| {
             if let Object::Reference(ref mut id) = *object {
-                if replace.contains_key(&id) {
+                if replace.contains_key(id) {
                     *id = replace[id];
                 }
             }
@@ -208,12 +208,10 @@ impl Document {
     }
 
     pub fn change_content_stream(&mut self, stream_id: ObjectId, content: Vec<u8>) {
-        if let Some(content_stream) = self.objects.get_mut(&stream_id) {
-            if let Object::Stream(ref mut stream) = *content_stream {
-                stream.set_plain_content(content);
-                // Ignore any compression error.
-                let _ = stream.compress();
-            }
+        if let Some(Object::Stream(ref mut stream)) = self.objects.get_mut(&stream_id) {
+            stream.set_plain_content(content);
+            // Ignore any compression error.
+            let _ = stream.compress();
         }
     }
 
@@ -228,10 +226,8 @@ impl Document {
                     }
                 } else {
                     let new_stream = self.add_object(super::Stream::new(dictionary! {}, content));
-                    if let Ok(page) = self.get_object_mut(page_id) {
-                        if let Object::Dictionary(ref mut dict) = *page {
-                            dict.set("Contents", new_stream);
-                        }
+                    if let Ok(Object::Dictionary(ref mut dict)) = self.get_object_mut(page_id) {
+                        dict.set("Contents", new_stream);
                     }
                 }
             }
@@ -242,17 +238,15 @@ impl Document {
 
     pub fn extract_stream(&self, stream_id: ObjectId, decompress: bool) -> Result<()> {
         let mut file = File::create(format!("{:?}.bin", stream_id))?;
-        if let Ok(stream_obj) = self.get_object(stream_id) {
-            if let Object::Stream(ref stream) = *stream_obj {
-                if decompress {
-                    if let Ok(data) = stream.decompressed_content() {
-                        file.write_all(&data)?;
-                    } else {
-                        file.write_all(&stream.content)?;
-                    }
+        if let Ok(Object::Stream(ref stream)) = self.get_object(stream_id) {
+            if decompress {
+                if let Ok(data) = stream.decompressed_content() {
+                    file.write_all(&data)?;
                 } else {
                     file.write_all(&stream.content)?;
                 }
+            } else {
+                file.write_all(&stream.content)?;
             }
         }
         Ok(())

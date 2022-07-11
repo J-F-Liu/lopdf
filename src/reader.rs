@@ -75,9 +75,9 @@ impl<'a> Reader<'a> {
     fn read(mut self) -> Result<Document> {
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
-        let version = parser::header(&self.buffer).ok_or(Error::Header)?;
+        let version = parser::header(self.buffer).ok_or(Error::Header)?;
 
-        let xref_start = Self::get_xref_start(&self.buffer)?;
+        let xref_start = Self::get_xref_start(self.buffer)?;
         if xref_start > self.buffer.len() {
             return Err(Error::Xref(XrefError::Start));
         }
@@ -241,7 +241,7 @@ impl<'a> Reader<'a> {
             return Err(Error::Offset(offset));
         }
 
-        parser::indirect_object(&self.buffer, offset, expected_id, self)
+        parser::indirect_object(self.buffer, offset, expected_id, self)
     }
 
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {
@@ -302,8 +302,7 @@ fn load_short_document() {
 fn load_many_shallow_brackets() {
     let content: String = std::iter::repeat("()")
         .take(MAX_BRACKET * 10)
-        .map(|x| x.chars())
-        .flatten()
+        .flat_map(|x| x.chars())
         .collect();
     const STREAM_CRUFT: usize = 33;
     let doc = format!(
@@ -326,13 +325,13 @@ endstream endobj\n",
     let doc = format!(
         "{}xref
 0 7
-0000000000 65535 f 
-0000000009 00000 n 
-0000000096 00000 n 
-0000000155 00000 n 
-0000000291 00000 n 
-0000000191 00000 n 
-0000000248 00000 n 
+0000000000 65535 f
+0000000009 00000 n
+0000000096 00000 n
+0000000155 00000 n
+0000000291 00000 n
+0000000191 00000 n
+0000000248 00000 n
 trailer
 <</Root 6 0 R/Size 7>>
 startxref
@@ -377,14 +376,14 @@ endstream endobj\n",
     let doc = format!(
         "{}xref
 0 7
-0000000000 65535 f 
-0000000009 00000 n 
-0000000096 00000 n 
-0000000155 00000 n 
-0000000387 00000 n 
-0000000191 00000 n 
-0000000254 00000 n 
-0000000297 00000 n 
+0000000000 65535 f
+0000000009 00000 n
+0000000096 00000 n
+0000000155 00000 n
+0000000387 00000 n
+0000000191 00000 n
+0000000254 00000 n
+0000000297 00000 n
 trailer
 <</Root 6 0 R/Size 7>>
 startxref
@@ -395,6 +394,6 @@ startxref
     );
 
     let doc = Document::load_mem(doc.as_bytes()).unwrap();
-    let pages = doc.get_pages().keys().map(|r| *r).collect::<Vec<_>>();
+    let pages = doc.get_pages().keys().copied().collect::<Vec<_>>();
     assert_eq!("Hello World!\n", doc.extract_text(&pages).unwrap());
 }

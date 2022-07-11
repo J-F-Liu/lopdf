@@ -27,15 +27,10 @@ mod tests_with_parsing {
     fn modify_text() -> Result<Document> {
         let mut doc = Document::load("assets/example.pdf")?;
         doc.version = "1.4".to_string();
-        if let Some(content_stream) = doc.objects.get_mut(&(4, 0)) {
-            match *content_stream {
-                Object::Stream(ref mut stream) => {
-                    let mut content = stream.decode_content().unwrap();
-                    content.operations[3].operands[0] = Object::string_literal("Modified text!");
-                    stream.set_content(content.encode().unwrap());
-                }
-                _ => (),
-            }
+        if let Some(Object::Stream(ref mut stream)) = doc.objects.get_mut(&(4, 0)) {
+            let mut content = stream.decode_content().unwrap();
+            content.operations[3].operands[0] = Object::string_literal("Modified text!");
+            stream.set_content(content.encode().unwrap());
         }
 
         doc.save("test_3_modify.pdf")?;
@@ -44,7 +39,7 @@ mod tests_with_parsing {
 
     #[test]
     fn test_modify() {
-        assert_eq!(modify_text().is_ok(), true);
+        assert!(modify_text().is_ok());
     }
 
     fn replace_text() -> Result<Document> {
