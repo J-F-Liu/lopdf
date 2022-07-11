@@ -351,15 +351,16 @@ impl Dictionary {
     pub fn extend(&mut self, other: &Dictionary) {
         let keep_both_objects =
             |new_dict: &mut LinkedHashMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: &Object| {
-                let mut final_array = Vec::new();
+                let mut final_array;
+
                 match value {
                     Object::Array(array) => {
+                        final_array = Vec::with_capacity(array.len() + 1);
                         final_array.push(old_value.to_owned());
                         final_array.extend(array.to_owned());
                     }
                     _ => {
-                        final_array.push(value.to_owned());
-                        final_array.push(old_value.to_owned());
+                        final_array = vec![value.to_owned(), old_value.to_owned()];
                     }
                 }
 
