@@ -597,7 +597,7 @@ impl Stream {
     }
 
     fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {
-        use weezl::{BitOrder, decode::Decoder};
+        use weezl::{decode::Decoder, BitOrder};
         const MIN_BITS: u8 = 9;
 
         let early_change = params

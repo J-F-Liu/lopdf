@@ -44,7 +44,7 @@ mod tests_with_parsing {
 
     #[test]
     fn test_modify() {
-        assert_eq!(modify_text().is_ok(), true);
+        assert!(modify_text().is_ok());
     }
 
     fn replace_text() -> Result<Document> {

@@ -363,6 +363,7 @@ pub fn header(input: &[u8]) -> Option<String> {
     )(input))
 }
 
+/// Decode CrossReferenceTable
 fn xref(input: &[u8]) -> NomResult<Xref> {
     let xref_eol = map(alt((tag(b" \r"), tag(b" \n"), tag(b"\r\n"))), |_| ());
     let xref_entry = pair(
@@ -377,14 +378,18 @@ fn xref(input: &[u8]) -> NomResult<Xref> {
 
     delimited(
         pair(tag(b"xref"), eol),
-        fold_many1(xref_section, Xref::new(0), |mut xref, ((start, _count), entries)| {
-            for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
-                if is_normal {
-                    xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
+        fold_many1(
+            xref_section,
+            Xref::new(0, XrefType::CrossReferenceTable),
+            |mut xref, ((start, _count), entries)| {
+                for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
+                    if is_normal {
+                        xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
+                    }
                 }
-            }
-            xref
-        }),
+                xref
+            },
+        ),
         space,
     )(input)
 }
