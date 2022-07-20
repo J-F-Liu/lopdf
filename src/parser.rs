@@ -219,6 +219,7 @@ pub fn header(input: &[u8]) -> Option<String> {
         .ok()
 }
 
+/// Decode CrossReferenceTable
 fn xref<'a>() -> Parser<'a, u8, Xref> {
     let xref_entry = integer().map(|i| i as u32) - sym(b' ') + integer().map(|i| i as u16) - sym(b' ')
         + one_of(b"nf").map(|k| k == b'n')
@@ -227,16 +228,17 @@ fn xref<'a>() -> Parser<'a, u8, Xref> {
         integer().map(|i| i as usize) - sym(b' ') + integer() - sym(b' ').opt() - eol() + xref_entry.repeat(0..);
     let xref = seq(b"xref") * sym(b' ').opt() * eol() * xref_section.repeat(1..) - space();
     xref.map(|sections| {
-        sections
-            .into_iter()
-            .fold(Xref::new(0), |mut xref: Xref, ((start, _count), entries): _| {
+        sections.into_iter().fold(
+            Xref::new(0, XrefType::CrossReferenceTable),
+            |mut xref: Xref, ((start, _count), entries): _| {
                 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
                     if is_normal {
                         xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
                     }
                 }
                 xref
-            })
+            },
+        )
     })
 }
 

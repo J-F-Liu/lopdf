@@ -5,7 +5,7 @@ use crate::{
     document::Document,
     error::XrefError,
     object::Object::Name,
-    xref::{Xref, XrefEntry},
+    xref::{Xref, XrefEntry, XrefType},
     Error, Result,
 };
 use crate::{parser, Dictionary, Object, ObjectId, Stream};
@@ -34,6 +34,13 @@ impl Document {
     pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Result<Content<Vec<Operation>>> {
         let content_data = self.get_page_content(page_id)?;
         Content::decode(&content_data)
+    }
+
+    /// Add content to a page. All existing content will be unchanged.
+    pub fn add_to_page_content(&mut self, page_id: ObjectId, content: Content<Vec<Operation>>) -> Result<()> {
+        let content_data = Content::encode(&content)?;
+        self.add_page_contents(page_id, content_data)?;
+        Ok(())
     }
 
     pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
@@ -177,6 +184,7 @@ impl Document {
     }
 }
 
+/// Decode CrossReferenceStream
 pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
     stream.decompress();
     let mut dict = stream.dict;
@@ -185,7 +193,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
         .get(b"Size")
         .and_then(Object::as_i64)
         .map_err(|_| Error::Xref(XrefError::Parse))?;
-    let mut xref = Xref::new(size as u32);
+    let mut xref = Xref::new(size as u32, XrefType::CrossReferenceStream);
     {
         let section_indice = dict
             .get(b"Index")

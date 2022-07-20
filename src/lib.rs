@@ -6,9 +6,11 @@ mod datetime;
 pub use crate::object::{Dictionary, Object, ObjectId, Stream, StringFormat};
 
 mod document;
+mod incremental_document;
 mod object_stream;
 mod xref;
 pub use crate::document::Document;
+pub use crate::incremental_document::IncrementalDocument;
 
 mod bookmarks;
 pub use crate::bookmarks::Bookmark;

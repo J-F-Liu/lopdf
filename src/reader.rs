@@ -16,7 +16,7 @@ use super::{Document, Object, ObjectId};
 use crate::error::XrefError;
 use crate::object_stream::ObjectStream;
 use crate::xref::XrefEntry;
-use crate::{Error, Result};
+use crate::{Error, IncrementalDocument, Result};
 
 impl Document {
     /// Load a PDF document from a specified file path.
@@ -62,6 +62,54 @@ impl TryInto<Document> for &[u8] {
     }
 }
 
+impl IncrementalDocument {
+    /// Load a PDF document from a specified file path.
+    #[inline]
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = File::open(path)?;
+        let capacity = Some(file.metadata()?.len() as usize);
+        Self::load_internal(file, capacity)
+    }
+
+    /// Load a PDF document from an arbitrary source.
+    #[inline]
+    pub fn load_from<R: Read>(source: R) -> Result<Self> {
+        Self::load_internal(source, None)
+    }
+
+    fn load_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<Self> {
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
+        source.read_to_end(&mut buffer)?;
+
+        let document = Reader {
+            buffer: &buffer,
+            document: Document::new(),
+        }
+        .read()?;
+
+        Ok(IncrementalDocument::create_from(buffer, document))
+    }
+
+    /// Load a PDF document from a memory slice.
+    pub fn load_mem(buffer: &[u8]) -> Result<Document> {
+        buffer.try_into()
+    }
+}
+
+impl TryInto<IncrementalDocument> for &[u8] {
+    type Error = Error;
+
+    fn try_into(self) -> Result<IncrementalDocument> {
+        let document = Reader {
+            buffer: self,
+            document: Document::new(),
+        }
+        .read()?;
+
+        Ok(IncrementalDocument::create_from(self.to_vec(), document))
+    }
+}
+
 pub struct Reader<'a> {
     buffer: &'a [u8],
     document: Document,
@@ -75,12 +123,13 @@ impl<'a> Reader<'a> {
     fn read(mut self) -> Result<Document> {
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
-        let version = parser::header(&self.buffer).ok_or(Error::Header)?;
+        let version = parser::header(self.buffer).ok_or(Error::Header)?;
 
-        let xref_start = Self::get_xref_start(&self.buffer)?;
+        let xref_start = Self::get_xref_start(self.buffer)?;
         if xref_start > self.buffer.len() {
             return Err(Error::Xref(XrefError::Start));
         }
+        self.document.xref_start = xref_start;
 
         let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
 
@@ -241,7 +290,7 @@ impl<'a> Reader<'a> {
             return Err(Error::Offset(offset));
         }
 
-        parser::indirect_object(&self.buffer, offset, expected_id, self)
+        parser::indirect_object(self.buffer, offset, expected_id, self)
     }
 
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {

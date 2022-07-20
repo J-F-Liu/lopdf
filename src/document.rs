@@ -1,7 +1,7 @@
 use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Bookmark, Dictionary, Object, ObjectId};
-use crate::xref::Xref;
-use crate::{Error, Result};
+use crate::xref::{Xref, XrefType};
+use crate::{Error, Result, Stream};
 use encoding::all::UTF_16BE;
 use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
 use log::info;
@@ -10,7 +10,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::str;
 
-/// PDF document.
+/// A PDF document.
+///
+/// This can both be a combination of multiple incremental updates
+/// or just one (the last) incremental update in a PDF file.
 #[derive(Debug, Clone)]
 pub struct Document {
     /// The version of the PDF specification to which the file conforms.
@@ -35,28 +38,52 @@ pub struct Document {
     pub bookmarks: Vec<u32>,
 
     /// used to locate a stored Bookmark so children can be appended to it via its id. Otherwise we
-    /// need to do recrusive lookups and returns on the bookmarks internal layout Vec
+    /// need to do recursive lookups and returns on the bookmarks internal layout Vec
     pub bookmark_table: HashMap<u32, Bookmark>,
+
+    /// The byte the cross-reference table starts at.
+    /// This value is only set during reading, but not when writing the file.
+    /// It is used to support incremental updates in PDFs.
+    /// Default value is `0`.
+    pub xref_start: usize,
 }
 
 impl Document {
     /// Create new PDF document.
-    pub fn new() -> Document {
-        Document {
+    pub fn new() -> Self {
+        Self {
             version: "1.4".to_string(),
             trailer: Dictionary::new(),
-            reference_table: Xref::new(0),
+            reference_table: Xref::new(0, XrefType::CrossReferenceStream),
             objects: BTreeMap::new(),
             max_id: 0,
             max_bookmark_id: 0,
             bookmarks: Vec::new(),
             bookmark_table: HashMap::new(),
+            xref_start: 0,
+        }
+    }
+
+    /// Create a new PDF document that is an incremental update to a previous document.
+    pub fn new_from_prev(prev: &Document) -> Self {
+        let mut new_trailer = prev.trailer.clone();
+        new_trailer.set("Prev", Object::Integer(prev.xref_start as i64));
+        Self {
+            version: "1.4".to_string(),
+            trailer: new_trailer,
+            reference_table: Xref::new(0, prev.reference_table.cross_reference_type),
+            objects: BTreeMap::new(),
+            max_id: prev.max_id,
+            max_bookmark_id: prev.max_bookmark_id,
+            bookmarks: Vec::new(),
+            bookmark_table: HashMap::new(),
+            xref_start: 0,
         }
     }
 
     const DEREF_LIMIT: usize = 128;
 
-    fn recrusive_fix_pages(&mut self, bookmarks: &[u32], first: bool) -> ObjectId {
+    fn recursive_fix_pages(&mut self, bookmarks: &[u32], first: bool) -> ObjectId {
         if !bookmarks.is_empty() {
             for id in bookmarks {
                 let (children, mut page) = match self.bookmark_table.get(id) {
@@ -65,7 +92,7 @@ impl Document {
                 };
 
                 if 0 == page.0 && !children.is_empty() {
-                    let objectid = self.recrusive_fix_pages(&children[..], false);
+                    let objectid = self.recursive_fix_pages(&children[..], false);
 
                     let bookmark = self.bookmark_table.get_mut(id).unwrap();
                     bookmark.page = objectid;
@@ -77,7 +104,7 @@ impl Document {
                 }
 
                 if first && !children.is_empty() {
-                    self.recrusive_fix_pages(&children[..], first);
+                    self.recursive_fix_pages(&children[..], first);
                 }
             }
         }
@@ -86,12 +113,12 @@ impl Document {
     }
 
     /// Adjusts the Parents that have a ObjectId of (0,_) to that
-    /// of their first child. will recruse through all entries
+    /// of their first child. will recurse through all entries
     /// till all parents of children are set. This should be
     /// ran before building the final bookmark objects but after
     /// renumbering of objects.
     pub fn adjust_zero_pages(&mut self) {
-        self.recrusive_fix_pages(&self.bookmarks.clone(), true);
+        self.recursive_fix_pages(&self.bookmarks.clone(), true);
     }
 
     /// Follow references if the supplied object is a reference.
@@ -121,6 +148,13 @@ impl Document {
     pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
         let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
         self.dereference(object).map(|(_, object)| object)
+    }
+
+    /// Determines if an object exists in the current document (or incremental update.)
+    /// with the given `ObjectId`.
+    /// `true` if the object exists, `false` if it does not exist.
+    pub fn has_object(&self, id: ObjectId) -> bool {
+        self.objects.get(&id).is_some()
     }
 
     /// Get mutable reference to object by object id, will iteratively dereference a referenced object.
@@ -233,6 +267,31 @@ impl Document {
             }
         }
         streams
+    }
+
+    /// Add content to a page. All existing content will be unchanged.
+    pub fn add_page_contents(&mut self, page_id: ObjectId, content: Vec<u8>) -> Result<()> {
+        if let Ok(page) = self.get_dictionary(page_id) {
+            // Prepare new value
+            let mut current_content_list: Vec<Object> = match page.get(b"Contents") {
+                Ok(Object::Reference(ref id)) => {
+                    // Covert reference to array
+                    vec![Object::Reference(*id)]
+                }
+                Ok(Object::Array(ref arr)) => arr.clone(),
+                Err(Error::DictKey) => vec![],
+                _ => vec![],
+            };
+            let content_object_id = self.add_object(Object::Stream(Stream::new(Dictionary::new(), content)));
+            current_content_list.push(Object::Reference(content_object_id));
+            // Set data
+
+            let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut).unwrap();
+            page_mut.set("Contents", current_content_list);
+            Ok(())
+        } else {
+            Err(Error::ObjectNotFound)
+        }
     }
 
     /// Get content of a page.

@@ -1,10 +1,18 @@
 
+## Unreleased
+
+* Added new field to `Document`, `xref_start`. Default value is `0`.
+* Added new function to `Document`: `new_from_prev`, `has_object`, `add_page_contents`, `set_object`
+* New structure added `IncrementalDocument`.
+* Support writing of PDF file with "Cross Reference Stream".
+* Cross Reference Tables now write abbreviated tables when non-consecutive object are written.
+
 <a name="v0.26.0"></a>
 ## [v0.26.0](https://github.com/J-F-Liu/lopdf/compare/v0.25.0...v0.26.0) (2020-09-29)
 
 ### Add
 
-* Add as_str, as_str_mut methods to Object ([#107](https://github.com/J-F-Liu/lopdf/issues/107))
+* Add `as_str`, `as_str_mut` methods to `Object` ([#107](https://github.com/J-F-Liu/lopdf/issues/107))
 
 ### Dtoa
 
@@ -12,7 +20,7 @@
 
 ### Genericize
 
-* Genericize Content to allow AsRef<[Operation]> ([#111](https://github.com/J-F-Liu/lopdf/issues/111))
+* Genericize Content to allow `AsRef<[Operation]>` ([#111](https://github.com/J-F-Liu/lopdf/issues/111))
 
 ### Make
 
@@ -33,7 +41,7 @@
 
 ### Add
 
-* add indexing checks ([#98](https://github.com/J-F-Liu/lopdf/issues/98))
+* Add indexing checks ([#98](https://github.com/J-F-Liu/lopdf/issues/98))
 
 ### Add
 
