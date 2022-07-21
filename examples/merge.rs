@@ -79,8 +79,7 @@ fn main() {
                 .into_iter()
                 .map(|(_, object_id)| {
                     if !first {
-                        let bookmark =
-                            Bookmark::new(String::from(format!("Page_{}", pagenum)), [0.0, 0.0, 1.0], 0, object_id);
+                        let bookmark = Bookmark::new(format!("Page_{}", pagenum), [0.0, 0.0, 1.0], 0, object_id);
                         document.add_bookmark(bookmark, None);
                         first = true;
                         pagenum += 1;
@@ -213,15 +212,14 @@ fn main() {
 
     //Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
     if let Some(n) = document.build_outline() {
-        if let Ok(x) = document.get_object_mut(catalog_object.0) {
-            if let Object::Dictionary(ref mut dict) = x {
-                dict.set("Outlines", Object::Reference(n));
-            }
+        if let Ok(Object::Dictionary(ref mut dict)) = document.get_object_mut(catalog_object.0) {
+            dict.set("Outlines", Object::Reference(n));
         }
     }
 
     document.compress();
 
     // Save the merged PDF
+    // Store file in current working directory.
     document.save("merged.pdf").unwrap();
 }

@@ -535,5 +535,14 @@ fn save_document() {
     doc.objects.insert((12, 0), Object::Dictionary(dict));
     doc.max_id = 12;
 
-    doc.save("test_0_save.pdf").unwrap();
+    // Create temporary folder to store file.
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("test_0_save.pdf");
+    doc.save(&file_path).unwrap();
+    // Check if file was created.
+    assert!(file_path.exists());
+    // Check if path is file
+    assert!(file_path.is_file());
+    // Check if the file is above 400 bytes (should be about 610 bytes)
+    assert!(file_path.metadata().unwrap().len() > 400);
 }

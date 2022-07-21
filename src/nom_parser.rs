@@ -557,7 +557,7 @@ T* (encoded streams.) Tj
 
         match out {
             Some(Object::String(s, _)) => assert_eq!(s, b"\x90\x1F\xA0".to_vec()),
-            _ => panic!(format!("unexpected {:?}", out)),
+            _ => panic!("unexpected {:?}", out),
         }
     }
 
@@ -567,7 +567,7 @@ T* (encoded streams.) Tj
 
         match out {
             Some(Object::String(s, _)) => assert_eq!(s, b"\x90\x1F\xA0".to_vec()),
-            _ => panic!(format!("unexpected {:?}", out)),
+            _ => panic!("unexpected {:?}", out),
         }
     }
 }

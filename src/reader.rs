@@ -338,7 +338,11 @@ impl<'a> Reader<'a> {
 fn load_document() {
     let mut doc = Document::load("assets/example.pdf").unwrap();
     assert_eq!(doc.version, "1.5");
-    doc.save("test_2_load.pdf").unwrap();
+
+    // Create temporary folder to store file.
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("test_2_load.pdf");
+    doc.save(file_path).unwrap();
 }
 
 #[test]
@@ -351,8 +355,7 @@ fn load_short_document() {
 fn load_many_shallow_brackets() {
     let content: String = std::iter::repeat("()")
         .take(MAX_BRACKET * 10)
-        .map(|x| x.chars())
-        .flatten()
+        .flat_map(|x| x.chars())
         .collect();
     const STREAM_CRUFT: usize = 33;
     let doc = format!(
@@ -444,6 +447,6 @@ startxref
     );
 
     let doc = Document::load_mem(doc.as_bytes()).unwrap();
-    let pages = doc.get_pages().keys().map(|r| *r).collect::<Vec<_>>();
+    let pages = doc.get_pages().keys().cloned().collect::<Vec<_>>();
     assert_eq!("Hello World!\n", doc.extract_text(&pages).unwrap());
 }

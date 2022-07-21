@@ -390,9 +390,7 @@ impl Dictionary {
                     },
                     Object::Integer(old_id) => match value {
                         Object::Integer(id) => {
-                            let mut array = Vec::new();
-                            array.push(Object::Integer(*old_id));
-                            array.push(Object::Integer(*id));
+                            let array = vec![Object::Integer(*old_id), Object::Integer(*id)];
 
                             new_dict.insert(key.to_owned(), Object::Array(array));
                         }
@@ -400,9 +398,7 @@ impl Dictionary {
                     },
                     Object::Real(old_id) => match value {
                         Object::Real(id) => {
-                            let mut array = Vec::new();
-                            array.push(Object::Real(*old_id));
-                            array.push(Object::Real(*id));
+                            let array = vec![Object::Real(*old_id), Object::Real(*id)];
 
                             new_dict.insert(key.to_owned(), Object::Array(array));
                         }
@@ -410,9 +406,10 @@ impl Dictionary {
                     },
                     Object::String(old_ids, old_format) => match value {
                         Object::String(ids, format) => {
-                            let mut array = Vec::new();
-                            array.push(Object::String(old_ids.to_owned(), old_format.to_owned()));
-                            array.push(Object::String(ids.to_owned(), format.to_owned()));
+                            let array = vec![
+                                Object::String(old_ids.to_owned(), old_format.to_owned()),
+                                Object::String(ids.to_owned(), format.to_owned()),
+                            ];
 
                             new_dict.insert(key.to_owned(), Object::Array(array));
                         }
@@ -420,9 +417,7 @@ impl Dictionary {
                     },
                     Object::Reference(old_object_id) => match value {
                         Object::Reference(object_id) => {
-                            let mut array = Vec::new();
-                            array.push(Object::Reference(*old_object_id));
-                            array.push(Object::Reference(*object_id));
+                            let array = vec![Object::Reference(*old_object_id), Object::Reference(*object_id)];
 
                             new_dict.insert(key.to_owned(), Object::Array(array));
                         }

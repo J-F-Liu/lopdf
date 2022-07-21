@@ -27,18 +27,16 @@ mod tests_with_parsing {
     fn modify_text() -> Result<Document> {
         let mut doc = Document::load("assets/example.pdf")?;
         doc.version = "1.4".to_string();
-        if let Some(content_stream) = doc.objects.get_mut(&(4, 0)) {
-            match *content_stream {
-                Object::Stream(ref mut stream) => {
-                    let mut content = stream.decode_content().unwrap();
-                    content.operations[3].operands[0] = Object::string_literal("Modified text!");
-                    stream.set_content(content.encode().unwrap());
-                }
-                _ => (),
-            }
+        if let Some(Object::Stream(ref mut stream)) = doc.objects.get_mut(&(4, 0)) {
+            let mut content = stream.decode_content().unwrap();
+            content.operations[3].operands[0] = Object::string_literal("Modified text!");
+            stream.set_content(content.encode().unwrap());
         }
 
-        doc.save("test_3_modify.pdf")?;
+        // Create temporary folder to store file.
+        let temp_dir = tempfile::tempdir()?;
+        let file_path = temp_dir.path().join("test_3_modify.pdf");
+        doc.save(file_path)?;
         Ok(doc)
     }
 
@@ -50,9 +48,13 @@ mod tests_with_parsing {
     fn replace_text() -> Result<Document> {
         let mut doc = Document::load("assets/example.pdf")?;
         doc.replace_text(1, "Hello World!", "Modified text!")?;
-        doc.save("test_4_replace.pdf")?;
 
-        let doc = Document::load("test_4_replace.pdf")?;
+        // Create temporary folder to store file.
+        let temp_dir = tempfile::tempdir()?;
+        let file_path = temp_dir.path().join("test_4_replace.pdf");
+        doc.save(&file_path)?;
+
+        let doc = Document::load(file_path)?;
         Ok(doc)
     }
 

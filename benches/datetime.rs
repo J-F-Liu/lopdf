@@ -2,7 +2,6 @@
 extern crate test;
 use test::Bencher;
 
-use lopdf;
 use lopdf::Object;
 
 use chrono::prelude::{Local, Timelike};

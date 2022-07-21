@@ -193,7 +193,7 @@ impl Document {
 
     /// Traverse objects from trailer recursively, return all referenced object IDs.
     pub fn traverse_objects<A: Fn(&mut Object)>(&mut self, action: A) -> Vec<ObjectId> {
-        fn traverse_array<A: Fn(&mut Object)>(array: &mut Vec<Object>, action: &A, refs: &mut Vec<ObjectId>) {
+        fn traverse_array<A: Fn(&mut Object)>(array: &mut [Object], action: &A, refs: &mut Vec<ObjectId>) {
             for item in array.iter_mut() {
                 traverse_object(item, action, refs);
             }
