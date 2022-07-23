@@ -56,7 +56,12 @@ let catalog_id = doc.add_object(dictionary! {
 });
 doc.trailer.set("Root", catalog_id);
 doc.compress();
-doc.save("example.pdf").unwrap();
+
+// Store file in current working directory.
+// Note: Line is exclude for when running tests
+if false {
+    doc.save("example.pdf").unwrap();
+}
 ```
 
 * Merge PDF documents
@@ -293,7 +298,11 @@ fn main() -> std::io::Result<()> {
     document.compress();
 
     // Save the merged PDF
-    document.save("merged.pdf").unwrap();
+    // Store file in current working directory.
+    // Note: Line is exclude for when running tests
+    if false {
+        document.save("merged.pdf").unwrap();
+    }
 
     Ok(())
 }
@@ -307,11 +316,15 @@ use lopdf::Document;
 // For this example to work a parser feature needs to be enabled
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 {
-    let mut doc = Document::load("example.pdf").unwrap();
+    let mut doc = Document::load("assets/example.pdf").unwrap();
 
     doc.version = "1.4".to_string();
     doc.replace_text(1, "Hello World!", "Modified text!");
-    doc.save("modified.pdf").unwrap();
+    // Store file in current working directory.
+    // Note: Line is exclude for when running tests
+    if false {
+        doc.save("modified.pdf").unwrap();
+    }
 }
 ```
 

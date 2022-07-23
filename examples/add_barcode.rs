@@ -42,7 +42,7 @@ fn generate_barcode(page: u32, code: u16) -> Vec<(f64, f64, f64, f64, u8)> {
         add_flag(w, code_bits[7]);
         add_flag(w, code_bits[8]);
     }
-    return rects;
+    rects
 }
 
 fn generate_operations(rects: Vec<(f64, f64, f64, f64, u8)>) -> String {
@@ -81,5 +81,6 @@ fn main() {
         );
         doc.insert_form_object(page_id, barcode).unwrap();
     }
+    // Store file in current working directory.
     doc.save(output_file).unwrap();
 }

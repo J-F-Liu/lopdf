@@ -1,4 +1,6 @@
 #![doc = include_str!("../README.md")]
+#![forbid(unsafe_code)]
+#![deny(clippy::all)]
 
 #[macro_use]
 mod object;

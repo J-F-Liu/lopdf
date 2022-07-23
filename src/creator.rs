@@ -120,20 +120,10 @@ impl Document {
 
 #[cfg(test)]
 pub mod tests {
-    use std::fs::remove_file;
-    use std::path::Path;
-    use std::sync::Mutex;
+    use std::path::PathBuf;
 
     use crate::content::*;
     use crate::{Document, Object, Stream};
-    use lazy_static::lazy_static;
-
-    lazy_static! {
-        /// Tests that save and share files are vulnerable to race conditions
-        /// Use a mutex so only one test at a time has access to update it
-        /// The lock will last for the length of the let block in the tests
-        static ref DOC_FILE_MUTEX: Mutex<()> = Mutex::new(());
-    }
 
     /// Create and return a document for testing
     pub fn create_document() -> Document {
@@ -189,8 +179,8 @@ pub mod tests {
     }
 
     /// Save a document
-    pub fn save_document(filename: &String, doc: &mut Document) {
-        let res = doc.save(filename);
+    pub fn save_document(file_path: &PathBuf, doc: &mut Document) {
+        let res = doc.save(file_path);
 
         assert!(match res {
             Ok(_file) => true,
@@ -198,49 +188,15 @@ pub mod tests {
         });
     }
 
-    /// Remove a document
-    pub fn remove_document(filename: &String) {
-        let path = Path::new(&filename);
-
-        assert_ne!(path.as_os_str(), "");
-        assert_ne!(path.as_os_str(), "/");
-
-        let exists = path.exists();
-        assert!(exists);
-
-        if exists {
-            remove_file(path).unwrap();
-        }
-    }
-
     #[test]
-    fn create_document_creates_document() {
-        let filename = String::from("test_1_create.pdf");
-        let path = Path::new(&filename);
-        let mut doc = create_document();
-
-        {
-            let _m = DOC_FILE_MUTEX.lock().unwrap();
-            save_document(&filename, &mut doc);
-            assert!(path.exists());
-            remove_document(&filename);
-        }
-    }
-
-    #[test]
-    fn remove_document_removes_document() {
-        let filename = String::from("test_1_create.pdf");
-
-        let path = Path::new(&filename);
+    fn save_created_document() {
+        // Create temporary folder to store file.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_1_create.pdf");
 
         let mut doc = create_document();
-
-        {
-            let _m = DOC_FILE_MUTEX.lock().unwrap();
-            save_document(&filename, &mut doc);
-            assert!(path.exists());
-            remove_document(&filename);
-            assert!(!path.exists());
-        }
+        // Save to file
+        save_document(&file_path, &mut doc);
+        assert!(file_path.exists());
     }
 }

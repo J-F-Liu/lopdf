@@ -9,12 +9,15 @@ rust:
 
 script:
   - cargo clean
+  - cargo +nightly fmt -- --check
   - cargo check --verbose --no-default-features
   - cargo check --verbose --features="chrono_time"
   - cargo check --verbose --features="nom_parser"
   - cargo test --verbose
   - cargo test --verbose --features="nom_parser"
   - cargo test --verbose --examples
+  - cargo clippy -- -D warnings
+  - cargo clippy -- -D warnings --features="nom_parser"
 
 matrix:
   allow_failures:

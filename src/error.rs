@@ -2,24 +2,42 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum Error {
+    /// Could not decode content.
     ContentDecode,
+    /// Dictionary key was not found.
     DictKey,
+    /// Invalid file header
     Header,
+    /// IO error
     IO(std::io::Error),
+    /// Found Object ID does not match Expected Object ID.
     ObjectIdMismatch,
+    /// The Object ID was not found.
     ObjectNotFound,
+    /// Offset in file is invalid.
     Offset(usize),
+    /// Page number was not found in document.
     PageNumberNotFound(u32),
-    Parse {
-        offset: usize,
-    },
+    /// Invalid object while parsing at offset.
+    Parse { offset: usize },
+    /// Dereferencing object reached the limit.
+    /// This might indicate a reference loop.
     ReferenceLimit,
+    /// Brackets limit reached.
+    /// To many brackets nested.
+    // TODO: This does not seem to be used.
     BracketLimit,
+    /// The file trailer was invalid.
     Trailer,
+    /// The object does not have the expected type.
     Type,
+    /// Decoding byte vector to UTF8 String failed.
     UTF8,
+    /// Syntax error while parsing the file.
     Syntax(String),
+    /// Error while parsing cross reference table.
     Xref(XrefError),
+    /// Error when handling images.
     #[cfg(feature = "embed_image")]
     Image(image::ImageError),
 }
@@ -53,9 +71,13 @@ impl std::error::Error for Error {}
 
 #[derive(Debug)]
 pub enum XrefError {
+    /// Could not parse cross reference table.
     Parse,
+    /// Could not find start of cross reference table.
     Start,
+    /// The trailer's "Prev" field was invalid.
     PrevStart,
+    /// The trailer's "XRefStm" field was invalid.
     StreamStart,
 }
 

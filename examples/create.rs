@@ -45,5 +45,7 @@ fn main() {
     });
     doc.trailer.set("Root", catalog_id);
     doc.compress();
+
+    // Store file in current working directory.
     doc.save("example.pdf").unwrap();
 }
