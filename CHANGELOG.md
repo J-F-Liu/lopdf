@@ -1,5 +1,5 @@
 
-## Unreleased
+<a name="v0.28.0"></a>
 
 * Added new field to `Document`, `xref_start`. Default value is `0`.
 * Added new function to `Document`: `new_from_prev`, `has_object`, `add_page_contents`, `set_object`
