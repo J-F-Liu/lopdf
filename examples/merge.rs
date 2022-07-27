@@ -1,5 +1,5 @@
 // if you use nightly then you can enable this feature to gain a boost in read speed of PDF's"
-#![feature(extend_one)]
+//#![feature(extend_one)]
 
 #[macro_use]
 extern crate lopdf;
@@ -81,8 +81,8 @@ fn main() {
     // Lets try to set these to be bigger to avoid multi allocations for faster handling of files.
     // We are just saying each Document it about 1000 objects in size. can be adjusted for better speeds.
     // This can only be used if you use nightly or the #![feature(extend_one)] is stablized.
-    documents_pages.extend_reserve(documents.len() * 1000);
-    documents_objects.extend_reserve(documents.len() * 1000);
+    // documents_pages.extend_reserve(documents.len() * 1000);
+    // documents_objects.extend_reserve(documents.len() * 1000);
 
     // Add a Table of Contents
     // We set the object page to (0,0) which means it will point to the first object after it.
