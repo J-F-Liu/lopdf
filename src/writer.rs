@@ -78,6 +78,7 @@ impl Document {
                 generation: 0,
             },
         );
+        self.trailer.set("Type", Name(b"XRef".to_vec()));
         // Update `max_id` in trailer
         self.trailer.set("Size", i64::from(self.max_id + 1));
         // Set the size of each entry in bytes (default for PDFs is `[1 2 1]`)
@@ -89,9 +90,13 @@ impl Document {
         let filter = XRefStreamFilter::None;
         let (stream, stream_length, indexes) = Writer::create_xref_steam(xref, filter)?;
         self.trailer.set("Index", indexes);
+
         if filter == XRefStreamFilter::ASCIIHexDecode {
             self.trailer.set("Filter", Name(b"ASCIIHexDecode".to_vec()));
+        } else {
+            self.trailer.remove(b"Filter");
         }
+
         self.trailer.set("Length", stream_length as i64);
 
         let trailer = &self.trailer;
@@ -193,6 +198,7 @@ pub struct Writer;
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum XRefStreamFilter {
     ASCIIHexDecode,
+    _FlateDecode, //this is generally a Zlib compressed Stream.
     None,
 }
 
