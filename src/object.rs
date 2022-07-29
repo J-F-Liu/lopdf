@@ -351,81 +351,66 @@ impl Dictionary {
     pub fn extend(&mut self, other: &Dictionary) {
         let keep_both_objects =
             |new_dict: &mut LinkedHashMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: &Object| {
-                let mut final_array = Vec::new();
+                let mut final_array;
+
                 match value {
                     Object::Array(array) => {
+                        final_array = Vec::with_capacity(array.len() + 1);
                         final_array.push(old_value.to_owned());
                         final_array.extend(array.to_owned());
                     }
                     _ => {
-                        final_array.push(value.to_owned());
-                        final_array.push(old_value.to_owned());
+                        final_array = vec![value.to_owned(), old_value.to_owned()];
                     }
                 }
 
                 new_dict.insert(key.to_owned(), Object::Array(final_array));
             };
 
-        let mut new_dict = LinkedHashMap::new();
+        let mut new_dict = LinkedHashMap::with_capacity(other.0.len() + 1);
+
         for (key, value) in other.0.iter() {
             if let Some(old_value) = self.0.get(key) {
-                match old_value {
-                    Object::Dictionary(old_dict) => match value {
-                        Object::Dictionary(dict) => {
-                            let mut replaced_dict = old_dict.to_owned();
-                            replaced_dict.extend(dict);
+                match (old_value, value) {
+                    (Object::Dictionary(old_dict), Object::Dictionary(dict)) => {
+                        let mut replaced_dict = old_dict.to_owned();
+                        replaced_dict.extend(dict);
 
-                            new_dict.insert(key.to_owned(), Object::Dictionary(replaced_dict));
-                        }
-                        _ => keep_both_objects(&mut new_dict, key, value, old_value),
-                    },
-                    Object::Array(old_array) => match value {
-                        Object::Array(array) => {
-                            let mut replaced_array = old_array.to_owned();
-                            replaced_array.extend(array.to_owned());
+                        new_dict.insert(key.to_owned(), Object::Dictionary(replaced_dict));
+                    }
+                    (Object::Array(old_array), Object::Array(array)) => {
+                        let mut replaced_array = old_array.to_owned();
+                        replaced_array.extend(array.to_owned());
 
-                            new_dict.insert(key.to_owned(), Object::Array(replaced_array));
-                        }
-                        _ => keep_both_objects(&mut new_dict, key, value, old_value),
-                    },
-                    Object::Integer(old_id) => match value {
-                        Object::Integer(id) => {
-                            let array = vec![Object::Integer(*old_id), Object::Integer(*id)];
+                        new_dict.insert(key.to_owned(), Object::Array(replaced_array));
+                    }
+                    (Object::Integer(old_id), Object::Integer(id)) => {
+                        let array = vec![Object::Integer(*old_id), Object::Integer(*id)];
 
-                            new_dict.insert(key.to_owned(), Object::Array(array));
-                        }
-                        _ => keep_both_objects(&mut new_dict, key, value, old_value),
-                    },
-                    Object::Real(old_id) => match value {
-                        Object::Real(id) => {
-                            let array = vec![Object::Real(*old_id), Object::Real(*id)];
+                        new_dict.insert(key.to_owned(), Object::Array(array));
+                    }
+                    (Object::Real(old_id), Object::Real(id)) => {
+                        let array = vec![Object::Real(*old_id), Object::Real(*id)];
 
-                            new_dict.insert(key.to_owned(), Object::Array(array));
-                        }
-                        _ => keep_both_objects(&mut new_dict, key, value, old_value),
-                    },
-                    Object::String(old_ids, old_format) => match value {
-                        Object::String(ids, format) => {
-                            let array = vec![
-                                Object::String(old_ids.to_owned(), old_format.to_owned()),
-                                Object::String(ids.to_owned(), format.to_owned()),
-                            ];
+                        new_dict.insert(key.to_owned(), Object::Array(array));
+                    }
+                    (Object::String(old_ids, old_format), Object::String(ids, format)) => {
+                        let array = vec![
+                            Object::String(old_ids.to_owned(), old_format.to_owned()),
+                            Object::String(ids.to_owned(), format.to_owned()),
+                        ];
 
-                            new_dict.insert(key.to_owned(), Object::Array(array));
-                        }
-                        _ => keep_both_objects(&mut new_dict, key, value, old_value),
-                    },
-                    Object::Reference(old_object_id) => match value {
-                        Object::Reference(object_id) => {
-                            let array = vec![Object::Reference(*old_object_id), Object::Reference(*object_id)];
+                        new_dict.insert(key.to_owned(), Object::Array(array));
+                    }
+                    (Object::Reference(old_object_id), Object::Reference(object_id)) => {
+                        let array = vec![Object::Reference(*old_object_id), Object::Reference(*object_id)];
 
-                            new_dict.insert(key.to_owned(), Object::Array(array));
-                        }
-                        _ => keep_both_objects(&mut new_dict, key, value, old_value),
-                    },
-                    _ => {
+                        new_dict.insert(key.to_owned(), Object::Array(array));
+                    }
+                    (Object::Null, _) | (Object::Boolean(_), _) | (Object::Name(_), _) | (Object::Stream(_), _) => {
                         new_dict.insert(key.to_owned(), old_value.to_owned());
                     }
+                    (_, _) => keep_both_objects(&mut new_dict, key, value, old_value),
                 }
             } else {
                 new_dict.insert(key.to_owned(), value.to_owned());

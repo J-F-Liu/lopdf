@@ -1,5 +1,6 @@
 use lopdf::xobject;
 use lopdf::Document;
+use std::fmt::Write;
 use std::str::FromStr;
 
 fn convert_number_to_bits<T: std::fmt::Binary>(num: T, size: usize) -> Vec<u8> {
@@ -57,7 +58,7 @@ fn generate_operations(rects: Vec<(f64, f64, f64, f64, u8)>) -> String {
             });
             current_color = bit;
         }
-        operations.push_str(&format!("{} {} {} {} re\nf\n", x, y, w, h));
+        write!(&mut operations, "{} {} {} {} re\nf\n", x, y, w, h).unwrap();
     }
     operations
 }

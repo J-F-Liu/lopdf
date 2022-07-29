@@ -382,7 +382,7 @@ impl Writer {
         for &byte in name {
             // white-space and delimiter chars are encoded to # sequences
             // also encode bytes outside of the range 33 (!) to 126 (~)
-            if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) || byte < 33 || byte > 126 {
+            if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) || !(33..=126).contains(&byte) {
                 write!(file, "#{:02X}", byte)?;
             } else {
                 file.write_all(&[byte])?;
