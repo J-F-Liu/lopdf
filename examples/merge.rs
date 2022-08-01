@@ -1,3 +1,6 @@
+// if you use nightly then you can enable this feature to gain a boost in read speed of PDF's"
+//#![feature(extend_one)]
+
 #[macro_use]
 extern crate lopdf;
 
@@ -53,12 +56,19 @@ pub fn generate_fake_document() -> Document {
 
 fn main() {
     // Generate a stack of Documents to merge
+    // (The Bookmark layer,  Document to merge)
     let documents = vec![
-        generate_fake_document(),
-        generate_fake_document(),
-        generate_fake_document(),
-        generate_fake_document(),
+        (1u32, generate_fake_document()),
+        (2u32, generate_fake_document()),
+        (2u32, generate_fake_document()),
+        (3u32, generate_fake_document()),
     ];
+
+    // We use this to keep track of the last Parent per layer depth.
+    let mut layer_parent: [Option<u32>; 4] = [None; 4];
+
+    // This is the last layer ran.
+    let mut last_layer = 0;
 
     // Define a starting max_id (will be used as start index for object_ids)
     let mut max_id = 1;
@@ -68,28 +78,89 @@ fn main() {
     let mut documents_objects = BTreeMap::new();
     let mut document = Document::with_version("1.5");
 
-    for mut doc in documents {
-        let mut first = false;
+    // Lets try to set these to be bigger to avoid multi allocations for faster handling of files.
+    // We are just saying each Document it about 1000 objects in size. can be adjusted for better speeds.
+    // This can only be used if you use nightly or the #![feature(extend_one)] is stablized.
+    // documents_pages.extend_reserve(documents.len() * 1000);
+    // documents_objects.extend_reserve(documents.len() * 1000);
+
+    // Add a Table of Contents
+    // We set the object page to (0,0) which means it will point to the first object after it.
+    layer_parent[0] = Some(document.add_bookmark(
+        Bookmark::new("Table of Contents".to_string(), [0.0, 0.0, 0.0], 0, (0, 0)),
+        None,
+    ));
+
+    // Can set bookmark formatting and color per report bookmark added.
+    // Formating is 1 for italic 2 for bold 3 for bold and italic
+    // Color is RGB 0.0..255.0
+    for (layer, mut doc) in documents {
+        let color = [0.0, 0.0, 0.0];
+        let format = 0;
+        let mut display = String::new();
+
         doc.renumber_objects_with(max_id);
 
         max_id = doc.max_id + 1;
 
-        documents_pages.extend(
-            doc.get_pages()
-                .into_iter()
-                .map(|(_, object_id)| {
-                    if !first {
-                        let bookmark = Bookmark::new(format!("Page_{}", pagenum), [0.0, 0.0, 1.0], 0, object_id);
-                        document.add_bookmark(bookmark, None);
-                        first = true;
-                        pagenum += 1;
-                    }
+        let mut first_object = None;
 
-                    (object_id, doc.get_object(object_id).unwrap().to_owned())
-                })
-                .collect::<BTreeMap<ObjectId, Object>>(),
-        );
+        let pages = doc.get_pages();
+
+        // This is actually better than extend as we use less allocations and cloning then.
+        pages
+            .into_iter()
+            .map(|(_, object_id)| {
+                // We use this as the return object for Bookmarking to deturmine what it points too.
+                // We only want to do this for the first page though.
+                if first_object.is_none() {
+                    first_object = Some(object_id);
+                    display = format!("Page {}", pagenum);
+                    pagenum += 1;
+                }
+
+                (object_id, doc.get_object(object_id).unwrap().to_owned())
+            })
+            .for_each(|(key, value)| {
+                documents_pages.insert(key, value);
+            });
+
         documents_objects.extend(doc.objects);
+
+        // Lets shadow our pointer back if nothing then set to (0,0) tto point to the next page
+        let object = first_object.unwrap_or((0, 0));
+
+        // This will use the layering to implement children under Parents in the bookmarks
+        // Example as we are generating it here.
+        // Table of Contents
+        // - Page 1
+        // -- Page 2
+        // -- Page 3
+        // --- Page 4
+
+        if layer == 0 {
+            layer_parent[0] = Some(document.add_bookmark(Bookmark::new(display, color, format, object), None));
+            last_layer = 0;
+        } else if layer == 1 {
+            layer_parent[1] =
+                Some(document.add_bookmark(Bookmark::new(display, color, format, object), layer_parent[0]));
+            last_layer = 1;
+        } else if last_layer >= layer || last_layer == layer - 1 {
+            layer_parent[layer as usize] = Some(document.add_bookmark(
+                Bookmark::new(display, color, format, object),
+                layer_parent[(layer - 1) as usize],
+            ));
+            last_layer = layer;
+        } else if last_layer > 0 {
+            layer_parent[last_layer as usize] = Some(document.add_bookmark(
+                Bookmark::new(display, color, format, object),
+                layer_parent[(last_layer - 1) as usize],
+            ));
+        } else {
+            layer_parent[1] =
+                Some(document.add_bookmark(Bookmark::new(display, color, format, object), layer_parent[0]));
+            last_layer = 1;
+        }
     }
 
     // Catalog and Pages are mandatory
@@ -97,7 +168,7 @@ fn main() {
     let mut pages_object: Option<(ObjectId, Object)> = None;
 
     // Process all objects except "Page" type
-    for (object_id, object) in documents_objects.iter() {
+    for (object_id, object) in documents_objects.into_iter() {
         // We have to ignore "Page" (as are processed later), "Outlines" and "Outline" objects
         // All other objects should be collected and inserted into the main Document
         match object.type_name().unwrap_or("") {
@@ -107,9 +178,9 @@ fn main() {
                     if let Some((id, _)) = catalog_object {
                         id
                     } else {
-                        *object_id
+                        object_id
                     },
-                    object.clone(),
+                    object,
                 ));
             }
             "Pages" => {
@@ -127,7 +198,7 @@ fn main() {
                         if let Some((id, _)) = pages_object {
                             id
                         } else {
-                            *object_id
+                            object_id
                         },
                         Object::Dictionary(dictionary),
                     ));
@@ -137,7 +208,7 @@ fn main() {
             "Outlines" => {} // Ignored, not supported yet
             "Outline" => {}  // Ignored, not supported yet
             _ => {
-                document.objects.insert(*object_id, object.clone());
+                document.objects.insert(object_id, object);
             }
         }
     }
@@ -166,11 +237,11 @@ fn main() {
         return;
     }
 
-    let catalog_object = catalog_object.unwrap();
-    let pages_object = pages_object.unwrap();
+    let (catalog_id, catalog_object) = catalog_object.unwrap();
+    let (page_id, page_object) = pages_object.unwrap();
 
     // Build a new "Pages" with updated fields
-    if let Ok(dictionary) = pages_object.1.as_dict() {
+    if let Ok(dictionary) = page_object.as_dict() {
         let mut dictionary = dictionary.clone();
 
         // Set new pages count
@@ -185,21 +256,20 @@ fn main() {
                 .collect::<Vec<_>>(),
         );
 
-        document.objects.insert(pages_object.0, Object::Dictionary(dictionary));
+        document.objects.insert(page_id, Object::Dictionary(dictionary));
     }
 
     // Build a new "Catalog" with updated fields
-    if let Ok(dictionary) = catalog_object.1.as_dict() {
+    if let Ok(dictionary) = catalog_object.as_dict() {
         let mut dictionary = dictionary.clone();
-        dictionary.set("Pages", pages_object.0);
+        dictionary.set("Pages", page_id);
+        dictionary.set("PageMode", "UseOutlines");
         dictionary.remove(b"Outlines"); // Outlines not supported in merged PDFs
 
-        document
-            .objects
-            .insert(catalog_object.0, Object::Dictionary(dictionary));
+        document.objects.insert(catalog_id, Object::Dictionary(dictionary));
     }
 
-    document.trailer.set("Root", catalog_object.0);
+    document.trailer.set("Root", catalog_id);
 
     // Update the max internal ID as wasn't updated before due to direct objects insertion
     document.max_id = document.objects.len() as u32;
@@ -212,12 +282,14 @@ fn main() {
 
     //Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
     if let Some(n) = document.build_outline() {
-        if let Ok(Object::Dictionary(ref mut dict)) = document.get_object_mut(catalog_object.0) {
+        if let Ok(Object::Dictionary(ref mut dict)) = document.get_object_mut(catalog_id) {
             dict.set("Outlines", Object::Reference(n));
         }
     }
 
-    document.compress();
+    // Most of the time this does nothing unless there are a lot of streams
+    // Can be disabled to speed up the process.
+    // document.compress();
 
     // Save the merged PDF
     // Store file in current working directory.
