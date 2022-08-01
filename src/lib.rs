@@ -10,7 +10,7 @@ pub use crate::object::{Dictionary, Object, ObjectId, Stream, StringFormat};
 mod document;
 mod incremental_document;
 mod object_stream;
-mod xref;
+pub mod xref;
 pub use crate::document::Document;
 pub use crate::incremental_document::IncrementalDocument;
 
