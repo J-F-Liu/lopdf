@@ -40,5 +40,9 @@ pom_parser = ["pom"]
 name = "add_barcode"
 required-features = ["pom_parser"]
 
+[[tests]]
+name = "modify"
+required-features = ["pom_parser"]
+
 [badges]
 travis-ci = {repository = "J-F-Liu/lopdf"}

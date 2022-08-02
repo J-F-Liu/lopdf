@@ -63,7 +63,7 @@ mod tests_with_parsing {
         assert_eq!(replace_text().unwrap().extract_text(&[1]).unwrap(), "Modified text!\n");
     }
 
-    fn get_mut() -> Result<()> {
+    fn get_mut() -> Result<bool> {
         let mut doc = Document::load("assets/example.pdf")?;
         let arr = doc
             .get_object_mut((5, 0))?
@@ -71,11 +71,21 @@ mod tests_with_parsing {
             .get_mut(b"Contents")?
             .as_array_mut()?;
         arr[0] = arr[0].clone();
-        Ok(())
+        Ok(true)
     }
 
     #[test]
     fn test_get_mut() {
-        assert!(get_mut().is_ok());
+        assert!(get_mut().unwrap());
+    }
+
+    fn load_tiff_document() -> Result<bool> {
+        let _ = Document::load("assets/TIFF6.pdf")?;
+        Ok(true)
+    }
+
+    #[test]
+    fn test_load_tiff() {
+        assert!(load_tiff_document().unwrap());
     }
 }
