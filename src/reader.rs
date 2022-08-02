@@ -136,21 +136,21 @@ impl<'a> Reader<'a> {
         // Read previous Xrefs of linearized or incremental updated document.
         let mut prev_xref_start = trailer.remove(b"Prev");
         while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
-            let prev = prev as usize;
-            if prev > self.buffer.len() {
+            if prev < 0 || prev as usize > self.buffer.len() {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
-            let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
+
+            let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
             xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
             if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64().ok()) {
-                let prev = prev as usize;
-                if prev > self.buffer.len() {
+                if prev < 0 || prev as usize > self.buffer.len() {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
-                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev..], &self)?;
+
+                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
                 xref.merge(prev_xref);
             }
 
@@ -378,13 +378,13 @@ endstream endobj\n",
     let doc = format!(
         "{}xref
 0 7
-0000000000 65535 f 
-0000000009 00000 n 
-0000000096 00000 n 
-0000000155 00000 n 
-0000000291 00000 n 
-0000000191 00000 n 
-0000000248 00000 n 
+0000000000 65535 f
+0000000009 00000 n
+0000000096 00000 n
+0000000155 00000 n
+0000000291 00000 n
+0000000191 00000 n
+0000000248 00000 n
 trailer
 <</Root 6 0 R/Size 7>>
 startxref
@@ -429,14 +429,14 @@ endstream endobj\n",
     let doc = format!(
         "{}xref
 0 7
-0000000000 65535 f 
-0000000009 00000 n 
-0000000096 00000 n 
-0000000155 00000 n 
-0000000387 00000 n 
-0000000191 00000 n 
-0000000254 00000 n 
-0000000297 00000 n 
+0000000000 65535 f
+0000000009 00000 n
+0000000096 00000 n
+0000000155 00000 n
+0000000387 00000 n
+0000000191 00000 n
+0000000254 00000 n
+0000000297 00000 n
 trailer
 <</Root 6 0 R/Size 7>>
 startxref

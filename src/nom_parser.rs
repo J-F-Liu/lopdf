@@ -4,6 +4,7 @@ use crate::error::XrefError;
 use crate::reader::Reader;
 use crate::xref::*;
 use crate::Error;
+use std::cmp::max;
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
@@ -271,9 +272,9 @@ fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
 
     if let Ok(length) = dict.get(b"Length").and_then(|value| {
         if let Ok(id) = value.as_reference() {
-            reader.get_object(id).and_then(|value| value.as_i64())
+            max(0, reader.get_object(id).and_then(|value| value.as_i64()))
         } else {
-            value.as_i64()
+            max(0, value.as_i64())
         }
     }) {
         let (i, data) = terminated(take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;

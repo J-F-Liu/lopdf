@@ -6,6 +6,7 @@ use crate::xref::*;
 use crate::{Error, Result};
 use pom::char_class::{alpha, hex_digit, multispace, oct_digit};
 use pom::parser::*;
+use std::cmp::max;
 use std::str::{self, FromStr};
 
 fn eol<'a>() -> Parser<'a, u8, u8> {
@@ -221,11 +222,11 @@ pub fn header(input: &[u8]) -> Option<String> {
 
 /// Decode CrossReferenceTable
 fn xref<'a>() -> Parser<'a, u8, Xref> {
-    let xref_entry = integer().map(|i| i as u32) - sym(b' ') + integer().map(|i| i as u16) - sym(b' ')
+    let xref_entry = integer().map(|i| max(0, i) as u32) - sym(b' ') + integer().map(|i| i as u16) - sym(b' ')
         + one_of(b"nf").map(|k| k == b'n')
         - take(2);
-    let xref_section =
-        integer().map(|i| i as usize) - sym(b' ') + integer() - sym(b' ').opt() - eol() + xref_entry.repeat(0..);
+    let xref_section = integer().map(|i| max(0, i) as usize) - sym(b' ') + integer() - sym(b' ').opt() - eol()
+        + xref_entry.repeat(0..);
     let xref = seq(b"xref") * sym(b' ').opt() * eol() * xref_section.repeat(1..) - space();
     xref.map(|sections| {
         sections.into_iter().fold(

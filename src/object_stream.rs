@@ -2,6 +2,7 @@
 
 use crate::parser;
 use crate::{Error, Object, ObjectId, Result, Stream};
+use std::cmp::max;
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -23,8 +24,8 @@ impl ObjectStream {
             });
         }
 
-        let first_offset = stream.dict.get(b"First").and_then(Object::as_i64)? as usize;
-        let _count = stream.dict.get(b"N").and_then(Object::as_i64)? as usize;
+        let first_offset = max(0, stream.dict.get(b"First").and_then(Object::as_i64)?) as usize;
+        let _count = max(0, stream.dict.get(b"N").and_then(Object::as_i64)?) as usize;
 
         let index_block = stream.content.get(..first_offset).ok_or(Error::Offset(first_offset))?;
 
