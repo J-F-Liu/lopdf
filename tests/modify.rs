@@ -82,14 +82,4 @@ mod tests_with_parsing {
     fn test_get_mut() {
         assert!(get_mut().unwrap());
     }
-
-    fn load_tiff_document() -> Result<bool> {
-        let _ = Document::load("assets/TIFF6.pdf")?;
-        Ok(true)
-    }
-
-    #[test]
-    fn test_load_tiff() {
-        assert!(load_tiff_document().unwrap());
-    }
 }
