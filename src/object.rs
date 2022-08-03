@@ -1,6 +1,7 @@
 use crate::{Document, Error, Result};
 use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
 use log::warn;
+use std::cmp::max;
 use std::fmt;
 use std::str;
 
@@ -629,9 +630,9 @@ impl Stream {
         if let Some(params) = params {
             let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
             if (10..=15).contains(&predictor) {
-                let pixels_per_row = params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1) as usize;
-                let colors = params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1) as usize;
-                let bits = params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8) as usize;
+                let pixels_per_row = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
+                let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
+                let bits = max(8, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
                 let bytes_per_pixel = colors * bits / 8;
                 data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row)?;
             }

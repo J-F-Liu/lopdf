@@ -15,8 +15,12 @@ fn test_get_object() {
 
     println!("{:?}", id);
     println!("{:?}", id2);
-    assert!(doc.get_object(id).is_ok());
-    assert!(doc.get_object(id2).is_ok());
+
+    let obj1_exists = doc.get_object(id).is_ok();
+    let obj2_exists = doc.get_object(id2).is_ok();
+
+    assert!(obj1_exists);
+    assert!(obj2_exists);
 }
 
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
@@ -24,7 +28,7 @@ mod tests_with_parsing {
     use super::*;
     use lopdf::Result;
 
-    fn modify_text() -> Result<Document> {
+    fn modify_text() -> Result<bool> {
         let mut doc = Document::load("assets/example.pdf")?;
         doc.version = "1.4".to_string();
         if let Some(Object::Stream(ref mut stream)) = doc.objects.get_mut(&(4, 0)) {
@@ -37,12 +41,12 @@ mod tests_with_parsing {
         let temp_dir = tempfile::tempdir()?;
         let file_path = temp_dir.path().join("test_3_modify.pdf");
         doc.save(file_path)?;
-        Ok(doc)
+        Ok(true)
     }
 
     #[test]
     fn test_modify() {
-        assert!(modify_text().is_ok());
+        assert!(modify_text().unwrap());
     }
 
     fn replace_text() -> Result<Document> {
@@ -63,7 +67,7 @@ mod tests_with_parsing {
         assert_eq!(replace_text().unwrap().extract_text(&[1]).unwrap(), "Modified text!\n");
     }
 
-    fn get_mut() -> Result<()> {
+    fn get_mut() -> Result<bool> {
         let mut doc = Document::load("assets/example.pdf")?;
         let arr = doc
             .get_object_mut((5, 0))?
@@ -71,11 +75,11 @@ mod tests_with_parsing {
             .get_mut(b"Contents")?
             .as_array_mut()?;
         arr[0] = arr[0].clone();
-        Ok(())
+        Ok(true)
     }
 
     #[test]
     fn test_get_mut() {
-        assert!(get_mut().is_ok());
+        assert!(get_mut().unwrap());
     }
 }

@@ -96,9 +96,10 @@ impl Document {
     }
 
     pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) -> Result<()> {
+        let page = page_number.saturating_sub(1) as usize;
         let page_id = self
             .page_iter()
-            .nth(page_number as usize - 1)
+            .nth(page)
             .ok_or(Error::PageNumberNotFound(page_number))?;
         let encodings = self
             .get_page_fonts(page_id)
@@ -204,7 +205,11 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
             .and_then(parse_integer_array)
             .map_err(|_| Error::Xref(XrefError::Parse))?;
 
-        if field_widths.len() < 3 {
+        if field_widths.len() < 3
+            || field_widths[0].is_negative()
+            || field_widths[1].is_negative()
+            || field_widths[2].is_negative()
+        {
             return Err(Error::Xref(XrefError::Parse));
         }
 

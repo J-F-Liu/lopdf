@@ -28,9 +28,10 @@ fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
 
 #[inline]
 fn convert_result<O, E>(result: Result<O, E>, input: &[u8], error_kind: ErrorKind) -> NomResult<O> {
-    result
-        .map(|o| (input, o))
-        .map_err(|_| nom::Err::Error(NomError::from_error_kind(input, error_kind)))
+    result.map(|o| (input, o)).map_err(|_| {
+        NomError::from_error_kind(input, error_kind);
+        nom::Err::Error(())
+    })
 }
 
 #[inline]
@@ -149,14 +150,14 @@ fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
 enum ILS<'a> {
     Direct(&'a [u8]),
     Escape(Option<u8>),
-    EOL(&'a [u8]),
+    Eol(&'a [u8]),
     Nested(Vec<u8>),
 }
 
 impl<'a> ILS<'a> {
     fn push(&self, output: &mut Vec<u8>) {
         match self {
-            ILS::Direct(s) | ILS::EOL(s) => output.extend_from_slice(s),
+            ILS::Direct(s) | ILS::Eol(s) => output.extend_from_slice(s),
             ILS::Escape(e) => output.extend(e),
             ILS::Nested(n) => output.extend_from_slice(n),
         }
@@ -169,7 +170,7 @@ fn inner_literal_string(depth: usize) -> impl Fn(&[u8]) -> NomResult<Vec<u8>> {
             alt((
                 map(take_while1(is_direct_literal_string), ILS::Direct),
                 map(escape_sequence, ILS::Escape),
-                map(eol, ILS::EOL),
+                map(eol, ILS::Eol),
                 map(nested_literal_string(depth), ILS::Nested),
             )),
             Vec::new(),
@@ -276,6 +277,9 @@ fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
             value.as_i64()
         }
     }) {
+        if length < 0 {
+            return Err(nom::Err::Failure(()));
+        }
         let (i, data) = terminated(take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
         Ok((i, Object::Stream(Stream::new(dict, data.to_vec()))))
     } else {
