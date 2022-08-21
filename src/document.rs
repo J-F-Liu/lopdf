@@ -365,6 +365,31 @@ impl Document {
         fonts
     }
 
+    /// Get the PDF annotations of a page. The /Subtype of each annotation dictionary defines the
+    /// annotation type (Text, Link, Highlight, Underline, Ink, Popup, Widget, etc.). The /Rect of
+    /// an annotation dictionary defines its location on the page.
+    pub fn get_page_annotations(&self, page_id: ObjectId) -> Vec<&Dictionary> {
+        let mut annotations = vec![];
+        if let Ok(page) = self.get_dictionary(page_id) {
+            match page.get(b"Annots") {
+                Ok(Object::Reference(ref id)) => self.get_object(*id)
+                    .and_then(Object::as_array)
+                    .unwrap()
+                    .iter()
+                    .flat_map(Object::as_reference)
+                    .flat_map(|id| self.get_dictionary(id))
+                    .for_each(|a| annotations.push(a)),
+                Ok(Object::Array(ref a)) =>
+                    a.iter()
+                    .flat_map(Object::as_reference)
+                    .flat_map(|id| self.get_dictionary(id))
+                    .for_each(|a| annotations.push(a)),
+                _ => {},
+            }
+        }
+        annotations
+    }
+
     pub fn decode_text(encoding: Option<&str>, bytes: &[u8]) -> String {
         if let Some(encoding) = encoding {
             info!("{}", encoding);

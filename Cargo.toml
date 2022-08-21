@@ -28,6 +28,7 @@ weezl = "0.1.4"
 
 [dev-dependencies]
 tempfile = "3.3.0"
+env_logger = "0.9"
 
 [features]
 chrono_time = ["chrono"]
