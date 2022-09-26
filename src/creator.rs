@@ -95,7 +95,15 @@ impl Document {
             if !resources.has(b"XObject") {
                 resources.set("XObject", Dictionary::new());
             }
-            let xobjects = resources.get_mut(b"XObject").and_then(Object::as_dict_mut)?;
+            let mut xobjects = resources.get_mut(b"XObject")?;
+            if let Object::Reference(xobjects_ref_id) = xobjects {
+                let mut xobjects_id = xobjects_ref_id.clone();
+                while let Object::Reference(id) = self.get_object(xobjects_id)? {
+                    xobjects_id = *id;
+                }
+                xobjects = self.get_object_mut(xobjects_id)?;
+            }
+            let xobjects = Object::as_dict_mut(xobjects)?;
             xobjects.set(xobject_name, Object::Reference(xobject_id));
         }
         Ok(())
