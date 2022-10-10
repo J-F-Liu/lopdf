@@ -191,6 +191,11 @@ impl Document {
         self.get_object(id).and_then(Object::as_dict)
     }
 
+    /// Get a mutable dictionary object by id.
+    pub fn get_dictionary_mut(&mut self, id: ObjectId) -> Result<&mut Dictionary> {
+        self.get_object_mut(id).and_then(Object::as_dict_mut)
+    }
+
     /// Traverse objects from trailer recursively, return all referenced object IDs.
     pub fn traverse_objects<A: Fn(&mut Object)>(&mut self, action: A) -> Vec<ObjectId> {
         fn traverse_array<A: Fn(&mut Object)>(array: &mut [Object], action: &A, refs: &mut Vec<ObjectId>) {
@@ -229,12 +234,21 @@ impl Document {
         refs
     }
 
-    /// Get catalog dictionary.
+    /// Return the PDF document catalog, which is the root of the document's object graph.
     pub fn catalog(&self) -> Result<&Dictionary> {
         self.trailer
             .get(b"Root")
             .and_then(Object::as_reference)
             .and_then(|id| self.get_dictionary(id))
+    }
+
+    /// Return a mutable reference to the PDF document catalog, which is the root of the document's
+    /// object graph.
+    pub fn catalog_mut(&mut self) -> Result<&mut Dictionary> {
+        self.trailer
+            .get(b"Root")
+            .and_then(Object::as_reference)
+            .and_then(move |id| self.get_dictionary_mut(id))
     }
 
     /// Get page numbers and corresponding object ids.
