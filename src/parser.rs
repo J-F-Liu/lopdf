@@ -32,11 +32,11 @@ fn integer<'a>() -> Parser<'a, u8, i64> {
     number.collect().convert(str::from_utf8).convert(i64::from_str)
 }
 
-fn real<'a>() -> Parser<'a, u8, f64> {
+fn real<'a>() -> Parser<'a, u8, f32> {
     let number = one_of(b"+-").opt()
         + ((one_of(b"0123456789").repeat(1..) * sym(b'.') - one_of(b"0123456789").repeat(0..))
             | (sym(b'.') - one_of(b"0123456789").repeat(1..)));
-    number.collect().convert(str::from_utf8).convert(f64::from_str)
+    number.collect().convert(str::from_utf8).convert(f32::from_str)
 }
 
 fn hex_char<'a>() -> Parser<'a, u8, u8> {

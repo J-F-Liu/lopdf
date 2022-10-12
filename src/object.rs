@@ -34,7 +34,7 @@ pub enum Object {
     Null,
     Boolean(bool),
     Integer(i64),
-    Real(f64),
+    Real(f32),
     Name(Vec<u8>),
     String(Vec<u8>, StringFormat),
     Array(Vec<Object>),
@@ -87,13 +87,13 @@ from_smaller_ints! {
 
 impl From<f64> for Object {
     fn from(number: f64) -> Self {
-        Object::Real(number)
+        Object::Real(number as f32)
     }
 }
 
 impl From<f32> for Object {
     fn from(number: f32) -> Self {
-        Object::Real(f64::from(number))
+        Object::Real(number)
     }
 }
 
@@ -156,7 +156,7 @@ impl Object {
         }
     }
 
-    pub fn as_f64(&self) -> Result<f64> {
+    pub fn as_f32(&self) -> Result<f32> {
         match *self {
             Object::Real(ref value) => Ok(*value),
             _ => Err(Error::Type),
@@ -165,9 +165,9 @@ impl Object {
 
     /// Get the object value as a float.
     /// Unlike as_f64() this will also cast an Integer to a Real.
-    pub fn as_float(&self) -> Result<f64> {
+    pub fn as_float(&self) -> Result<f32> {
         match *self {
-            Object::Integer(ref value) => Ok(*value as f64),
+            Object::Integer(ref value) => Ok(*value as f32),
             Object::Real(ref value) => Ok(*value),
             _ => Err(Error::Type),
         }
