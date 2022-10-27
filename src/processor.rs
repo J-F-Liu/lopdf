@@ -178,7 +178,7 @@ impl Document {
             })
             .collect();
 
-        page_order.sort_by(|a, b| a.1.partial_cmp(&b.1));
+        page_order.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
         i = 0;
 
@@ -189,7 +189,7 @@ impl Document {
 
         if needs_ordering {
             let mut pages = page_order.clone();
-            pages.sort_by(|a, b| a.0.partial_cmp(&b.0));
+            pages.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             let mut objects = BTreeMap::new();
 
             for (old, new) in pages.iter().zip(page_order) {
