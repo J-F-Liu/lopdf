@@ -194,17 +194,29 @@ impl Document {
 
             for (old, new) in pages.iter().zip(page_order) {
                 if let Some(object) = self.objects.remove(&old.1) {
-                    objects.insert(new.1, object);
+                    objects.insert((new.1 .0, old.1 .1), object);
+                    replace.insert(old.1, (new.1 .0, old.1 .1));
                 }
 
                 if old.1 != new.1 {
-                    self.renumber_bookmarks(&old.1, &new.1);
+                    self.renumber_bookmarks(&old.1, &(new.1 .0, old.1 .1));
                 }
             }
 
             for (new, object) in objects {
                 self.objects.insert(new, object);
             }
+
+            let action = |object: &mut Object| {
+                if let Object::Reference(ref mut id) = *object {
+                    if replace.contains_key(id) {
+                        *id = replace[id];
+                    }
+                }
+            };
+
+            self.traverse_objects(action);
+            replace.clear();
         }
 
         let mut ids = self.objects.keys().cloned().collect::<Vec<ObjectId>>();
