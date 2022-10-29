@@ -64,7 +64,7 @@ fn generate_operations(rects: Vec<(f64, f64, f64, f64, u8)>) -> String {
 }
 
 #[allow(non_upper_case_globals)]
-const mm2pt: f64 = 2.834;
+const mm2pt: f32 = 2.834;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
