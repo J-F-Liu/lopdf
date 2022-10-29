@@ -137,7 +137,7 @@ impl Document {
     }
 
     pub fn insert_image(
-        &mut self, page_id: ObjectId, img_object: Stream, position: (f64, f64), size: (f64, f64),
+        &mut self, page_id: ObjectId, img_object: Stream, position: (f32, f32), size: (f32, f32),
     ) -> Result<()> {
         let img_id = self.add_object(img_object);
         let img_name = format!("X{}", img_id.0);
