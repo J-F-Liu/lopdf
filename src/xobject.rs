@@ -50,14 +50,13 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     let bits = img.color().bits_per_pixel() / 3;
 
     let color_space = match img.color() {
+        ColorType::L8 => b"DeviceGray".to_vec(),
         ColorType::La8 => b"DeviceGray".to_vec(),
         ColorType::Rgb8 => b"DeviceRGB".to_vec(),
         ColorType::Rgb16 => b"DeviceRGB".to_vec(),
         ColorType::La16 => b"DeviceN".to_vec(),
         ColorType::Rgba8 => b"DeviceN".to_vec(),
         ColorType::Rgba16 => b"DeviceN".to_vec(),
-        ColorType::Bgr8 => b"DeviceN".to_vec(),
-        ColorType::Bgra8 => b"DeviceN".to_vec(),
         _ => b"Indexed".to_vec(),
     };
 
@@ -81,7 +80,7 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
         dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
         Ok(Stream::new(dict, buffer))
     } else {
-        let mut img_object = Stream::new(dict, img.to_bytes());
+        let mut img_object = Stream::new(dict, img.into_bytes());
         // Ignore any compression error.
         let _ = img_object.compress();
         Ok(img_object)
