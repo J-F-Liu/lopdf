@@ -97,7 +97,7 @@ impl Document {
             }
             let mut xobjects = resources.get_mut(b"XObject")?;
             if let Object::Reference(xobjects_ref_id) = xobjects {
-                let mut xobjects_id = xobjects_ref_id.clone();
+                let mut xobjects_id = *xobjects_ref_id;
                 while let Object::Reference(id) = self.get_object(xobjects_id)? {
                     xobjects_id = *id;
                 }
