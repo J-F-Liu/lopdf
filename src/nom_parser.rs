@@ -87,7 +87,7 @@ fn integer(input: &[u8]) -> NomResult<i64> {
     convert_result(i64::from_str(str::from_utf8(int_input).unwrap()), i, ErrorKind::Digit)
 }
 
-fn real(input: &[u8]) -> NomResult<f64> {
+fn real(input: &[u8]) -> NomResult<f32> {
     let (i, _) = pair(
         opt(one_of("+-")),
         alt((
@@ -97,7 +97,7 @@ fn real(input: &[u8]) -> NomResult<f64> {
     )(input)?;
 
     let float_input = &input[..input.len() - i.len()];
-    convert_result(f64::from_str(str::from_utf8(float_input).unwrap()), i, ErrorKind::Digit)
+    convert_result(f32::from_str(str::from_utf8(float_input).unwrap()), i, ErrorKind::Digit)
 }
 
 fn hex_char(input: &[u8]) -> NomResult<u8> {
