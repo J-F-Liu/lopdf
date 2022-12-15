@@ -327,8 +327,8 @@ fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
     terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
 }
 
-pub fn indirect_object<'a>(
-    input: &'a [u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
+pub fn indirect_object(
+    input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
 ) -> crate::Result<(ObjectId, Object)> {
     let (id, mut object) = _indirect_object(&input[offset..], offset, expected_id, reader)?;
 
@@ -337,8 +337,8 @@ pub fn indirect_object<'a>(
     Ok((id, object))
 }
 
-fn _indirect_object<'a>(
-    input: &'a [u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
+fn _indirect_object(
+    input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
 ) -> crate::Result<(ObjectId, Object)> {
     let (i, object_id) = terminated(object_id, pair(tag(b"obj"), space))(input).map_err(|_| Error::Parse { offset })?;
     if let Some(expected_id) = expected_id {
