@@ -53,6 +53,12 @@ impl Document {
                     }
                     Object::Array(ref arr) => {
                         collect_text(text, encoding, arr);
+                        text.push(' ');
+                    }
+                    Object::Integer(i) => {
+                        if i < -100 {
+                            text.push(' ');
+                        }
                     }
                     _ => {}
                 }
