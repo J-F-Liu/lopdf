@@ -198,6 +198,13 @@ impl Object {
         }
     }
 
+    pub fn as_string(&self) -> Result<std::borrow::Cow<'_, str>> {
+        match self {
+            Object::String(string, _) => Ok(std::string::String::from_utf8_lossy(string)),
+            _ => Err(Error::Type),
+        }
+    }
+
     pub fn as_reference(&self) -> Result<ObjectId> {
         match *self {
             Object::Reference(ref id) => Ok(*id),
