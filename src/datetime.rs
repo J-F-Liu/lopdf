@@ -82,16 +82,10 @@ impl Object {
     #[cfg(feature = "chrono_time")]
     pub fn as_datetime(&self) -> Option<DateTime<Local>> {
         let text = self.datetime_string()?;
-        let from_date = |date| {
-            FixedOffset::east_opt(0)
-                .unwrap()
-                .from_utc_date(&date)
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-        };
+        let from_datetime = |datetime| FixedOffset::east_opt(0).unwrap().from_utc_datetime(&datetime);
         DateTime::parse_from_str(&text, "%Y%m%d%H%M%S%#z")
             .or_else(|_| DateTime::parse_from_str(&text, "%Y%m%d%H%M%#z"))
-            .or_else(|_| NaiveDate::parse_from_str(&text, "%Y%m%d").map(from_date))
+            .or_else(|_| NaiveDateTime::parse_from_str(&text, "%Y%m%d").map(from_datetime))
             .map(|date| date.with_timezone(&Local))
             .ok()
     }
