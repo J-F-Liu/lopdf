@@ -77,7 +77,11 @@ fn white_space(input: &[u8]) -> NomResult<()> {
 }
 
 fn space(input: &[u8]) -> NomResult<()> {
-    fold_many0(alt((map(take_while1(is_whitespace), |_| ()), comment)), (), |_, _| ())(input)
+    fold_many0(
+        alt((map(take_while1(is_whitespace), |_| ()), comment)),
+        || -> () {},
+        |_, _| (),
+    )(input)
 }
 
 fn integer(input: &[u8]) -> NomResult<i64> {
@@ -173,7 +177,7 @@ fn inner_literal_string(depth: usize) -> impl Fn(&[u8]) -> NomResult<Vec<u8>> {
                 map(eol, ILS::Eol),
                 map(nested_literal_string(depth), ILS::Nested),
             )),
-            Vec::new(),
+            Vec::new,
             |mut out: Vec<u8>, value| {
                 value.push(&mut out);
                 out
@@ -217,7 +221,7 @@ fn hexadecimal_string(input: &[u8]) -> NomResult<Object> {
             terminated(
                 fold_many0(
                     preceded(white_space, hex_digit),
-                    (Vec::new(), false),
+                    || -> (Vec<u8>, bool) { (Vec::new(), false) },
                     |state, c| match state {
                         (mut out, false) => {
                             out.push(c << 4);
@@ -257,7 +261,7 @@ fn dictionary(input: &[u8]) -> NomResult<Dictionary> {
         pair(tag(b"<<"), space),
         fold_many0(
             pair(terminated(name, space), _direct_object),
-            Dictionary::new(),
+            Dictionary::new,
             |mut dict, (key, value)| {
                 dict.set(key, value);
                 dict
@@ -384,7 +388,7 @@ fn xref(input: &[u8]) -> NomResult<Xref> {
         pair(tag(b"xref"), eol),
         fold_many1(
             xref_section,
-            Xref::new(0, XrefType::CrossReferenceTable),
+            || -> Xref { Xref::new(0, XrefType::CrossReferenceTable) },
             |mut xref, ((start, _count), entries)| {
                 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
                     if is_normal {
