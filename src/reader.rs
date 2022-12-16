@@ -2,6 +2,7 @@
 
 use log::{error, warn};
 use std::cmp;
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
@@ -18,22 +19,33 @@ use crate::object_stream::ObjectStream;
 use crate::xref::XrefEntry;
 use crate::{Error, IncrementalDocument, Result};
 
+type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
+
 impl Document {
     /// Load a PDF document from a specified file path.
     #[inline]
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
         let file = File::open(path)?;
         let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity)
+        Self::load_internal(file, capacity, None)
+    }
+
+    #[inline]
+    pub fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
+        let file = File::open(path)?;
+        let capacity = Some(file.metadata()?.len() as usize);
+        Self::load_internal(file, capacity, Some(filter_func))
     }
 
     /// Load a PDF document from an arbitrary source.
     #[inline]
     pub fn load_from<R: Read>(source: R) -> Result<Document> {
-        Self::load_internal(source, None)
+        Self::load_internal(source, None, None)
     }
 
-    fn load_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<Document> {
+    fn load_internal<R: Read>(
+        mut source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>,
+    ) -> Result<Document> {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
         source.read_to_end(&mut buffer)?;
 
@@ -41,7 +53,7 @@ impl Document {
             buffer: &buffer,
             document: Document::new(),
         }
-        .read()
+        .read(filter_func)
     }
 
     /// Load a PDF document from a memory slice.
@@ -58,7 +70,7 @@ impl TryInto<Document> for &[u8] {
             buffer: self,
             document: Document::new(),
         }
-        .read()
+        .read(None)
     }
 }
 
@@ -85,7 +97,7 @@ impl IncrementalDocument {
             buffer: &buffer,
             document: Document::new(),
         }
-        .read()?;
+        .read(None)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }
@@ -104,15 +116,15 @@ impl TryInto<IncrementalDocument> for &[u8] {
             buffer: self,
             document: Document::new(),
         }
-        .read()?;
+        .read(None)?;
 
         Ok(IncrementalDocument::create_from(self.to_vec(), document))
     }
 }
 
 pub struct Reader<'a> {
-    buffer: &'a [u8],
-    document: Document,
+    pub buffer: &'a [u8],
+    pub document: Document,
 }
 
 /// Maximum allowed embedding of literal strings.
@@ -120,7 +132,7 @@ pub const MAX_BRACKET: usize = 100;
 
 impl<'a> Reader<'a> {
     /// Read whole document.
-    fn read(mut self) -> Result<Document> {
+    pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
         let version = parser::header(self.buffer).ok_or(Error::Header)?;
@@ -180,13 +192,25 @@ impl<'a> Reader<'a> {
                     .read_object(offset as usize, None)
                     .map_err(|e| error!("Object load error: {:?}", e))
                     .ok()?;
+                if let Some(filter_func) = filter_func {
+                    filter_func(object_id, &mut object)?;
+                }
                 if let Ok(ref mut stream) = object.as_stream_mut() {
                     if stream.dict.type_is(b"ObjStm") {
                         let obj_stream = ObjectStream::new(stream).ok()?;
                         let mut object_streams = object_streams.lock().unwrap();
                         // TODO: Is insert and replace intended behavior?
                         // See https://github.com/J-F-Liu/lopdf/issues/160 for more info
-                        object_streams.extend(obj_stream.objects);
+                        if let Some(filter_func) = filter_func {
+                            let objects: BTreeMap<(u32, u16), Object> = obj_stream
+                                .objects
+                                .into_iter()
+                                .filter_map(|(object_id, mut object)| filter_func(object_id, &mut object))
+                                .collect();
+                            object_streams.extend(objects);
+                        } else {
+                            object_streams.extend(obj_stream.objects);
+                        }
                     } else if stream.content.is_empty() {
                         let mut zero_length_streams = zero_length_streams.lock().unwrap();
                         zero_length_streams.push(object_id);
