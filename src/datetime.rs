@@ -2,8 +2,7 @@ use super::Object;
 #[cfg(feature = "chrono_time")]
 use chrono::prelude::*;
 
-use time::OffsetDateTime;
-use time::Time;
+use time::{format_description::FormatItem, OffsetDateTime, Time};
 
 #[cfg(feature = "chrono_time")]
 impl From<DateTime<Local>> for Object {
@@ -36,7 +35,13 @@ impl From<DateTime<Utc>> for Object {
 impl From<Time> for Object {
     fn from(date: Time) -> Self {
         // can only fail if the TIME_FMT_ENCODE_STR would be invalid
-        Object::string_literal(format!("D:{}", date.format("%Y%m%d%H%M%SZ")).into_bytes())
+        Object::string_literal(
+            format!(
+                "D:{}",
+                date.format(&FormatItem::Literal("%Y%m%d%H%M%SZ".as_bytes())).unwrap()
+            )
+            .into_bytes(),
+        )
     }
 }
 
@@ -47,10 +52,9 @@ impl From<OffsetDateTime> for Object {
             // D:%Y%m%d%H%M%S:%z'
             //
             // UTC offset in the form +HHMM or -HHMM (empty string if the the object is naive).
-            let timezone = date.format("%z");
-            let timezone_str_start = date.format("%Y%m%d%H%M%S");
-            let mut timezone_str =
-                format!("D:{}{}:{}'", timezone_str_start, &timezone[..3], &timezone[3..]).into_bytes();
+            let timezone = date.format(&FormatItem::Literal("%z".as_bytes())).unwrap();
+            let timezone_str_start = date.format(&FormatItem::Literal("%Y%m%d%H%M%S".as_bytes())).unwrap();
+            let mut timezone_str = format!("D:{}:{}'", timezone_str_start, timezone).into_bytes();
             convert_utc_offset(&mut timezone_str);
             timezone_str
         })
@@ -77,7 +81,11 @@ impl Object {
     #[cfg(feature = "chrono_time")]
     pub fn as_datetime(&self) -> Option<DateTime<Local>> {
         let text = self.datetime_string()?;
-        let from_date = |date| FixedOffset::east(0).from_utc_date(&date).and_hms(0, 0, 0);
+        let from_date = |date: NaiveDate| {
+            FixedOffset::east_opt(0)
+                .unwrap()
+                .from_utc_datetime(&date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
+        };
         DateTime::parse_from_str(&text, "%Y%m%d%H%M%S%#z")
             .or_else(|_| DateTime::parse_from_str(&text, "%Y%m%d%H%M%#z"))
             .or_else(|_| NaiveDate::parse_from_str(&text, "%Y%m%d").map(from_date))
