@@ -101,7 +101,7 @@ impl Object {
     pub fn as_datetime(&self) -> Option<OffsetDateTime> {
         const TIME_FMT_DECODE_STR: &str = "%Y%m%d%H%M%S%z";
         let text = self.datetime_string()?;
-        OffsetDateTime::parse(&text, TIME_FMT_DECODE_STR).ok()
+        OffsetDateTime::parse(&text, &FormatItem::Literal(TIME_FMT_DECODE_STR.as_bytes())).ok()
     }
 }
 
