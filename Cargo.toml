@@ -56,6 +56,10 @@ required-features = ["pom_parser"]
 name = "extract_toc"
 required-features = ["serde"]
 
+[[example]]
+name = "extract_text"
+required-features = ["serde"]
+
 [[tests]]
 name = "modify"
 required-features = ["pom_parser"]
