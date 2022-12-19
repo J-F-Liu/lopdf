@@ -196,6 +196,13 @@ impl Document {
         self.get_object_mut(id).and_then(Object::as_dict_mut)
     }
 
+    /// Get dictionary in dictionary by key.
+    pub fn get_dict_in_dict(&self, node: &Dictionary, key: &[u8]) -> Result<&Dictionary> {
+        node.get(key)
+            .and_then(Object::as_reference)
+            .and_then(move |id| self.get_dictionary(id))
+    }
+
     /// Traverse objects from trailer recursively, return all referenced object IDs.
     pub fn traverse_objects<A: Fn(&mut Object)>(&mut self, action: A) -> Vec<ObjectId> {
         fn traverse_array<A: Fn(&mut Object)>(array: &mut [Object], action: &A, refs: &mut Vec<ObjectId>) {
