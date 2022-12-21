@@ -196,6 +196,13 @@ impl Document {
         self.get_object_mut(id).and_then(Object::as_dict_mut)
     }
 
+    /// Get dictionary in dictionary by key.
+    pub fn get_dict_in_dict(&self, node: &Dictionary, key: &[u8]) -> Result<&Dictionary> {
+        node.get(key)
+            .and_then(Object::as_reference)
+            .and_then(move |id| self.get_dictionary(id))
+    }
+
     /// Traverse objects from trailer recursively, return all referenced object IDs.
     pub fn traverse_objects<A: Fn(&mut Object)>(&mut self, action: A) -> Vec<ObjectId> {
         fn traverse_array<A: Fn(&mut Object)>(array: &mut [Object], action: &A, refs: &mut Vec<ObjectId>) {
@@ -232,6 +239,19 @@ impl Document {
             index += 1;
         }
         refs
+    }
+
+    /// Return dictionary with encryption information
+    pub fn get_encrypted(&self) -> Result<&Dictionary> {
+        self.trailer
+            .get(b"Encrypt")
+            .and_then(Object::as_reference)
+            .and_then(|id| self.get_dictionary(id))
+    }
+
+    /// Return true is PDF document is encrypted
+    pub fn is_encrypted(&self) -> bool {
+        self.get_encrypted().is_ok()
     }
 
     /// Return the PDF document catalog, which is the root of the document's object graph.
@@ -386,19 +406,20 @@ impl Document {
         let mut annotations = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
             match page.get(b"Annots") {
-                Ok(Object::Reference(ref id)) => self.get_object(*id)
+                Ok(Object::Reference(ref id)) => self
+                    .get_object(*id)
                     .and_then(Object::as_array)
                     .unwrap()
                     .iter()
                     .flat_map(Object::as_reference)
                     .flat_map(|id| self.get_dictionary(id))
                     .for_each(|a| annotations.push(a)),
-                Ok(Object::Array(ref a)) =>
-                    a.iter()
+                Ok(Object::Array(ref a)) => a
+                    .iter()
                     .flat_map(Object::as_reference)
                     .flat_map(|id| self.get_dictionary(id))
                     .for_each(|a| annotations.push(a)),
-                _ => {},
+                _ => {}
             }
         }
         annotations
