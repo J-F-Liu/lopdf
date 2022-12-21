@@ -29,23 +29,36 @@ log = "^0.4"
 nom = { version = "^7.1", optional = true }
 pom = { version = "^3.2", optional = true }
 rayon = { version = "^1.6", optional = true }
-time = {version="^0.3", features=["formatting"]}
+serde = { version = "1.0", features = ["derive"], optional = true }
+time = {version="^0.3", features=["formatting", "parsing"]}
 weezl = "0.1"
 
 [dev-dependencies]
 tempfile = "3.3"
+serde_json = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+shellexpand = "3.0"
 env_logger = "0.10"
 
 [features]
+default = ["chrono_time", "nom_parser", "rayon"]
 chrono_time = ["chrono"]
-default = ["chrono_time", "pom_parser"]
 embed_image = ["image"]
 nom_parser = ["nom"]
 pom_parser = ["pom"]
+serde = ["dep:serde"]
 
 [[example]]
 name = "add_barcode"
 required-features = ["pom_parser"]
+
+[[example]]
+name = "extract_toc"
+required-features = ["serde"]
+
+[[example]]
+name = "extract_text"
+required-features = ["serde"]
 
 [[tests]]
 name = "modify"

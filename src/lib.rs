@@ -17,6 +17,12 @@ pub use crate::incremental_document::IncrementalDocument;
 
 mod bookmarks;
 pub use crate::bookmarks::Bookmark;
+mod outlines;
+pub use crate::outlines::Outline;
+mod destinations;
+pub use crate::destinations::Destination;
+mod toc;
+pub use crate::toc::Toc;
 pub mod content;
 mod creator;
 mod encodings;
