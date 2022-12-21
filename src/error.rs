@@ -37,6 +37,10 @@ pub enum Error {
     Syntax(String),
     /// Error while parsing cross reference table.
     Xref(XrefError),
+    /// Invalid command.
+    Invalid(String),
+    /// PDF document has no Outlines.
+    NoOutlines,
     /// Error when handling images.
     #[cfg(feature = "embed_image")]
     Image(image::ImageError),
@@ -61,6 +65,8 @@ impl fmt::Display for Error {
             Error::UTF8 => write!(f, "UTF-8 error"),
             Error::Syntax(msg) => write!(f, "Syntax error: {}", msg),
             Error::Xref(e) => write!(f, "Invalid cross-reference table ({})", e),
+            Error::Invalid(msg) => write!(f, "Invalid command: {}", msg),
+            Error::NoOutlines => write!(f, "PDF document has no Outlines"),
             #[cfg(feature = "embed_image")]
             Error::Image(e) => e.fmt(f),
         }
