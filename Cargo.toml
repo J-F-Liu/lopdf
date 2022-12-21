@@ -43,6 +43,7 @@ env_logger = "0.10"
 [features]
 default = ["chrono_time", "nom_parser", "rayon"]
 chrono_time = ["chrono"]
+default = ["chrono_time", "nom_parser", "rayon"]
 embed_image = ["image"]
 nom_parser = ["nom"]
 pom_parser = ["pom"]
