@@ -79,7 +79,7 @@ fn white_space(input: &[u8]) -> NomResult<()> {
 fn space(input: &[u8]) -> NomResult<()> {
     fold_many0(
         alt((map(take_while1(is_whitespace), |_| ()), comment)),
-        || -> () {},
+        || {},
         |_, _| (),
     )(input)
 }
@@ -151,19 +151,19 @@ fn escape_sequence(input: &[u8]) -> NomResult<Option<u8>> {
     )(input)
 }
 
-enum ILS<'a> {
+enum InnerLiteralString<'a> {
     Direct(&'a [u8]),
     Escape(Option<u8>),
     Eol(&'a [u8]),
     Nested(Vec<u8>),
 }
 
-impl<'a> ILS<'a> {
+impl<'a> InnerLiteralString<'a> {
     fn push(&self, output: &mut Vec<u8>) {
         match self {
-            ILS::Direct(s) | ILS::Eol(s) => output.extend_from_slice(s),
-            ILS::Escape(e) => output.extend(e),
-            ILS::Nested(n) => output.extend_from_slice(n),
+            InnerLiteralString::Direct(s) | InnerLiteralString::Eol(s) => output.extend_from_slice(s),
+            InnerLiteralString::Escape(e) => output.extend(e),
+            InnerLiteralString::Nested(n) => output.extend_from_slice(n),
         }
     }
 }
@@ -172,10 +172,10 @@ fn inner_literal_string(depth: usize) -> impl Fn(&[u8]) -> NomResult<Vec<u8>> {
     move |input| {
         fold_many0(
             alt((
-                map(take_while1(is_direct_literal_string), ILS::Direct),
-                map(escape_sequence, ILS::Escape),
-                map(eol, ILS::Eol),
-                map(nested_literal_string(depth), ILS::Nested),
+                map(take_while1(is_direct_literal_string), InnerLiteralString::Direct),
+                map(escape_sequence, InnerLiteralString::Escape),
+                map(eol, InnerLiteralString::Eol),
+                map(nested_literal_string(depth), InnerLiteralString::Nested),
             )),
             Vec::new,
             |mut out: Vec<u8>, value| {

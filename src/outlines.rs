@@ -11,12 +11,12 @@ fn build_outline_result(
     dest: &Object, title: &Object, named_destinations: &mut BTreeMap<Vec<u8>, Destination>,
 ) -> Result<Option<Outline>> {
     return Ok(Some(match dest {
-        &Object::Array(ref obj_array) => Outline::Destination(Destination::new(
+        Object::Array(ref obj_array) => Outline::Destination(Destination::new(
             title.to_owned(),
             obj_array[0].clone(),
             obj_array[1].clone(),
         )),
-        &Object::String(ref key, ref _fmt) => {
+        Object::String(ref key, ref _fmt) => {
             if let Some(destination) = named_destinations.get_mut(key) {
                 destination.set(b"Title".to_vec(), title.to_owned());
                 Outline::Destination(destination.clone())

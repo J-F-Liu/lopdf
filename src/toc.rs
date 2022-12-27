@@ -15,7 +15,7 @@ pub struct TocType {
 
 #[allow(dead_code)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Toc {
     pub toc: Vec<TocType>,
     pub errors: Vec<String>,
@@ -58,26 +58,28 @@ impl Destination {
     }
 }
 
-impl Document {
-    fn setup_outline_page_ids<'a>(
-        &self, outlines: &'a Vec<Outline>, result: &mut BTreeMap<Vec<u8>, ((u32, u16), usize, usize)>, level: usize,
-    ) -> &'a Vec<Outline> {
-        for outline in outlines.iter() {
-            match outline {
-                Outline::Destination(destination) => {
-                    result.insert(
-                        destination.title().unwrap().as_str().unwrap().to_vec(),
-                        (destination.page().unwrap().as_reference().unwrap(), result.len(), level),
-                    );
-                }
-                Outline::SubOutlines(sub_outlines) => {
-                    self.setup_outline_page_ids(sub_outlines, result, level + 1);
-                }
+type OutlinePageIds = BTreeMap<Vec<u8>, ((u32, u16), usize, usize)>;
+
+fn setup_outline_page_ids<'a>(
+    outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, level: usize,
+) -> &'a Vec<Outline> {
+    for outline in outlines.iter() {
+        match outline {
+            Outline::Destination(destination) => {
+                result.insert(
+                    destination.title().unwrap().as_str().unwrap().to_vec(),
+                    (destination.page().unwrap().as_reference().unwrap(), result.len(), level),
+                );
+            }
+            Outline::SubOutlines(sub_outlines) => {
+                setup_outline_page_ids(sub_outlines, result, level + 1);
             }
         }
-        outlines
     }
+    outlines
+}
 
+impl Document {
     fn setup_page_id_to_num(&self) -> BTreeMap<(u32, u16), u32> {
         let mut result = BTreeMap::new();
         for (page_num, page_id) in self.get_pages() {
@@ -94,7 +96,7 @@ impl Document {
         let mut named_destinations = BTreeMap::new();
         if let Some(outlines) = self.get_outlines(None, None, &mut named_destinations)? {
             let mut outline_page_ids = BTreeMap::new();
-            self.setup_outline_page_ids(&outlines, &mut outline_page_ids, 1);
+            setup_outline_page_ids(&outlines, &mut outline_page_ids, 1);
             let page_id_to_page_numbers = self.setup_page_id_to_num();
             for (title, (page_id, _page_idx, level)) in outline_page_ids {
                 if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
