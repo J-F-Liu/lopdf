@@ -47,16 +47,13 @@ impl From<Time> for Object {
 
 impl From<OffsetDateTime> for Object {
     fn from(date: OffsetDateTime) -> Self {
-        // can only fail if the TIME_FMT_ENCODE_STR would be invalid
         Object::string_literal({
             // D:%Y%m%d%H%M%S:%z'
-            //
-            // UTC offset in the form +HHMM or -HHMM (empty string if the the object is naive).
-            let timezone = date.format(&FormatItem::Literal("%z".as_bytes())).unwrap();
-            let timezone_str_start = date.format(&FormatItem::Literal("%Y%m%d%H%M%S".as_bytes())).unwrap();
-            let mut timezone_str = format!("D:{}:{}'", timezone_str_start, timezone).into_bytes();
-            convert_utc_offset(&mut timezone_str);
-            timezone_str
+            let format = time::format_description::parse(
+                "D:[year][month][day][hour][minute][second][offset_hour sign:mandatory]'[offset_minute]'",
+            )
+            .unwrap();
+            date.format(&format).unwrap()
         })
     }
 }
@@ -99,9 +96,12 @@ impl Object {
     /// however, be calculated manually
     #[cfg(not(feature = "chrono_time"))]
     pub fn as_datetime(&self) -> Option<OffsetDateTime> {
-        const TIME_FMT_DECODE_STR: &str = "%Y%m%d%H%M%S%z";
+        let format = time::format_description::parse(
+            "[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]",
+        )
+        .unwrap();
         let text = self.datetime_string()?;
-        OffsetDateTime::parse(&text, &FormatItem::Literal(TIME_FMT_DECODE_STR.as_bytes())).ok()
+        OffsetDateTime::parse(&text, &format).ok()
     }
 }
 
