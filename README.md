@@ -140,7 +140,7 @@ doc.trailer.set("Root", catalog_id);
 doc.compress();
 
 // Store file in current working directory.
-// Note: Line is exclude for when running tests
+// Note: Line is excluded when running tests
 if false {
     doc.save("example.pdf").unwrap();
 }
@@ -296,14 +296,14 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    // If no "Pages" found abort
+    // If no "Pages" object found abort
     if pages_object.is_none() {
         println!("Pages root not found.");
 
         return Ok(());
     }
 
-    // Iter over all "Page" and collect with the parent "Pages" created before
+    // Iterate over all "Page" objects and collect into the parent "Pages" created before
     for (object_id, object) in documents_pages.iter() {
         if let Ok(dictionary) = object.as_dict() {
             let mut dictionary = dictionary.clone();
@@ -381,7 +381,7 @@ fn main() -> std::io::Result<()> {
 
     // Save the merged PDF
     // Store file in current working directory.
-    // Note: Line is exclude for when running tests
+    // Note: Line is excluded when running tests
     if false {
         document.save("merged.pdf").unwrap();
     }
@@ -403,7 +403,7 @@ use lopdf::Document;
     doc.version = "1.4".to_string();
     doc.replace_text(1, "Hello World!", "Modified text!");
     // Store file in current working directory.
-    // Note: Line is exclude for when running tests
+    // Note: Line is excluded when running tests
     if false {
         doc.save("modified.pdf").unwrap();
     }
@@ -412,10 +412,10 @@ use lopdf::Document;
 
 ## FAQ
 
-* Why keeping everything in memory as high-level objects until finally serializing the entire document?
+* Why does the library keep everything in memory as high-level objects until finally serializing the entire document?
 
-    Normally a PDF document won't be very large, ranging form tens of KB to hundreds of MB. Memory size is not a bottle neck for today's computer.
-    By keep the whole document in memory, stream length can be pre-calculated, no need to use a reference object for the Length entry,
+    Normally a PDF document won't be very large, ranging from tens of KB to hundreds of MB. Memory size is not a bottle neck for today's computer.
+    By keeping the whole document in memory, stream length can be pre-calculated, no need to use a reference object for the Length entry,
     the resulting PDF file is smaller for distribution and faster for PDF consumers to process.
 
     Producing is a one-time effort, while consuming is many more.
