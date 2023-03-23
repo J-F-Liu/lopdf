@@ -20,7 +20,7 @@ chrono = { version = "^0.4", optional = true, features = [
     "std",
     "clock",
 ], default-features = false }
-encoding = "^0.2"
+encoding_rs = "0.8.32"
 flate2 = "^1.0"
 image = { version = "^0.24", optional = true }
 itoa = "^1.0"

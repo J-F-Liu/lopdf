@@ -2,8 +2,7 @@ use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::xref::{Xref, XrefType};
 use crate::{Error, Result, Stream};
-use encoding::all::UTF_16BE;
-use encoding::types::{DecoderTrap, EncoderTrap, Encoding};
+use encoding_rs::UTF_16BE;
 use log::info;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
@@ -433,7 +432,7 @@ impl Document {
                 "MacRomanEncoding" => bytes_to_string(encodings::MAC_ROMAN_ENCODING, bytes),
                 "MacExpertEncoding" => bytes_to_string(encodings::MAC_EXPERT_ENCODING, bytes),
                 "WinAnsiEncoding" => bytes_to_string(encodings::WIN_ANSI_ENCODING, bytes),
-                "UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.decode(bytes, DecoderTrap::Ignore).unwrap(),
+                "UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.decode(bytes).0.to_string(),
                 "Identity-H" => "?Identity-H Unimplemented?".to_string(), // Unimplemented
                 _ => String::from_utf8_lossy(bytes).to_string(),
             }
@@ -449,7 +448,7 @@ impl Document {
                 "MacRomanEncoding" => string_to_bytes(encodings::MAC_ROMAN_ENCODING, text),
                 "MacExpertEncoding" => string_to_bytes(encodings::MAC_EXPERT_ENCODING, text),
                 "WinAnsiEncoding" => string_to_bytes(encodings::WIN_ANSI_ENCODING, text),
-                "UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.encode(text, EncoderTrap::Ignore).unwrap(),
+                "UniGB-UCS2-H" | "UniGB−UTF16−H" => UTF_16BE.encode(text).0.to_vec(),
                 "Identity-H" => vec![], // Unimplemented
                 _ => text.as_bytes().to_vec(),
             }
