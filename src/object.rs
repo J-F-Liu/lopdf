@@ -44,16 +44,11 @@ pub enum Object {
 }
 
 /// String objects can be written in two formats.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum StringFormat {
+    #[default]
     Literal,
     Hexadecimal,
-}
-
-impl Default for StringFormat {
-    fn default() -> StringFormat {
-        StringFormat::Literal
-    }
 }
 
 impl From<bool> for Object {
