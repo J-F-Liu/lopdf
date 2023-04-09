@@ -9,8 +9,7 @@ A Rust library for PDF document manipulation.
 A useful reference for understanding the PDF file format and the
 eventual usage of this libary is the
 [PDF 1.7 Reference Document](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf).
-The PDF 2.0 specification is an ISO standard that you have to pay for,
-but it is backwards compatible with the open sourced 1.7 version.
+The PDF 2.0 specification is availabe [here](https://www.pdfa.org/announcing-no-cost-access-to-iso-32000-2-pdf-2-0/).
 
 ## Example Code
 
