@@ -167,7 +167,6 @@ impl Document {
             .operations
             .push(Operation::new("Do", vec![Name(img_name.as_bytes().to_vec())]));
         content.operations.push(Operation::new("Q", vec![]));
-        content.operations.push(Operation::new("Q", vec![]));
 
         self.change_page_content(page_id, content.encode()?)
     }
