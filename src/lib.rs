@@ -26,7 +26,7 @@ pub use crate::toc::Toc;
 pub mod content;
 mod creator;
 mod encodings;
-mod encryption;
+pub mod encryption;
 mod error;
 pub use error::XrefError;
 pub mod filters;
