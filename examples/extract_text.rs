@@ -143,7 +143,9 @@ fn pdf2text<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool, password: 
     let mut doc = load_pdf(&path)?;
     if doc.is_encrypted() {
         doc.decrypt(password)
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "Failed to decrypt"))?;
+            .map_err(|_err|
+                Error::new(ErrorKind::InvalidInput, "Failed to decrypt")
+            )?;
     }
     let text = get_pdf_text(&doc)?;
     if !text.errors.is_empty() {

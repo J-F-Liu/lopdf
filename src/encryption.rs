@@ -146,7 +146,8 @@ where
     if check_password {
         let check = compute_user_password(&key, revision, file_id_0);
         if let Ok(Object::String(expected, _)) = encryption_dict.get(b"U") {
-            if expected != &check[..] {
+            // Only first 16 bytes are significant, the rest are arbitrary padding
+            if &expected[..16] != &check[..16] {
                 return Err(DecryptionError::IncorrectPassword);
             }
         }
