@@ -1,4 +1,5 @@
 use std::fmt;
+use crate::encryption;
 
 #[derive(Debug)]
 pub enum Error {
@@ -44,6 +45,8 @@ pub enum Error {
     /// Error when handling images.
     #[cfg(feature = "embed_image")]
     Image(image::ImageError),
+    /// Error when decrypting the contents of the file
+    Decryption(encryption::DecryptionError),
 }
 
 impl fmt::Display for Error {
@@ -69,6 +72,7 @@ impl fmt::Display for Error {
             Error::NoOutlines => write!(f, "PDF document has no Outlines"),
             #[cfg(feature = "embed_image")]
             Error::Image(e) => e.fmt(f),
+            Error::Decryption(d) => d.fmt(f),
         }
     }
 }
@@ -124,5 +128,11 @@ impl From<std::str::Utf8Error> for Error {
 impl From<image::ImageError> for Error {
     fn from(err: image::ImageError) -> Self {
         Error::Image(err)
+    }
+}
+
+impl From<encryption::DecryptionError> for Error {
+    fn from(_err: encryption::DecryptionError) -> Self {
+        Error::Decryption(_err)
     }
 }

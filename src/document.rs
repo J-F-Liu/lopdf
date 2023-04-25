@@ -2,6 +2,7 @@ use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::xref::{Xref, XrefType};
 use crate::{Error, Result, Stream};
+use crate::encryption;
 use encoding_rs::UTF_16BE;
 use log::info;
 use std::cmp::max;
@@ -251,6 +252,27 @@ impl Document {
     /// Return true is PDF document is encrypted
     pub fn is_encrypted(&self) -> bool {
         self.get_encrypted().is_ok()
+    }
+
+    /// Replaces all encrypted Strings and Streams with their decrypted contents
+    pub fn decrypt<P: AsRef<[u8]>>(&mut self, password: P) -> Result<()> {
+        let key = encryption::get_encryption_key(self, &password, true)?;
+        for (&id, obj) in self.objects.iter_mut() {
+
+            let decrypted = match encryption::decrypt_object(&key, id, &*obj) {
+                Ok(content) => content,
+                Err(encryption::DecryptionError::NotDecryptable) => { continue; },
+                Err(_err) => { return Err(_err.into()); }
+            };
+
+            // Only strings and streams are encrypted
+            match obj {
+                Object::Stream(stream) => stream.set_content(decrypted),
+                Object::String(ref mut content, _) => *content = decrypted,
+                _ => {},
+            }
+        }
+        Ok(())
     }
 
     /// Return the PDF document catalog, which is the root of the document's object graph.

@@ -26,6 +26,7 @@ image = { version = "^0.24", optional = true }
 itoa = "^1.0"
 linked-hash-map = "^0.5"
 log = "^0.4"
+md5 = "0.7.0"
 nom = { version = "^7.1", optional = true }
 pom = { version = "^3.2", optional = true }
 rayon = { version = "^1.6", optional = true }
