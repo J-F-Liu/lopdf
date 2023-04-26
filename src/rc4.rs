@@ -10,11 +10,11 @@ impl Rc4 {
     ///
     pub fn new<Key: AsRef<[u8]>>(key: Key) -> Self {
         let key = key.as_ref();
-        assert!(key.len() >= 1 && key.len() <= 256);
+        assert!(!key.is_empty() && key.len() <= 256);
 
         let mut initial_state = [0_u8; 256];
-        for i in 1..256 {
-            initial_state[i] = i as u8;
+        for (i, v) in initial_state.iter_mut().enumerate() {
+            *v = i as u8;
         }
 
         let mut j = 0_u8;
@@ -52,8 +52,7 @@ impl Rc4 {
         Input: AsRef<[u8]>,
     {
         let input = input.as_ref();
-        let mut output = Vec::with_capacity(input.len());
-        output.resize(input.len(), 0_u8);
+        let mut output = vec![0; input.len()];
         self.apply_keystream(input.iter(), output.iter_mut());
         output
     }

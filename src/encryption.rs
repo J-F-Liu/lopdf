@@ -80,7 +80,7 @@ where
                     .as_i64()
                     .map_err(|_| DecryptionError::InvalidType)?;
     // Currently only support V = 1 or 2
-    if algorithm < 1 || algorithm > 2 {
+    if !(1..=2).contains(&algorithm) {
         return Err(DecryptionError::UnsupportedEncryption);
     }
 
@@ -89,7 +89,7 @@ where
                     .map_err(|_| DecryptionError::MissingRevision)?
                     .as_i64()
                     .map_err(|_| DecryptionError::InvalidType)?;
-    if revision < 2 || revision > 3 {
+    if !(2..=3).contains(&revision) {
         return Err(DecryptionError::UnsupportedEncryption);
     }
 
@@ -107,7 +107,7 @@ where
         .map_err(|_| DecryptionError::MissingOwnerPassword)?
         .as_str()
         .map_err(|_| DecryptionError::InvalidType)?;
-    key.extend_from_slice(&hashed_owner_password);
+    key.extend_from_slice(hashed_owner_password);
 
     // 3.2.4 Append the permissions (4 bytes)
     let permissions = encryption_dict.get(b"P")
@@ -126,7 +126,7 @@ where
         .first().ok_or(DecryptionError::InvalidType)?
         .as_str()
         .map_err(|_| DecryptionError::InvalidType)?;
-    key.extend_from_slice(&file_id_0);
+    key.extend_from_slice(file_id_0);
 
     // 3.2.6 Revision >=4
     if revision >= 4 {
@@ -147,7 +147,7 @@ where
         let check = compute_user_password(&key, revision, file_id_0);
         if let Ok(Object::String(expected, _)) = encryption_dict.get(b"U") {
             // Only first 16 bytes are significant, the rest are arbitrary padding
-            if &expected[..16] != &check[..16] {
+            if expected[..16] != check[..16] {
                 return Err(DecryptionError::IncorrectPassword);
             }
         }
@@ -218,13 +218,13 @@ where
     let rc4_key = &md5::compute(builder)[..key_len];
 
     let encrypted = match obj {
-        Object::String(content, _) => &content,
+        Object::String(content, _) => content,
         Object::Stream(stream) => &stream.content,
         _ => { return Err(DecryptionError::NotDecryptable); },
     };
 
     // Decrypt using the rc4 algorithm
-    Ok(Rc4::new(rc4_key).decrypt(&encrypted))
+    Ok(Rc4::new(rc4_key).decrypt(encrypted))
 }
 
 #[cfg(test)]
