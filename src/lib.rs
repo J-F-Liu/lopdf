@@ -10,6 +10,7 @@ pub use crate::object::{Dictionary, Object, ObjectId, Stream, StringFormat};
 mod document;
 mod incremental_document;
 mod object_stream;
+#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 pub use object_stream::ObjectStream;
 pub mod xref;
 pub use crate::document::Document;
@@ -38,7 +39,9 @@ mod parser;
 mod parser;
 mod parser_aux;
 mod processor;
+#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 mod reader;
+#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 pub use reader::Reader;
 mod rc4;
 mod writer;
