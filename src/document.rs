@@ -1,5 +1,6 @@
 use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Bookmark, Dictionary, Object, ObjectId};
+use crate::encryption;
 use crate::xref::{Xref, XrefType};
 use crate::{Error, Result, Stream};
 use encoding_rs::UTF_16BE;
@@ -251,6 +252,56 @@ impl Document {
     /// Return true is PDF document is encrypted
     pub fn is_encrypted(&self) -> bool {
         self.get_encrypted().is_ok()
+    }
+
+    /// Replaces all encrypted Strings and Streams with their decrypted contents
+    pub fn decrypt<P: AsRef<[u8]>>(&mut self, password: P) -> Result<()> {
+
+        // Find the ID of the encryption dict; we'll want to skip it when decrypting
+        let encryption_obj_id = self.trailer
+            .get(b"Encrypt")
+            .and_then(Object::as_reference)?;
+
+        // Since PDF 1.5, metadata may or may not be encrypted; defaults to true
+        let metadata_is_encrypted = self.get_object(encryption_obj_id)?
+            .as_dict()?
+            .get(b"EncryptMetadata")
+            .and_then(|o| o.as_bool())
+            .unwrap_or(true);
+
+        let key = encryption::get_encryption_key(self, &password, true)?;
+        for (&id, obj) in self.objects.iter_mut() {
+
+            // The encryption dictionary is not encrypted, leave it alone
+            if id == encryption_obj_id {
+                continue;
+            }
+
+            // If a Metadata stream but metadata isn't encrypted, leave it alone
+            if obj.type_name().unwrap_or("") == "Metadata" && !metadata_is_encrypted {
+                continue;
+            }
+
+            let decrypted = match encryption::decrypt_object(&key, id, &*obj) {
+                Ok(content) => content,
+                Err(encryption::DecryptionError::NotDecryptable) => {
+                    continue;
+                }
+                Err(_err) => {
+                    return Err(_err.into());
+                }
+            };
+
+            // Only strings and streams are encrypted
+            match obj {
+                Object::Stream(stream) => stream.set_content(decrypted),
+                Object::String(ref mut content, _) => *content = decrypted,
+                _ => {}
+            }
+        }
+
+        self.trailer.remove(b"Encrypt");
+        Ok(())
     }
 
     /// Return the PDF document catalog, which is the root of the document's object graph.

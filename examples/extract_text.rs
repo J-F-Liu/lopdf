@@ -63,6 +63,10 @@ pub struct Args {
     /// Optional pretty print output.
     #[clap(short, long)]
     pub pretty: bool,
+
+    /// Optional password for encrypted PDFs
+    #[clap(long, default_value_t = String::from(""))]
+    pub password: String,
 }
 
 impl Args {
@@ -134,11 +138,14 @@ fn get_pdf_text(doc: &Document) -> Result<PdfText, Error> {
     Ok(pdf_text)
 }
 
-fn pdf2text<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool) -> Result<(), Error> {
+fn pdf2text<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool, password: &str) -> Result<(), Error> {
     println!("Load {path:?}");
-    let doc = load_pdf(&path)?;
+    let mut doc = load_pdf(&path)?;
     if doc.is_encrypted() {
-        return Err(Error::new(ErrorKind::InvalidInput, "Password missing!"));
+        doc.decrypt(password)
+            .map_err(|_err|
+                Error::new(ErrorKind::InvalidInput, "Failed to decrypt")
+            )?;
     }
     let text = get_pdf_text(&doc)?;
     if !text.errors.is_empty() {
@@ -168,7 +175,7 @@ fn main() -> Result<(), Error> {
     };
     let mut output = PathBuf::from(shellexpand::full(output.to_str().unwrap()).unwrap().to_string());
     output.set_extension("text");
-    pdf2text(&pdf_path, &output, args.pretty)?;
+    pdf2text(&pdf_path, &output, args.pretty, &args.password)?;
     println!(
         "Done after {:.1} seconds.",
         Instant::now().duration_since(start_time).as_secs_f64()
