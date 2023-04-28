@@ -61,6 +61,10 @@ required-features = ["serde"]
 name = "extract_text"
 required-features = ["serde"]
 
+[[example]]
+name = "rotate"
+required-features = ["nom_parser"]
+
 [[tests]]
 name = "modify"
 required-features = ["pom_parser"]
