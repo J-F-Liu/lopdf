@@ -14,6 +14,7 @@ impl From<DateTime<Local>> for Object {
 }
 
 // Find the last `:` and turn it into an `'` to account for PDF weirdness
+#[allow(dead_code)]
 fn convert_utc_offset(bytes: &mut [u8]) {
     let mut index = bytes.len();
     while let Some(last) = bytes[..index].last_mut() {
