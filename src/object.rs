@@ -111,8 +111,8 @@ impl From<Vec<Object>> for Object {
 }
 
 impl From<Dictionary> for Object {
-    fn from(dcit: Dictionary) -> Self {
-        Object::Dictionary(dcit)
+    fn from(dict: Dictionary) -> Self {
+        Object::Dictionary(dict)
     }
 }
 
@@ -421,6 +421,17 @@ impl Dictionary {
         }
 
         self.0 = new_dict;
+    }
+
+    /// Return a reference to the inner  [`LinkedHashMap`].
+    pub fn as_hashmap(&self) -> &LinkedHashMap<Vec<u8>, Object> {
+        &self.0
+    }
+
+
+    /// Return a mut reference to the inner [`LinkedHashMap`].
+    pub fn as_hashmap_mut(&mut self) -> &mut LinkedHashMap<Vec<u8>, Object> {
+        &mut self.0
     }
 }
 
