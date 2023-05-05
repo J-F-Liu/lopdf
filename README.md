@@ -93,7 +93,7 @@ let content = Content {
 // Streams are a dictionary followed by a sequence of bytes. What that sequence of bytes
 // represents depends on context
 // The stream dictionary is set internally to lopdf and normally doesn't
-// need to be manually nanipulated. It contains keys such as
+// need to be manually manipulated. It contains keys such as
 // Length, Filter, DecodeParams, etc
 //
 // content is a stream of encoded content data.
