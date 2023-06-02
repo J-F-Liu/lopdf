@@ -9,13 +9,13 @@ use std::str;
 pub type ObjectId = (u32, u16);
 
 /// Dictionary object.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Dictionary(LinkedHashMap<Vec<u8>, Object>);
 
 /// Stream object
 /// Warning - all streams must be indirect objects, while
 /// the stream dictionary may be a direct object
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stream {
     /// Associated stream dictionary
     pub dict: Dictionary,
@@ -29,7 +29,7 @@ pub struct Stream {
 }
 
 /// Basic PDF object types defined in an enum.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Object {
     Null,
     Boolean(bool),
@@ -44,7 +44,7 @@ pub enum Object {
 }
 
 /// String objects can be written in two formats.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StringFormat {
     #[default]
     Literal,
@@ -427,7 +427,6 @@ impl Dictionary {
     pub fn as_hashmap(&self) -> &LinkedHashMap<Vec<u8>, Object> {
         &self.0
     }
-
 
     /// Return a mut reference to the inner [`LinkedHashMap`].
     pub fn as_hashmap_mut(&mut self) -> &mut LinkedHashMap<Vec<u8>, Object> {
