@@ -44,7 +44,7 @@ pub enum Object {
 }
 
 /// String objects can be written in two formats.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StringFormat {
     #[default]
     Literal,
