@@ -300,6 +300,17 @@ impl Document {
             }
         }
 
+        if let Some(info_obj_id) = self.trailer.get(b"Info").and_then(Object::as_reference).ok() {
+            if let Some(info_dict) = self.get_object_mut(info_obj_id).and_then(Object::as_dict_mut).ok() {
+                for (_, info_obj) in info_dict.iter_mut() {
+                    if let Some(content) = encryption::decrypt_object(&key, info_obj_id, &*info_obj).ok() {
+                        info_obj.as_str_mut().unwrap().clear();
+                        info_obj.as_str_mut().unwrap().extend(content);
+                    };
+                }
+            }
+        }
+
         self.trailer.remove(b"Encrypt");
         Ok(())
     }
