@@ -300,10 +300,10 @@ impl Document {
             }
         }
 
-        if let Some(info_obj_id) = self.trailer.get(b"Info").and_then(Object::as_reference).ok() {
-            if let Some(info_dict) = self.get_object_mut(info_obj_id).and_then(Object::as_dict_mut).ok() {
+        if let Ok(info_obj_id) = self.trailer.get(b"Info").and_then(Object::as_reference) {
+            if let Ok(info_dict) = self.get_object_mut(info_obj_id).and_then(Object::as_dict_mut) {
                 for (_, info_obj) in info_dict.iter_mut() {
-                    if let Some(content) = encryption::decrypt_object(&key, info_obj_id, &*info_obj).ok() {
+                    if let Ok(content) = encryption::decrypt_object(&key, info_obj_id, &*info_obj) {
                         info_obj.as_str_mut().unwrap().clear();
                         info_obj.as_str_mut().unwrap().extend(content);
                     };
