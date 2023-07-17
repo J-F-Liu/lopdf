@@ -272,7 +272,15 @@ impl fmt::Debug for Object {
             Object::Integer(ref value) => write!(f, "{}", *value),
             Object::Real(ref value) => write!(f, "{}", *value),
             Object::Name(ref name) => write!(f, "/{}", String::from_utf8_lossy(name)),
-            Object::String(ref text, _) => write!(f, "({})", String::from_utf8_lossy(text)),
+            Object::String(ref text, StringFormat::Literal) => write!(f, "({})", String::from_utf8_lossy(text)),
+            Object::String(ref text, StringFormat::Hexadecimal) => {
+                write!(f, "<")?;
+                for b in text {
+                    write!(f, "{:02x}", b)?;
+                }
+                write!(f, ">")?;
+                Ok(())
+            }
             Object::Array(ref array) => {
                 let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
                 write!(f, "[{}]", items.join(" "))
