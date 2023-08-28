@@ -256,14 +256,12 @@ impl Document {
 
     /// Replaces all encrypted Strings and Streams with their decrypted contents
     pub fn decrypt<P: AsRef<[u8]>>(&mut self, password: P) -> Result<()> {
-
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
-        let encryption_obj_id = self.trailer
-            .get(b"Encrypt")
-            .and_then(Object::as_reference)?;
+        let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
         // Since PDF 1.5, metadata may or may not be encrypted; defaults to true
-        let metadata_is_encrypted = self.get_object(encryption_obj_id)?
+        let metadata_is_encrypted = self
+            .get_object(encryption_obj_id)?
             .as_dict()?
             .get(b"EncryptMetadata")
             .and_then(|o| o.as_bool())
@@ -271,7 +269,6 @@ impl Document {
 
         let key = encryption::get_encryption_key(self, &password, true)?;
         for (&id, obj) in self.objects.iter_mut() {
-
             // The encryption dictionary is not encrypted, leave it alone
             if id == encryption_obj_id {
                 continue;
@@ -345,19 +342,34 @@ impl Document {
     pub fn get_page_contents(&self, page_id: ObjectId) -> Vec<ObjectId> {
         let mut streams = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
-            if let Ok(contents) = page.get(b"Contents") {
-                match *contents {
-                    Object::Reference(ref id) => {
-                        streams.push(*id);
-                    }
-                    Object::Array(ref arr) => {
-                        for content in arr {
-                            if let Ok(id) = content.as_reference() {
-                                streams.push(id)
+            let mut nb_deref = 0;
+            // Since we're looking for object ids, we can't use get_deref
+            // so manually walk any references in contents object
+            if let Ok(mut contents) = page.get(b"Contents") {
+                loop {
+                    match *contents {
+                        Object::Reference(id) => match self.objects.get(&id) {
+                            None | Some(Object::Stream(_)) => {
+                                streams.push(id);
+                            }
+                            Some(o) => {
+                                nb_deref += 1;
+                                if nb_deref < Self::DEREF_LIMIT {
+                                    contents = o;
+                                    continue;
+                                }
+                            }
+                        },
+                        Object::Array(ref arr) => {
+                            for content in arr {
+                                if let Ok(id) = content.as_reference() {
+                                    streams.push(id)
+                                }
                             }
                         }
+                        _ => {}
                     }
-                    _ => {}
+                    break;
                 }
             }
         }
