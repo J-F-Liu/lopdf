@@ -445,15 +445,28 @@ impl Document {
         fn collect_fonts_from_resources<'a>(
             resources: &'a Dictionary, fonts: &mut BTreeMap<Vec<u8>, &'a Dictionary>, doc: &'a Document,
         ) {
-            if let Ok(font_dict) = resources.get(b"Font").and_then(Object::as_dict) {
-                for (name, value) in font_dict.iter() {
-                    let font = match *value {
-                        Object::Reference(id) => doc.get_dictionary(id).ok(),
-                        Object::Dictionary(ref dict) => Some(dict),
-                        _ => None,
-                    };
-                    if !fonts.contains_key(name) {
-                        font.map(|font| fonts.insert(name.clone(), font));
+            if let Ok(font) = resources.get(b"Font") {
+                let font_dict = match font {
+                    Object::Reference(ref id) => {
+                        doc.get_object(*id).and_then(Object::as_dict).ok()
+                    },
+                    Object::Dictionary(ref dict) => {
+                        Some(dict)
+                    },
+                    _ => {
+                        None
+                    }
+                };
+                if let Some(font_dict) = font_dict {
+                    for (name, value) in font_dict.iter() {
+                        let font = match *value {
+                            Object::Reference(id) => doc.get_dictionary(id).ok(),
+                            Object::Dictionary(ref dict) => Some(dict),
+                            _ => None,
+                        };
+                        if !fonts.contains_key(name) {
+                            font.map(|font| fonts.insert(name.clone(), font));
+                        }
                     }
                 }
             }
