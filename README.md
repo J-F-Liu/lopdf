@@ -73,7 +73,7 @@ let content = Content {
         Operation::new("BT", vec![]),
         // Tf specifies the font and font size. Font scaling is complicated in PDFs. Reference
         // the reference for more info.
-        // The info() methods are defined based on their paired .from() methods (this
+        // The into() methods are defined based on their paired .from() methods (this
         // functionality is built into rust), and are converting the provided values into
         // An enum that represents the basic object types in PDF documents.
         Operation::new("Tf", vec!["F1".into(), 48.into()]),
