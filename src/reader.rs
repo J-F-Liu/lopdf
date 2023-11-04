@@ -46,7 +46,7 @@ impl Document {
     fn load_internal<R: Read>(
         mut source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>,
     ) -> Result<Document> {
-        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
         Reader {
@@ -90,7 +90,7 @@ impl IncrementalDocument {
     }
 
     fn load_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<Self> {
-        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_else(Vec::new);
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
         let document = Reader {

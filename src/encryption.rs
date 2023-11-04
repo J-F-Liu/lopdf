@@ -182,8 +182,7 @@ where
         let mut encrypted_hash = encryptor.encrypt(&hash[..]);
 
         // 3.5.5
-        let mut temp_key = Vec::new();
-        temp_key.resize(key.len(), 0_u8);
+        let mut temp_key = vec![0; key.len()];
         for i in 1..=19 {
             for (in_byte, out_byte) in key.iter().zip(temp_key.iter_mut()) {
                 *out_byte = in_byte ^ (i as u8);
