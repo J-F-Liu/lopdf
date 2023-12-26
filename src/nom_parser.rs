@@ -344,7 +344,7 @@ pub fn indirect_object(
 fn _indirect_object(
     input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
 ) -> crate::Result<(ObjectId, Object)> {
-    let (i, object_id) = terminated(object_id, pair(tag(b"obj"), space))(input).map_err(|_| Error::Parse { offset })?;
+    let (i, (_, object_id)) = terminated(tuple((space, object_id)), pair(tag(b"obj"), space))(input).map_err(|_| Error::Parse { offset })?;
     if let Some(expected_id) = expected_id {
         if object_id != expected_id {
             return Err(crate::error::Error::ObjectIdMismatch);
