@@ -1,5 +1,5 @@
 use super::Object;
-use crate::writer::Writer;
+use crate::writer::{CountingWrite, Writer};
 use crate::Result;
 use std::io::Write;
 
@@ -36,7 +36,7 @@ impl<Operations: AsRef<[Operation]>> Content<Operations> {
                 buffer.write_all(b"\n")?;
             }
             for operand in &operation.operands {
-                Writer::write_object(&mut buffer, operand)?;
+                Writer::write_object(&mut CountingWrite::new(&mut buffer), operand)?;
                 buffer.write_all(b" ")?;
             }
             buffer.write_all(operation.operator.as_bytes())?;

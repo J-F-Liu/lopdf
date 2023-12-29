@@ -5,7 +5,7 @@ use std::vec;
 
 use super::Object::*;
 use super::{Dictionary, Document, Object, Stream, StringFormat};
-use crate::{xref::*, IncrementalDocument};
+use crate::{xref::*, IncrementalDocument, Offset};
 
 impl Document {
     /// Save PDF document to specified file path.
@@ -23,10 +23,7 @@ impl Document {
     }
 
     fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
-        let mut target = CountingWrite {
-            inner: target,
-            bytes_written: 0,
-        };
+        let mut target: CountingWrite<&mut dyn Write> = CountingWrite::new(target);
 
         let mut xref = Xref::new(self.max_id + 1, self.reference_table.cross_reference_type);
         writeln!(target, "%PDF-{}", self.version)?;
@@ -65,8 +62,8 @@ impl Document {
     ///
     /// Insert an `Object` to the end of the PDF (not visible when inspecting `Document`).
     /// Note: This is different from the "Cross Reference Table".
-    fn write_cross_reference_stream<W: Write>(
-        &mut self, file: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: u32,
+    fn write_cross_reference_stream(
+        &mut self, file: &mut CountingWrite<&mut dyn Write>, xref: &mut Xref, xref_start: u32,
     ) -> Result<()> {
         // Increment max_id to account for CRS.
         self.max_id += 1;
@@ -113,7 +110,7 @@ impl Document {
         Ok(())
     }
 
-    fn write_trailer(&mut self, file: &mut dyn Write) -> Result<()> {
+    fn write_trailer(&mut self, file: &mut CountingWrite<&mut dyn Write>) -> Result<()> {
         self.trailer.set("Size", i64::from(self.max_id + 1));
         file.write_all(b"trailer\n")?;
         Writer::write_dictionary(file, &self.trailer)?;
@@ -137,10 +134,7 @@ impl IncrementalDocument {
     }
 
     fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
-        let mut target = CountingWrite {
-            inner: target,
-            bytes_written: 0,
-        };
+        let mut target: CountingWrite<&mut dyn Write> = CountingWrite::new(target);
 
         // Write previous document versions.
         let prev_document_bytes = self.get_prev_documents_bytes();
@@ -204,13 +198,16 @@ pub enum XRefStreamFilter {
 
 impl Writer {
     fn need_separator(object: &Object) -> bool {
-        matches!(*object, Null | Boolean(_) | Integer(_) | Real(_) | Reference(_))
+        matches!(
+            *object,
+            Null | Boolean(_) | Integer(_) | Real(_) | Reference(_) | Placeholder(_, _)
+        )
     }
 
     fn need_end_separator(object: &Object) -> bool {
         matches!(
             *object,
-            Null | Boolean(_) | Integer(_) | Real(_) | Name(_) | Reference(_) | Object::Stream(_)
+            Null | Boolean(_) | Integer(_) | Real(_) | Name(_) | Reference(_) | Object::Stream(_) | Placeholder(_, _)
         )
     }
 
@@ -338,8 +335,8 @@ impl Writer {
         Ok((xref_stream, stream_length, Array(xref_index)))
     }
 
-    fn write_indirect_object<W: Write>(
-        file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &Object, xref: &mut Xref,
+    fn write_indirect_object(
+        file: &mut CountingWrite<&mut dyn Write>, id: u32, generation: u16, object: &Object, xref: &mut Xref,
     ) -> Result<()> {
         let offset = file.bytes_written as u32;
         xref.insert(id, XrefEntry::Normal { offset, generation });
@@ -359,7 +356,7 @@ impl Writer {
         Ok(())
     }
 
-    pub fn write_object(file: &mut dyn Write, object: &Object) -> Result<()> {
+    pub fn write_object(file: &mut CountingWrite<&mut dyn Write>, object: &Object) -> Result<()> {
         match *object {
             Null => file.write_all(b"null"),
             Boolean(ref value) => {
@@ -380,6 +377,7 @@ impl Writer {
             Object::Dictionary(ref dict) => Writer::write_dictionary(file, dict),
             Object::Stream(ref stream) => Writer::write_stream(file, stream),
             Reference(ref id) => write!(file, "{} {} R", id.0, id.1),
+            Placeholder(length, ref offset) => Writer::write_placeholder(file, length, offset),
         }
     }
 
@@ -449,7 +447,7 @@ impl Writer {
         Ok(())
     }
 
-    fn write_array(file: &mut dyn Write, array: &[Object]) -> Result<()> {
+    fn write_array(file: &mut CountingWrite<&mut dyn Write>, array: &[Object]) -> Result<()> {
         file.write_all(b"[")?;
         let mut first = true;
         for object in array {
@@ -464,7 +462,7 @@ impl Writer {
         Ok(())
     }
 
-    fn write_dictionary(file: &mut dyn Write, dictionary: &Dictionary) -> Result<()> {
+    fn write_dictionary(file: &mut CountingWrite<&mut dyn Write>, dictionary: &Dictionary) -> Result<()> {
         file.write_all(b"<<")?;
         for (key, value) in dictionary {
             Writer::write_name(file, key)?;
@@ -477,7 +475,13 @@ impl Writer {
         Ok(())
     }
 
-    fn write_stream(file: &mut dyn Write, stream: &Stream) -> Result<()> {
+    fn write_placeholder(file: &mut CountingWrite<&mut dyn Write>, length: usize, offset: &Offset) -> Result<()> {
+        offset.set(file.bytes_written);
+        file.write_all(&vec![b' '; length])?;
+        Ok(())
+    }
+
+    fn write_stream(file: &mut CountingWrite<&mut dyn Write>, stream: &Stream) -> Result<()> {
         Writer::write_dictionary(file, &stream.dict)?;
         file.write_all(b"stream\n")?;
         file.write_all(&stream.content)?;
@@ -489,6 +493,15 @@ impl Writer {
 pub struct CountingWrite<W: Write> {
     inner: W,
     bytes_written: usize,
+}
+
+impl<W: Write> CountingWrite<W> {
+    pub(crate) fn new(inner: W) -> Self {
+        Self {
+            inner,
+            bytes_written: 0,
+        }
+    }
 }
 
 impl<W: Write> Write for CountingWrite<W> {
@@ -534,10 +547,12 @@ fn save_document() {
         .insert((9, 2), Array(vec![Integer(1), Integer(2), Integer(3)]));
     doc.objects
         .insert((11, 0), Stream(Stream::new(Dictionary::new(), vec![0x41, 0x42, 0x43])));
+    let placeholder_offset = Offset::new_unspecified();
     let mut dict = Dictionary::new();
     dict.set("A", Null);
     dict.set("B", false);
     dict.set("C", Name(b"name".to_vec()));
+    dict.set("Placeholder", Placeholder(20, placeholder_offset.clone()));
     doc.objects.insert((12, 0), Object::Dictionary(dict));
     doc.max_id = 12;
 
@@ -551,4 +566,6 @@ fn save_document() {
     assert!(file_path.is_file());
     // Check if the file is above 400 bytes (should be about 610 bytes)
     assert!(file_path.metadata().unwrap().len() > 400);
+    // Check that placeholder offset was captured
+    assert!(placeholder_offset.get().is_some())
 }
