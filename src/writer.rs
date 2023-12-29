@@ -566,6 +566,6 @@ fn save_document() {
     assert!(file_path.is_file());
     // Check if the file is above 400 bytes (should be about 610 bytes)
     assert!(file_path.metadata().unwrap().len() > 400);
-    // Check that placeholder offset was captured
+    // Check if placeholder offset was captured
     assert!(placeholder_offset.get().is_some())
 }

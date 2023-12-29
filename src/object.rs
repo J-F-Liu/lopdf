@@ -43,10 +43,11 @@ pub enum Object {
     Dictionary(Dictionary),
     Stream(Stream),
     Reference(ObjectId),
+    /// Used for recording the object position in the written file. The file must be post-processed so that it can be read by PDF Reader. Intended solely for use when signing the document.
     Placeholder(usize, Offset),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Offset(pub(crate) Arc<AtomicUsize>);
 
 impl PartialEq for Offset {
