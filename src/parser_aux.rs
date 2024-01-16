@@ -81,7 +81,7 @@ impl Document {
                     "Tf" => {
                         let current_font = operation
                             .operands
-                            .get(0)
+                            .first()
                             .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
                             .as_name()?;
                         current_encoding = encodings.get(current_font).cloned();
@@ -120,7 +120,7 @@ impl Document {
                 "Tf" => {
                     let current_font = operation
                         .operands
-                        .get(0)
+                        .first()
                         .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
                         .as_name()?;
                     current_encoding = encodings.get(current_font).map(std::string::String::as_str);

@@ -1,6 +1,6 @@
-use std::fmt;
-use crate::{Document, Object, ObjectId};
 use crate::rc4::Rc4;
+use crate::{Document, Object, ObjectId};
+use std::fmt;
 
 #[derive(Debug)]
 pub enum DecryptionError {
@@ -36,16 +36,16 @@ impl fmt::Display for DecryptionError {
             DecryptionError::MissingFileID => write!(f, "missing the file /ID elements"),
             DecryptionError::NotDecryptable => write!(f, "the object is not capable of being decrypted"),
             DecryptionError::IncorrectPassword => write!(f, "the supplied password is incorrect"),
-            DecryptionError::UnsupportedEncryption=> write!(f, "the document uses an encryption scheme that is not supported"),
+            DecryptionError::UnsupportedEncryption => {
+                write!(f, "the document uses an encryption scheme that is not supported")
+            }
         }
     }
 }
 
 const PAD_BYTES: [u8; 32] = [
-    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41,
-    0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
-    0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80,
-    0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
+    0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00,
+    0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ];
 
 const DEFAULT_KEY_LEN: Object = Object::Integer(40);
@@ -59,36 +59,40 @@ where
 {
     let password = password.as_ref();
 
-    let encryption_dict = doc.get_encrypted()
+    let encryption_dict = doc
+        .get_encrypted()
         .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
 
     // Very early versions of PDF assume a key length of 40 bits
-    let key_len = encryption_dict.get(b"Length")
-                    .unwrap_or(&DEFAULT_KEY_LEN)
-                    .as_i64()
-                    .map_err(|_| DecryptionError::InvalidType)?
-                    as usize / 8; // Length is in bits, convert to bytes
+    let key_len = encryption_dict
+        .get(b"Length")
+        .unwrap_or(&DEFAULT_KEY_LEN)
+        .as_i64()
+        .map_err(|_| DecryptionError::InvalidType)? as usize
+        / 8; // Length is in bits, convert to bytes
 
     // MD5 produces 128bit digests, so key_len must not be greater
-    if key_len > 128/8 {
+    if key_len > 128 / 8 {
         return Err(DecryptionError::InvalidKeyLength);
     }
 
     // Make sure we support the encryption algorithm
-    let algorithm = encryption_dict.get(b"V")
-                    .unwrap_or(&DEFAULT_ALGORITHM)
-                    .as_i64()
-                    .map_err(|_| DecryptionError::InvalidType)?;
+    let algorithm = encryption_dict
+        .get(b"V")
+        .unwrap_or(&DEFAULT_ALGORITHM)
+        .as_i64()
+        .map_err(|_| DecryptionError::InvalidType)?;
     // Currently only support V = 1 or 2
     if !(1..=2).contains(&algorithm) {
         return Err(DecryptionError::UnsupportedEncryption);
     }
 
     // Revision number dictates hashing strategy
-    let revision = encryption_dict.get(b"R")
-                    .map_err(|_| DecryptionError::MissingRevision)?
-                    .as_i64()
-                    .map_err(|_| DecryptionError::InvalidType)?;
+    let revision = encryption_dict
+        .get(b"R")
+        .map_err(|_| DecryptionError::MissingRevision)?
+        .as_i64()
+        .map_err(|_| DecryptionError::InvalidType)?;
     if !(2..=3).contains(&revision) {
         return Err(DecryptionError::UnsupportedEncryption);
     }
@@ -100,17 +104,19 @@ where
     let mut key = Vec::with_capacity(128);
     let password_len = std::cmp::min(password.len(), 32);
     key.extend_from_slice(&password[0..password_len]);
-    key.extend_from_slice(&PAD_BYTES[0..32-password_len]);
+    key.extend_from_slice(&PAD_BYTES[0..32 - password_len]);
 
     // 3.2.3 Append hashed owner password
-    let hashed_owner_password = encryption_dict.get(b"O")
+    let hashed_owner_password = encryption_dict
+        .get(b"O")
         .map_err(|_| DecryptionError::MissingOwnerPassword)?
         .as_str()
         .map_err(|_| DecryptionError::InvalidType)?;
     key.extend_from_slice(hashed_owner_password);
 
     // 3.2.4 Append the permissions (4 bytes)
-    let permissions = encryption_dict.get(b"P")
+    let permissions = encryption_dict
+        .get(b"P")
         // we don't actually care about the permissions but we need the correct
         //  value to get the correct key
         .map_err(|_| DecryptionError::MissingPermissions)?
@@ -119,11 +125,14 @@ where
     key.extend_from_slice(&permissions.to_le_bytes());
 
     // 3.2.5 Append the first element of the file identifier
-    let file_id_0 = doc.trailer.get(b"ID")
+    let file_id_0 = doc
+        .trailer
+        .get(b"ID")
         .map_err(|_| DecryptionError::MissingFileID)?
         .as_array()
         .map_err(|_| DecryptionError::InvalidType)?
-        .first().ok_or(DecryptionError::InvalidType)?
+        .first()
+        .ok_or(DecryptionError::InvalidType)?
         .as_str()
         .map_err(|_| DecryptionError::InvalidType)?;
     key.extend_from_slice(file_id_0);
@@ -167,7 +176,6 @@ where
     if revision == 2 {
         // Algorithm 3.4
         encryptor.decrypt(PAD_BYTES)
-
     } else {
         // Algorithm 3.5
         // 3.5.2
@@ -219,7 +227,9 @@ where
     let encrypted = match obj {
         Object::String(content, _) => content,
         Object::Stream(stream) => &stream.content,
-        _ => { return Err(DecryptionError::NotDecryptable); },
+        _ => {
+            return Err(DecryptionError::NotDecryptable);
+        }
     };
 
     // Decrypt using the rc4 algorithm
@@ -234,18 +244,20 @@ mod tests {
     fn rc4_works() {
         let cases = [
             // Key, Plain, Cipher
-            (String::from("Key"), String::from("Plaintext"), String::from("BBF316E8D940AF0AD3")),
+            (
+                String::from("Key"),
+                String::from("Plaintext"),
+                String::from("BBF316E8D940AF0AD3"),
+            ),
             (String::from("Wiki"), String::from("pedia"), String::from("1021BF0420")),
         ];
 
         for (key, plain, cipher) in cases {
             // Reencode cipher from a hex string to a Vec<u8>
             let cipher = cipher.as_bytes();
-            let mut cipher_bytes = Vec::with_capacity(cipher.len()/2);
+            let mut cipher_bytes = Vec::with_capacity(cipher.len() / 2);
             for hex_pair in cipher.chunks_exact(2) {
-                cipher_bytes.push(
-                    u8::from_str_radix(std::str::from_utf8(hex_pair).unwrap(), 16).unwrap()
-                );
+                cipher_bytes.push(u8::from_str_radix(std::str::from_utf8(hex_pair).unwrap(), 16).unwrap());
             }
 
             let decryptor = Rc4::new(key);
