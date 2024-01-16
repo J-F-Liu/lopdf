@@ -375,7 +375,7 @@ pub fn header(input: &[u8]) -> Option<String> {
 fn xref(input: &[u8]) -> NomResult<Xref> {
     let xref_eol = map(alt((tag(b" \r"), tag(b" \n"), tag(b"\r\n"))), |_| ());
     let xref_entry = pair(
-        separated_pair(unsigned_int, tag(b" "), unsigned_int),
+        separated_pair(unsigned_int, tag(b" "), unsigned_int::<u32>),
         delimited(tag(b" "), map(one_of("nf"), |k| k == 'n'), xref_eol),
     );
 
@@ -392,7 +392,9 @@ fn xref(input: &[u8]) -> NomResult<Xref> {
             |mut xref, ((start, _count), entries)| {
                 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
                     if is_normal {
-                        xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
+                        if let Ok(generation) = generation.try_into() {
+                            xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
+                        }
                     }
                 }
                 xref
@@ -576,6 +578,45 @@ T* (encoded streams.) Tj
         match out {
             Some(Object::String(s, _)) => assert_eq!(s, b"\x90\x1F\xA0".to_vec()),
             _ => panic!("unexpected {:?}", out),
+        }
+    }
+
+    #[test]
+    fn big_generation_value() {
+        let input = b"xref
+0 1
+0000000000 65536 f 
+0 16
+0000000000 65535 f 
+0000153238 00000 n 
+0000000019 00000 n 
+0000000313 00000 n 
+0000000333 00000 n 
+0000145531 00000 n 
+0000153407 00000 n 
+0000145554 00000 n 
+0000152303 00000 n 
+0000152324 00000 n 
+0000152514 00000 n 
+0000152880 00000 n 
+0000153106 00000 n 
+0000153139 00000 n 
+0000153532 00000 n 
+0000153629 00000 n 
+trailer
+<</Size 16/Root 14 0 R
+/Info 15 0 R
+/ID [ <9DDC4B621B3F485FF5ED0F57D00A028F>
+<9DDC4B621B3F485FF5ED0F57D00A028F> ]
+/DocChecksum /2BCC3C7DE26E6BF3573E4A6E8362221F
+>>
+startxref
+153804
+%%EOF
+";
+        match xref(input) {
+            Ok((_, re)) => assert_eq!(re.entries.len(), 15),
+            Err(err) => panic!("unexpected {:?}", err),
         }
     }
 }
