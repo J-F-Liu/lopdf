@@ -1,22 +1,23 @@
+#![cfg(feature = "async")]
 #![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 
 use log::{error, warn};
 use std::cmp;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
+use tokio::fs::File;
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::pin;
+
 use super::parser;
 use super::{Document, Object, ObjectId};
 use crate::error::XrefError;
-#[allow(unused_imports)]
-use crate::MAX_BRACKET;
 use crate::object_stream::ObjectStream;
 use crate::xref::XrefEntry;
 use crate::{Error, IncrementalDocument, Result};
@@ -24,38 +25,33 @@ use crate::{Error, IncrementalDocument, Result};
 type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
 
 impl Document {
-    /// Load a PDF document from a specified file path.
-    #[inline]
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, None)
+    pub async fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_internal(file, capacity, None).await
     }
 
-    #[inline]
-    pub fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, Some(filter_func))
+    pub async fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_internal(file, capacity, Some(filter_func)).await
     }
 
-    /// Load a PDF document from an arbitrary source.
-    #[inline]
-    pub fn load_from<R: Read>(source: R) -> Result<Document> {
-        Self::load_internal(source, None, None)
-    }
-
-    fn load_internal<R: Read>(
-        mut source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>,
+    async fn load_internal<R: AsyncRead>(
+        source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>,
     ) -> Result<Document> {
-        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
-        source.read_to_end(&mut buffer)?;
+        pin!(source);
 
-        Reader {
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
+        source.read_to_end(&mut buffer).await?;
+
+        AsyncReader {
             buffer: &buffer,
             document: Document::new(),
         }
-        .read(filter_func)
+            .read(filter_func)
     }
 
     /// Load a PDF document from a memory slice.
@@ -68,38 +64,41 @@ impl TryInto<Document> for &[u8] {
     type Error = Error;
 
     fn try_into(self) -> Result<Document> {
-        Reader {
+        AsyncReader {
             buffer: self,
             document: Document::new(),
         }
-        .read(None)
+            .read(None)
     }
 }
 
 impl IncrementalDocument {
     /// Load a PDF document from a specified file path.
     #[inline]
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity)
+    pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_internal(file, capacity).await
     }
 
     /// Load a PDF document from an arbitrary source.
     #[inline]
-    pub fn load_from<R: Read>(source: R) -> Result<Self> {
-        Self::load_internal(source, None)
+    pub async fn load_from<R: AsyncRead>(source: R) -> Result<Self> {
+        Self::load_internal(source, None).await
     }
 
-    fn load_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<Self> {
-        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
-        source.read_to_end(&mut buffer)?;
+    async fn load_internal<R: AsyncRead>(source: R, capacity: Option<usize>) -> Result<Self> {
+        pin!(source);
 
-        let document = Reader {
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
+        source.read_to_end(&mut buffer).await?;
+
+        let document = AsyncReader {
             buffer: &buffer,
             document: Document::new(),
         }
-        .read(None)?;
+            .read(None)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }
@@ -114,22 +113,22 @@ impl TryInto<IncrementalDocument> for &[u8] {
     type Error = Error;
 
     fn try_into(self) -> Result<IncrementalDocument> {
-        let document = Reader {
+        let document = AsyncReader {
             buffer: self,
             document: Document::new(),
         }
-        .read(None)?;
+            .read(None)?;
 
         Ok(IncrementalDocument::create_from(self.to_vec(), document))
     }
 }
 
-pub struct Reader<'a> {
+pub struct AsyncReader<'a> {
     pub buffer: &'a [u8],
     pub document: Document,
 }
 
-impl<'a> Reader<'a> {
+impl<'a> AsyncReader<'a> {
     /// Read whole document.
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         // The document structure can be expressed in PEG as:
@@ -357,119 +356,13 @@ impl<'a> Reader<'a> {
     }
 }
 
-#[test]
-fn load_document() {
-    let mut doc = Document::load("assets/example.pdf").unwrap();
+#[tokio::test]
+async fn load_document() {
+    let mut doc = Document::load("assets/example.pdf").await.unwrap();
     assert_eq!(doc.version, "1.5");
 
     // Create temporary folder to store file.
     let temp_dir = tempfile::tempdir().unwrap();
     let file_path = temp_dir.path().join("test_2_load.pdf");
     doc.save(file_path).unwrap();
-}
-
-#[test]
-#[should_panic(expected = "Xref(Start)")]
-fn load_short_document() {
-    let _doc = Document::load_mem(b"%PDF-1.5\n%%EOF\n").unwrap();
-}
-
-#[test]
-fn load_many_shallow_brackets() {
-    let content: String = std::iter::repeat("()")
-        .take(MAX_BRACKET * 10)
-        .flat_map(|x| x.chars())
-        .collect();
-    const STREAM_CRUFT: usize = 33;
-    let doc = format!(
-        "%PDF-1.5
-1 0 obj<</Type/Pages/Kids[5 0 R]/Count 1/Resources 3 0 R/MediaBox[0 0 595 842]>>endobj
-2 0 obj<</Type/Font/Subtype/Type1/BaseFont/Courier>>endobj
-3 0 obj<</Font<</F1 2 0 R>>>>endobj
-5 0 obj<</Type/Page/Parent 1 0 R/Contents[4 0 R]>>endobj
-6 0 obj<</Type/Catalog/Pages 1 0 R>>endobj
-4 0 obj<</Length {}>>stream
-BT
-/F1 48 Tf
-100 600 Td
-({}) Tj
-ET
-endstream endobj\n",
-        content.len() + STREAM_CRUFT,
-        content
-    );
-    let doc = format!(
-        "{}xref
-0 7
-0000000000 65535 f 
-0000000009 00000 n 
-0000000096 00000 n 
-0000000155 00000 n 
-0000000291 00000 n 
-0000000191 00000 n 
-0000000248 00000 n 
-trailer
-<</Root 6 0 R/Size 7>>
-startxref
-{}
-%%EOF",
-        doc,
-        doc.len()
-    );
-
-    let _doc = Document::load_mem(doc.as_bytes()).unwrap();
-}
-
-#[test]
-fn load_too_deep_brackets() {
-    let content: Vec<u8> = std::iter::repeat(b'(')
-        .take(MAX_BRACKET + 1)
-        .chain(std::iter::repeat(b')').take(MAX_BRACKET + 1))
-        .collect();
-    let content = String::from_utf8(content).unwrap();
-    const STREAM_CRUFT: usize = 33;
-    let doc = format!(
-        "%PDF-1.5
-1 0 obj<</Type/Pages/Kids[5 0 R]/Count 1/Resources 3 0 R/MediaBox[0 0 595 842]>>endobj
-2 0 obj<</Type/Font/Subtype/Type1/BaseFont/Courier>>endobj
-3 0 obj<</Font<</F1 2 0 R>>>>endobj
-5 0 obj<</Type/Page/Parent 1 0 R/Contents[7 0 R 4 0 R]>>endobj
-6 0 obj<</Type/Catalog/Pages 1 0 R>>endobj
-7 0 obj<</Length 45>>stream
-BT /F1 48 Tf 100 600 Td (Hello World!) Tj ET
-endstream
-endobj
-4 0 obj<</Length {}>>stream
-BT
-/F1 48 Tf
-100 600 Td
-({}) Tj
-ET
-endstream endobj\n",
-        content.len() + STREAM_CRUFT,
-        content
-    );
-    let doc = format!(
-        "{}xref
-0 7
-0000000000 65535 f 
-0000000009 00000 n 
-0000000096 00000 n 
-0000000155 00000 n 
-0000000387 00000 n 
-0000000191 00000 n 
-0000000254 00000 n 
-0000000297 00000 n 
-trailer
-<</Root 6 0 R/Size 7>>
-startxref
-{}
-%%EOF",
-        doc,
-        doc.len()
-    );
-
-    let doc = Document::load_mem(doc.as_bytes()).unwrap();
-    let pages = doc.get_pages().keys().cloned().collect::<Vec<_>>();
-    assert_eq!("Hello World!\n", doc.extract_text(&pages).unwrap());
 }
