@@ -66,5 +66,3 @@ async fn main() {
     // Store file in current working directory.
     doc.save(output_file).unwrap();
 }
-
-
