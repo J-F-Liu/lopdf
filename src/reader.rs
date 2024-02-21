@@ -76,14 +76,14 @@ impl Document {
 #[cfg(feature = "async")]
 impl Document {
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
-        let file = tokio::fs::File::open(path).await?;
+        let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
         Self::load_internal(file, capacity, None).await
     }
 
     pub async fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
-        let file = tokio::fs::File::open(path).await?;
+        let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
         Self::load_internal(file, capacity, Some(filter_func)).await
