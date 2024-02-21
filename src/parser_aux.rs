@@ -285,7 +285,6 @@ fn parse_integer_array(array: &Object) -> Result<Vec<i64>> {
     Ok(out)
 }
 
-#[cfg(all(test, not(feature = "async")))]
 #[test]
 fn load_and_save() {
     // test load_from() and save_to()

@@ -39,8 +39,6 @@ mod parser;
 mod parser;
 mod parser_aux;
 mod processor;
-/// Maximum allowed embedding of literal strings.
-pub const MAX_BRACKET: usize = 100;
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 mod reader;
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]

@@ -1,24 +1,22 @@
 // Only run test when parser is enabled
 #![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 
-#[cfg(all(test, not(feature = "async")))]
-use lopdf::{Document, IncrementalDocument, Result};
-#[cfg(all(test, not(feature = "async")))]
+use lopdf::Result;
 use tempfile::tempdir;
 
+mod utils;
+
 #[test]
-#[cfg(all(test, not(feature = "async")))]
 fn load_incremental_file_as_linear_file() -> Result<()> {
-    let doc = Document::load("assets/Incremental.pdf")?;
+    let doc = utils::load_document("assets/Incremental.pdf")?;
     assert_eq!(doc.version, "1.5".to_string());
 
     Ok(())
 }
 
 #[test]
-#[cfg(all(test, not(feature = "async")))]
 fn load_incremental_file() -> Result<()> {
-    let mut doc = IncrementalDocument::load("assets/Incremental.pdf")?;
+    let mut doc = utils::load_incremental_document("assets/Incremental.pdf")?;
     assert_eq!(doc.get_prev_documents().version, "1.5".to_string());
 
     // Create temporary folder to store file.

@@ -22,8 +22,6 @@ use tokio::pin;
 
 use crate::parser;
 use crate::error::XrefError;
-#[allow(unused_imports)]
-use crate::MAX_BRACKET;
 use crate::object_stream::ObjectStream;
 use crate::xref::XrefEntry;
 use crate::{Document, Error, IncrementalDocument, Result, Object, ObjectId};
@@ -213,6 +211,9 @@ pub struct Reader<'a> {
     pub buffer: &'a [u8],
     pub document: Document,
 }
+
+/// Maximum allowed embedding of literal strings.
+pub const MAX_BRACKET: usize = 100;
 
 impl<'a> Reader<'a> {
     /// Read whole document.

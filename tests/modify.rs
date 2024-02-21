@@ -1,8 +1,6 @@
-#[cfg(not(feature = "async"))]
 use lopdf::{Document, Object};
 
 #[test]
-#[cfg(all(test, not(feature = "async")))]
 fn test_get_object() {
     use self::Object;
     use lopdf::Dictionary as LoDictionary;
@@ -26,7 +24,6 @@ fn test_get_object() {
 }
 
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
-#[cfg(all(test, not(feature = "async")))]
 mod tests_with_parsing {
     use super::*;
     use lopdf::Result;

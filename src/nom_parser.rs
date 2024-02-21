@@ -1,6 +1,7 @@
-use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
+use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
 use crate::content::*;
 use crate::error::XrefError;
+use crate::reader::Reader;
 use crate::xref::*;
 use crate::Error;
 use std::str::{self, FromStr};
@@ -203,7 +204,7 @@ fn nested_literal_string(depth: usize) -> impl Fn(&[u8]) -> NomResult<Vec<u8>> {
 }
 
 fn literal_string(input: &[u8]) -> NomResult<Vec<u8>> {
-    delimited(tag(b"("), inner_literal_string(crate::MAX_BRACKET), tag(b")"))(input)
+    delimited(tag(b"("), inner_literal_string(crate::reader::MAX_BRACKET), tag(b")"))(input)
 }
 
 #[inline]
