@@ -41,20 +41,11 @@ mod parser_aux;
 mod processor;
 /// Maximum allowed embedding of literal strings.
 pub const MAX_BRACKET: usize = 100;
-#[cfg(not(feature = "async"))]
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 mod reader;
-#[cfg(not(feature = "async"))]
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 pub use reader::Reader;
-#[cfg(feature = "async")]
-#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
-mod async_reader;
-#[cfg(feature = "async")]
-#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
-pub use async_reader::AsyncReader as Reader;
 mod rc4;
 mod writer;
 pub mod xobject;
-
 pub use error::{Error, Result};
