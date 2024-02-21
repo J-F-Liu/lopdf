@@ -1,10 +1,11 @@
 // Only run test when parser is enabled
 #![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 
+#[cfg(all(test, not(feature = "async")))]
 use lopdf::{Document, Result};
 
-
 #[test]
+#[cfg(all(test, not(feature = "async")))]
 fn annotation_count() -> Result<()> {
     // This test file from the pdfcpu repository,
     // https://github.com/pdfcpu/pdfcpu/blob/master/pkg/samples/basic/AnnotationDemo.pdf
