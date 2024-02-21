@@ -5,7 +5,6 @@ use lopdf::Result;
 
 mod utils;
 
-
 #[test]
 fn annotation_count() -> Result<()> {
     // This test file from the pdfcpu repository,

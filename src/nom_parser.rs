@@ -1,7 +1,6 @@
-use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
+use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
 use crate::content::*;
 use crate::error::XrefError;
-use crate::reader::Reader;
 use crate::xref::*;
 use crate::Error;
 use std::str::{self, FromStr};
