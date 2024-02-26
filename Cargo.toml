@@ -32,6 +32,7 @@ pom = { version = "^3.2", optional = true }
 rayon = { version = "^1.6", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 time = { version = "^0.3", features = ["formatting", "parsing"] }
+tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.1"
 
 [dev-dependencies]
@@ -40,6 +41,7 @@ serde_json = "1.0"
 clap = { version = "4.0", features = ["derive"] }
 shellexpand = "3.0"
 env_logger = "0.10"
+tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread", "macros"] }
 
 [features]
 chrono_time = ["chrono"]
@@ -48,6 +50,7 @@ embed_image = ["image"]
 nom_parser = ["nom"]
 pom_parser = ["pom"]
 serde = ["dep:serde"]
+async = ["tokio"]
 
 [[example]]
 name = "add_barcode"
@@ -62,10 +65,14 @@ name = "extract_text"
 required-features = ["serde"]
 
 [[example]]
+name = "print_annotations"
+required-features = ["default"]
+
+[[example]]
 name = "rotate"
 required-features = ["nom_parser"]
 
-[[tests]]
+[[test]]
 name = "modify"
 required-features = ["pom_parser"]
 

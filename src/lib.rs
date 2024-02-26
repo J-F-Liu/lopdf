@@ -46,4 +46,5 @@ pub use reader::Reader;
 mod rc4;
 mod writer;
 pub mod xobject;
+
 pub use error::{Error, Result};

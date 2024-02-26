@@ -401,6 +401,7 @@ fn main() -> std::io::Result<()> {
 use lopdf::Document;
 
 // For this example to work a parser feature needs to be enabled
+#[cfg(not(feature = "async"))]
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 {
     let mut doc = Document::load("assets/example.pdf").unwrap();
@@ -412,6 +413,25 @@ use lopdf::Document;
     if false {
         doc.save("modified.pdf").unwrap();
     }
+}
+
+#[cfg(feature = "async")]
+#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
+{
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("Failed to create runtime")
+        .block_on(async move {
+            let mut doc = Document::load("assets/example.pdf").await.unwrap();
+            
+            doc.version = "1.4".to_string();
+            doc.replace_text(1, "Hello World!", "Modified text!");
+            // Store file in current working directory.
+            // Note: Line is excluded when running tests
+            if false {
+                doc.save("modified.pdf").unwrap();
+            }
+    });
 }
 ```
 

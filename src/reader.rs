@@ -4,23 +4,32 @@ use log::{error, warn};
 use std::cmp;
 use std::collections::BTreeMap;
 use std::convert::TryInto;
+#[cfg(not(feature = "async"))]
 use std::fs::File;
+#[cfg(not(feature = "async"))]
 use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
+#[cfg(feature = "async")]
+use tokio::fs::File;
+#[cfg(feature = "async")]
+use tokio::io::{AsyncRead, AsyncReadExt};
+#[cfg(feature = "async")]
+use tokio::pin;
 
-use super::parser;
-use super::{Document, Object, ObjectId};
+use crate::parser;
 use crate::error::XrefError;
 use crate::object_stream::ObjectStream;
 use crate::xref::XrefEntry;
-use crate::{Error, IncrementalDocument, Result};
+use crate::{Document, Error, IncrementalDocument, Result, Object, ObjectId};
 
 type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
 
+
+#[cfg(not(feature = "async"))]
 impl Document {
     /// Load a PDF document from a specified file path.
     #[inline]
@@ -62,6 +71,43 @@ impl Document {
     }
 }
 
+#[cfg(feature = "async")]
+impl Document {
+    pub async fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_internal(file, capacity, None).await
+    }
+
+    pub async fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_internal(file, capacity, Some(filter_func)).await
+    }
+
+    async fn load_internal<R: AsyncRead>(
+        source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>,
+    ) -> Result<Document> {
+        pin!(source);
+
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
+        source.read_to_end(&mut buffer).await?;
+
+        Reader {
+            buffer: &buffer,
+            document: Document::new(),
+        }
+            .read(filter_func)
+    }
+
+    /// Load a PDF document from a memory slice.
+    pub fn load_mem(buffer: &[u8]) -> Result<Document> {
+        buffer.try_into()
+    }
+}
+
 impl TryInto<Document> for &[u8] {
     type Error = Error;
 
@@ -74,6 +120,7 @@ impl TryInto<Document> for &[u8] {
     }
 }
 
+#[cfg(not(feature = "async"))]
 impl IncrementalDocument {
     /// Load a PDF document from a specified file path.
     #[inline]
@@ -98,6 +145,44 @@ impl IncrementalDocument {
             document: Document::new(),
         }
         .read(None)?;
+
+        Ok(IncrementalDocument::create_from(buffer, document))
+    }
+
+    /// Load a PDF document from a memory slice.
+    pub fn load_mem(buffer: &[u8]) -> Result<Document> {
+        buffer.try_into()
+    }
+}
+
+#[cfg(feature = "async")]
+impl IncrementalDocument {
+    /// Load a PDF document from a specified file path.
+    #[inline]
+    pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_internal(file, capacity).await
+    }
+
+    /// Load a PDF document from an arbitrary source.
+    #[inline]
+    pub async fn load_from<R: AsyncRead>(source: R) -> Result<Self> {
+        Self::load_internal(source, None).await
+    }
+
+    async fn load_internal<R: AsyncRead>(source: R, capacity: Option<usize>) -> Result<Self> {
+        pin!(source);
+
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
+        source.read_to_end(&mut buffer).await?;
+
+        let document = Reader {
+            buffer: &buffer,
+            document: Document::new(),
+        }
+            .read(None)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }
@@ -358,9 +443,22 @@ impl<'a> Reader<'a> {
     }
 }
 
+#[cfg(all(test, not(feature = "async")))]
 #[test]
 fn load_document() {
     let mut doc = Document::load("assets/example.pdf").unwrap();
+    assert_eq!(doc.version, "1.5");
+
+    // Create temporary folder to store file.
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("test_2_load.pdf");
+    doc.save(file_path).unwrap();
+}
+
+#[cfg(all(test, feature = "async"))]
+#[tokio::test]
+async fn load_document() {
+    let mut doc = Document::load("assets/example.pdf").await.unwrap();
     assert_eq!(doc.version, "1.5");
 
     // Create temporary folder to store file.
