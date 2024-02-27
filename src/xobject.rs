@@ -87,11 +87,23 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     }
 }
 
-#[cfg(feature = "embed_image")]
+#[cfg(all(feature = "embed_image", not(feature = "async")))]
 #[test]
 fn insert_image() {
     use super::xobject;
     let mut doc = Document::load("assets/example.pdf").unwrap();
+    let pages = doc.get_pages();
+    let page_id = *pages.get(&1).expect(&format!("Page {} not exist.", 1));
+    let img = xobject::image("assets/pdf_icon.jpg").unwrap();
+    doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0)).unwrap();
+    doc.save("test_5_image.pdf").unwrap();
+}
+
+#[cfg(all(feature = "embed_image", feature = "async"))]
+#[tokio::test]
+async fn insert_image() {
+    use super::xobject;
+    let mut doc = Document::load("assets/example.pdf").await.unwrap();
     let pages = doc.get_pages();
     let page_id = *pages.get(&1).expect(&format!("Page {} not exist.", 1));
     let img = xobject::image("assets/pdf_icon.jpg").unwrap();
