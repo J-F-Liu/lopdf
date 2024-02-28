@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use super::{Destination, Dictionary, Document, Error, Object, Result};
 
@@ -8,7 +8,7 @@ pub enum Outline {
 }
 
 fn build_outline_result(
-    dest: &Object, title: &Object, named_destinations: &mut BTreeMap<Vec<u8>, Destination>,
+    dest: &Object, title: &Object, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
 ) -> Result<Option<Outline>> {
     return Ok(Some(match dest {
         Object::Array(ref obj_array) => Outline::Destination(Destination::new(
@@ -30,7 +30,7 @@ fn build_outline_result(
 
 impl Document {
     pub fn get_outline(
-        &self, node: &Dictionary, named_destinations: &mut BTreeMap<Vec<u8>, Destination>,
+        &self, node: &Dictionary, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<Option<Outline>> {
         let action = match self.get_dict_in_dict(node, b"A") {
             Ok(a) => a,
@@ -55,7 +55,7 @@ impl Document {
 
     pub fn get_outlines(
         &self, mut node: Option<Object>, mut outlines: Option<Vec<Outline>>,
-        named_destinations: &mut BTreeMap<Vec<u8>, Destination>,
+        named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<Option<Vec<Outline>>> {
         if outlines.is_none() {
             outlines = Some(Vec::new());

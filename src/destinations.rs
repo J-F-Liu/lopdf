@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::{Dictionary, Document, Object, Result};
-
+use indexmap::IndexMap;
 #[derive(Debug, Clone)]
 pub struct Destination {
     map: BTreeMap<Vec<u8>, Object>,
@@ -33,7 +33,7 @@ impl Destination {
 
 impl Document {
     pub fn get_named_destinations(
-        &self, tree: &Dictionary, named_destinations: &mut BTreeMap<Vec<u8>, Destination>,
+        &self, tree: &Dictionary, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<()> {
         if let Ok(kids) = tree.get(b"Kids") {
             for kid in kids.as_array()? {
