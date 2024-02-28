@@ -1,7 +1,12 @@
 use lopdf::xobject;
 use lopdf::Document;
 use std::fmt::Write;
+use std::io::{Error, ErrorKind};
+use std::path::Path;
 use std::str::FromStr;
+
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
 
 fn convert_number_to_bits<T: std::fmt::Binary>(num: T, size: usize) -> Vec<u8> {
     let bin = format!("{:b}", num);
@@ -63,6 +68,28 @@ fn generate_operations(rects: Vec<(f64, f64, f64, f64, u8)>) -> String {
     operations
 }
 
+#[cfg(not(feature = "async"))]
+fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
+    Document::load(path)
+        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+}
+
+#[cfg(feature = "async")]
+fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
+    Ok(
+        Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                Document::load(path)
+                    .await
+                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+            })?
+    )
+}
+
+
+
 #[allow(non_upper_case_globals)]
 const mm2pt: f32 = 2.834;
 
@@ -72,7 +99,7 @@ fn main() {
     let pdf_file = &args[1];
     let code = u16::from_str(&args[2]).expect("error in parsing code argument");
     let output_file = &args[3];
-    let mut doc = Document::load(pdf_file).unwrap();
+    let mut doc = load_pdf(pdf_file).unwrap();
     for (page_number, page_id) in doc.get_pages() {
         let operations = generate_operations(generate_barcode(page_number, code));
         let barcode = xobject::form(
