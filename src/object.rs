@@ -4,6 +4,8 @@ use log::warn;
 use std::cmp::max;
 use std::fmt;
 use std::str;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 /// Object identifier consists of two parts: object number and generation number.
 pub type ObjectId = (u32, u16);
@@ -41,6 +43,38 @@ pub enum Object {
     Dictionary(Dictionary),
     Stream(Stream),
     Reference(ObjectId),
+    /// Used for recording the object position in the written file. The file must be post-processed so that it can be read by PDF Reader. Intended solely for use when signing the document.
+    Placeholder(usize, Offset),
+}
+
+#[derive(Clone)]
+pub struct Offset(pub(crate) Arc<AtomicUsize>);
+
+impl PartialEq for Offset {
+    fn eq(&self, _other: &Self) -> bool {
+        self.get() == _other.get()
+    }
+}
+
+impl Offset {
+    const UNSPECIFIED: usize = usize::MAX;
+
+    pub fn new_unspecified() -> Self {
+        Self(Arc::new(AtomicUsize::new(Self::UNSPECIFIED)))
+    }
+
+    pub fn get(&self) -> Option<usize> {
+        let value = self.0.load(std::sync::atomic::Ordering::Relaxed);
+        if value == Self::UNSPECIFIED {
+            None
+        } else {
+            Some(value)
+        }
+    }
+
+    pub(crate) fn set(&self, value: usize) {
+        self.0.store(value, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// String objects can be written in two formats.
@@ -285,7 +319,12 @@ impl fmt::Debug for Object {
                 let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
                 write!(f, "[{}]", items.join(" "))
             }
-            Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
+            Object::Dictionary(ref dict) => {
+                write!(f, "{:?}", dict)
+            }
+            Object::Placeholder(size, ref offset) => {
+                write!(f, "placeholder with size {} at pos {:?}", size, offset.get())
+            }
             Object::Stream(ref stream) => write!(f, "{:?}stream...endstream", stream.dict),
             Object::Reference(ref id) => write!(f, "{} {} R", id.0, id.1),
         }
@@ -479,6 +518,7 @@ impl<'a> IntoIterator for &'a Dictionary {
 }
 
 use std::iter::FromIterator;
+
 impl<K: Into<Vec<u8>>> FromIterator<(K, Object)> for Dictionary {
     fn from_iter<I: IntoIterator<Item = (K, Object)>>(iter: I) -> Self {
         let mut dict = Dictionary::new();

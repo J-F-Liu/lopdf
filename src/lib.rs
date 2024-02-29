@@ -5,7 +5,7 @@
 #[macro_use]
 mod object;
 mod datetime;
-pub use crate::object::{Dictionary, Object, ObjectId, Stream, StringFormat};
+pub use crate::object::{Dictionary, Object, ObjectId, Offset, Stream, StringFormat};
 
 mod document;
 mod incremental_document;
