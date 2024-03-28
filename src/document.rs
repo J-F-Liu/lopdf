@@ -197,10 +197,16 @@ impl Document {
     }
 
     /// Get dictionary in dictionary by key.
-    pub fn get_dict_in_dict(&self, node: &Dictionary, key: &[u8]) -> Result<&Dictionary> {
-        node.get(key)
-            .and_then(Object::as_reference)
-            .and_then(move |id| self.get_dictionary(id))
+    pub fn get_dict_in_dict<'a>(&'a self, node: &'a Dictionary, key: &[u8]) -> Result<&'a Dictionary> {
+        match node.get(key)? {
+            Object::Reference(object_id) => {
+                self.get_dictionary(*object_id)
+            }
+            Object::Dictionary(dic) => {
+                Ok(dic)
+            }
+            _ => { Err(Error::Type) }
+        }
     }
 
     /// Traverse objects from trailer recursively, return all referenced object IDs.
