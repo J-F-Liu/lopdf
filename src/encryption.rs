@@ -1,5 +1,6 @@
 use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
+use md5::{Digest as _, Md5};
 use std::fmt;
 
 #[derive(Debug)]
@@ -146,7 +147,7 @@ where
     // Hash the contents of key and take the first key_len bytes
     let n_hashes = if revision < 3 { 1 } else { 51 };
     for _ in 0..n_hashes {
-        let digest = md5::compute(&key);
+        let digest = Md5::digest(&key);
         key.truncate(key_len); // only keep the first key_len bytes
         key.copy_from_slice(&digest[..key_len]);
     }
@@ -179,12 +180,12 @@ where
     } else {
         // Algorithm 3.5
         // 3.5.2
-        let mut ctx = md5::Context::new();
-        ctx.consume(PAD_BYTES);
+        let mut ctx = Md5::new();
+        ctx.update(PAD_BYTES);
 
         // 3.5.3
-        ctx.consume(file_id_0);
-        let hash = ctx.compute();
+        ctx.update(file_id_0);
+        let hash = ctx.finalize();
 
         // 3.5.4
         let mut encrypted_hash = encryptor.encrypt(&hash[..]);
@@ -222,7 +223,7 @@ where
 
     // Now construct the rc4 key
     let key_len = std::cmp::min(key.len() + 5, 16);
-    let rc4_key = &md5::compute(builder)[..key_len];
+    let rc4_key = &Md5::digest(builder)[..key_len];
 
     let encrypted = match obj {
         Object::String(content, _) => content,
