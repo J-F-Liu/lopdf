@@ -554,22 +554,19 @@ impl Document {
                     Err(_) => None
                 };
                 let mut filters = vec![];
-                match dict.get(b"Filter") {
-                    Ok(filter) => {
-                        match filter {
-                            Object::Array(array) => {
-                                for obj in array.iter() {
-                                    let name = obj.as_name()?;
-                                    filters.push(String::from_utf8_lossy(name).to_string());
-                                }
-                            }
-                            Object::Name(name) => {
+                if let Ok(filter) = dict.get(b"Filter") {
+                    match filter {
+                        Object::Array(array) => {
+                            for obj in array.iter() {
+                                let name = obj.as_name()?;
                                 filters.push(String::from_utf8_lossy(name).to_string());
                             }
-                            _ => {}
                         }
+                        Object::Name(name) => {
+                            filters.push(String::from_utf8_lossy(name).to_string());
+                        }
+                        _ => {}
                     }
-                    Err(_) => {}
                 };
 
                 images.push(PdfImage {
