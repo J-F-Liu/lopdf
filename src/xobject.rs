@@ -10,6 +10,20 @@ use std::path::Path;
 #[cfg(feature = "embed_image")]
 use crate::Result;
 
+#[derive(Debug, Clone)]
+pub struct PdfImage<'a> {
+    pub id: ObjectId,
+    pub width: i64,
+    pub height: i64,
+    pub color_space: Option<String>,
+    pub filters: Option<Vec<String>>,
+    pub bits_per_component: Option<i64>,
+    /// Image Data
+    pub content: &'a [u8],
+    /// Origin Stream Dictionary
+    pub origin_dict: &'a Dictionary,
+}
+
 pub fn form(boundingbox: Vec<f32>, matrix: Vec<f32>, content: Vec<u8>) -> Stream {
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"XObject".to_vec()));

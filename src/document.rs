@@ -9,6 +9,7 @@ use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::str;
+use crate::xobject::PdfImage;
 
 /// A PDF document.
 ///
@@ -515,6 +516,72 @@ impl Document {
             }
         }
         annotations
+    }
+
+    pub fn get_page_images(&self, page_id: ObjectId) -> Result<Vec<PdfImage>> {
+        let mut images = vec![];
+        if let Ok(page) = self.get_dictionary(page_id) {
+            let resources = self.get_dict_in_dict(page, b"Resources")?;
+            let xobject = self.get_dict_in_dict(resources, b"XObject")?;
+            for (_, xvalue) in xobject.iter() {
+                let id = xvalue.as_reference()?;
+                let xvalue = self.get_object(id)?;
+                let xvalue = xvalue.as_stream()?;
+                let dict = &xvalue.dict;
+                if dict.get(b"Subtype")?.as_name()? != b"Image" {
+                    continue;
+                }
+                let width = dict.get(b"Width")?.as_i64()?;
+                let height = dict.get(b"Height")?.as_i64()?;
+                let color_space = match dict.get(b"ColorSpace") {
+                    Ok(cs) => {
+                        match cs {
+                            Object::Array(array) => {
+                                Some(String::from_utf8_lossy(array[0].as_name()?).to_string())
+                            }
+                            Object::Name(name) => {
+                                Some(String::from_utf8_lossy(name).to_string())
+                            }
+                            _ => None
+                        }
+                    }
+                    Err(_) => None
+                };
+                let bits_per_component = match dict.get(b"BitsPerComponent") {
+                    Ok(bpc) => {
+                        Some(bpc.as_i64()?)
+                    }
+                    Err(_) => None
+                };
+                let mut filters = vec![];
+                if let Ok(filter) = dict.get(b"Filter") {
+                    match filter {
+                        Object::Array(array) => {
+                            for obj in array.iter() {
+                                let name = obj.as_name()?;
+                                filters.push(String::from_utf8_lossy(name).to_string());
+                            }
+                        }
+                        Object::Name(name) => {
+                            filters.push(String::from_utf8_lossy(name).to_string());
+                        }
+                        _ => {}
+                    }
+                };
+
+                images.push(PdfImage {
+                    id,
+                    width,
+                    height,
+                    color_space,
+                    bits_per_component,
+                    filters: Some(filters),
+                    content: &xvalue.content,
+                    origin_dict: &xvalue.dict,
+                });
+            }
+        }
+        Ok(images)
     }
 
     pub fn decode_text(encoding: Option<&str>, bytes: &[u8]) -> String {
