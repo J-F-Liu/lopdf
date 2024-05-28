@@ -1,16 +1,17 @@
-extern crate rangemap;
-use crate::cmap_parser::{cmap_stream, CMapSection};
+use crate::cmap_parser::parse;
+use crate::cmap_section::{CMapParseError, CMapSection};
+
 use rangemap::RangeInclusiveMap;
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ToUnicodeCMap {
     bf_ranges: RangeInclusiveMap<u16, BfRangeTarget>,
 }
 
 #[derive(Debug)]
 pub enum UnicodeCMapError {
-    Parse(pom::Error),
+    Parse(CMapParseError),
     UnsupportedCodeSpaceRange,
     InvalidCodeRange,
 }
@@ -19,14 +20,14 @@ impl fmt::Display for UnicodeCMapError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use UnicodeCMapError::*;
         match self {
-            Parse(pom_err) => write!(f, "Could not parse ToUnicodeCMap: {}!", pom_err),
+            Parse(cmap_parse_error) => write!(f, "Could not parse ToUnicodeCMap: {:#?}!", cmap_parse_error),
             UnsupportedCodeSpaceRange => write!(f, "Unsupported codespace range given!"),
             InvalidCodeRange => write!(f, "Invalid code range given!"),
         }
     }
 }
-impl From<pom::Error> for UnicodeCMapError {
-    fn from(err: pom::Error) -> Self {
+impl From<CMapParseError> for UnicodeCMapError {
+    fn from(err: CMapParseError) -> Self {
         UnicodeCMapError::Parse(err)
     }
 }
@@ -39,7 +40,7 @@ impl ToUnicodeCMap {
     }
 
     pub(crate) fn parse(stream_content: Vec<u8>) -> Result<ToUnicodeCMap, UnicodeCMapError> {
-        let cmap_sections = cmap_stream().parse(&stream_content[..])?;
+        let cmap_sections = parse(&stream_content[..])?;
         Self::from_sections(cmap_sections)
     }
 
@@ -47,16 +48,16 @@ impl ToUnicodeCMap {
         let mut cmap = Self::new();
         for section in cmap_sections {
             match section {
-                CMapSection::CsRangeSection(ranges) => match ranges.len() {
+                CMapSection::CsRange(ranges) => match ranges.len() {
                     1 if ranges[0] == (0x0000, 0xffff) => {}
                     _ => return Err(UnicodeCMapError::UnsupportedCodeSpaceRange),
                 },
-                CMapSection::BfCharSection(char_mappings) => {
+                CMapSection::BfChar(char_mappings) => {
                     for (code, dst) in char_mappings {
                         cmap.put_char(code, dst);
                     }
                 }
-                CMapSection::BfRangeSection(range_mappings) => {
+                CMapSection::BfRange(range_mappings) => {
                     for ((start, end), dst_vec) in range_mappings {
                         if end < start {
                             return Err(UnicodeCMapError::InvalidCodeRange);

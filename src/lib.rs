@@ -27,6 +27,10 @@ pub use crate::toc::Toc;
 #[cfg(not(feature = "nom_parser"))]
 #[cfg(feature = "pom_parser")]
 mod cmap_parser;
+#[cfg(feature = "nom_parser")]
+#[path = "nom_cmap_parser.rs"]
+mod cmap_parser;
+mod cmap_section;
 pub mod content;
 mod creator;
 mod encodings;

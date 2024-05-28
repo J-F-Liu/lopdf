@@ -1,25 +1,7 @@
 use pom::parser::*;
 
+use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, SourceCharMapping, SourceRangeMapping};
 use crate::parser::{dictionary, eol, hex_char, name, space};
-
-/*
-ToUnicode CMaps are special CMaps and thus can be parsed simpler. Assumptions:
-- /CMapType is always 2
-- codespace range always from <0000> to <ffff>
-- only bfchar and bfrange sections allowed
-- no glyph names as target allowed, only hex strings
-- source character codes always 2 bytes
-- target encoded in UTF16-BE
- */
-
-type ArrayOfTargetStrings = Vec<Vec<u16>>;
-type SourceRangeMapping = ((u16, u16), ArrayOfTargetStrings);
-type SourceCharMapping = (u16, Vec<u16>);
-pub enum CMapSection {
-    CsRangeSection(Vec<(u16, u16)>),
-    BfCharSection(Vec<SourceCharMapping>),
-    BfRangeSection(Vec<SourceRangeMapping>),
-}
 
 fn hex_u16<'a>() -> Parser<'a, u8, u16> {
     (hex_char() + hex_char()).map(|(u1, u2)| u1 as u16 * 256 + u2 as u16)
@@ -104,7 +86,7 @@ fn cid_system_info<'a>() -> Parser<'a, u8, ()> {
     space_no_crlf() * seq(b"/CIDSystemInfo") * space() * dictionary() * space() * seq(b"def") * ws_newline()
 }
 
-pub(crate) fn cmap_stream<'a>() -> Parser<'a, u8, Vec<CMapSection>> {
+fn cmap_stream<'a>() -> Parser<'a, u8, Vec<CMapSection>> {
     use self::space_no_crlf as ws;
     use self::ws_newline as nl;
     ws() * seq(b"/CIDInit")
@@ -126,9 +108,9 @@ pub(crate) fn cmap_stream<'a>() -> Parser<'a, u8, Vec<CMapSection>> {
         * seq(b"begincmap")
         * nl()
         * (cmap_type() | cmap_name() | cid_system_info()).repeat(1..4)
-        * (codespace_range_section().map(CMapSection::CsRangeSection)
-            | bf_char_section().map(CMapSection::BfCharSection)
-            | bf_range_section().map(CMapSection::BfRangeSection))
+        * (codespace_range_section().map(CMapSection::CsRange)
+            | bf_char_section().map(CMapSection::BfChar)
+            | bf_range_section().map(CMapSection::BfRange))
         .repeat(1..)
         - ws() * seq(b"endcmap") * nl()
         - ws()
@@ -146,6 +128,19 @@ pub(crate) fn cmap_stream<'a>() -> Parser<'a, u8, Vec<CMapSection>> {
             * seq(b"end")
             * whitespace()
             * seq(b"end")
+}
+
+pub(crate) fn parse(stream_content: &[u8]) -> Result<Vec<CMapSection>, CMapParseError> {
+    cmap_stream().parse(stream_content).map_err(CMapParseError::from)
+}
+
+impl From<pom::Error> for CMapParseError {
+    fn from(err: pom::Error) -> Self {
+        match err {
+            pom::Error::Incomplete => CMapParseError::Incomplete,
+            _ => CMapParseError::Error,
+        }
+    }
 }
 
 #[cfg(test)]
