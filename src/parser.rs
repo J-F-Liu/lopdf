@@ -376,10 +376,10 @@ T* (encoded streams.) Tj
     #[test]
     fn parse_cidsysteminfo_dictionary() {
         let stream = b"<< /Registry (Adobe) /Ordering (UCS) /Supplement 0 >>";
-        let mut expected = Dictionary::new();
-        expected.set("Registry", Object::string_literal("Adobe"));
-        expected.set("Ordering", Object::string_literal("UCS"));
-        expected.set("Supplement", Object::Integer(0));
+        let expected = dictionary!(
+            "Registry" => Object::string_literal("Adobe"),
+            "Ordering" => Object::string_literal("UCS"),
+            "Supplement" => Object::Integer(0));
 
         let parsed_dict = dictionary().parse(stream);
         assert_eq!(parsed_dict, Ok(expected));
@@ -394,12 +394,12 @@ T* (encoded streams.) Tj
     /Encoding /90ms-RKSJ-H
     /DescendantFonts [15 0 R]
 >>";
-        let mut expected = Dictionary::new();
-        expected.set("Type", "Font");
-        expected.set("Subtype", "Type0");
-        expected.set("BaseFont", "HeiseiMin-W5-90ms-RKSJ-H");
-        expected.set("Encoding", "90ms-RKSJ-H");
-        expected.set("DescendantFonts", Object::Array(vec![Object::Reference((15, 0))]));
+        let expected = dictionary!(
+            "Type" => "Font",
+            "Subtype"=> "Type0",
+            "BaseFont" => "HeiseiMin-W5-90ms-RKSJ-H",
+            "Encoding" => "90ms-RKSJ-H",
+            "DescendantFonts" => Object::Array(vec![Object::Reference((15, 0))]));
         let parsed_dict = dictionary().parse(stream);
         println!("{:#?}", parsed_dict.clone().unwrap().get(b"DescendantFonts"));
         assert_eq!(parsed_dict, Ok(expected));

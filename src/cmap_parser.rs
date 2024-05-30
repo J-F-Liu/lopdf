@@ -688,4 +688,33 @@ end
 end";
         assert!(cmap_stream().parse(data.as_bytes()).is_ok())
     }
+
+    #[test]
+    fn parse_cmap_section_with_discontigous_range() {
+        let data = "/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo
+<< /Registry (Adobe)
+/Ordering (UCS)
+/Supplement 0
+>> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+2 beginbfrange
+<0000> <005E> <0020>
+<005F> <0061> [<D83DDE00> <D83DDD27> <D83DDD28>]
+endbfrange
+1 beginbfchar
+<3A51> <D840DC3E>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end";
+        assert!(cmap_stream().parse(data.as_bytes()).is_ok())
+    }
 }

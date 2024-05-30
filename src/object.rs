@@ -357,6 +357,8 @@ impl Dictionary {
     }
 
     pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
+        // Note: it looks like currently not all unicode encodings are handled correctly
+        // e.g. Type3 font subtype with direct differences encoding is not currently implemented
         match self.get(b"Encoding").and_then(Object::as_name_str) {
             Ok("StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
             Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
@@ -369,7 +371,13 @@ impl Dictionary {
                 Ok(Encoding::UnicodeMapEncoding(cmap))
             }
             Ok(name) => Ok(Encoding::SimpleEncoding(name)),
-            Err(_) => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            Err(err) => {
+                warn!(
+                    "Could not parse the encoding, error: {:#?}\nFont: {:#?}\nUsing standard encoding as a fallback",
+                    err, self
+                );
+                Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
+            }
         }
     }
 
