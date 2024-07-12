@@ -1,5 +1,4 @@
 use indexmap::IndexMap;
-use std::{usize, vec::Vec}; // Import IndexMap
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -51,11 +50,11 @@ impl Destination {
     }
 
     pub fn title(&self) -> Option<&Object> {
-        self.map.get(&b"Title".to_vec())
+        self.map.get(b"Title".as_slice())
     }
 
     pub fn page(&self) -> Option<&Object> {
-        self.map.get(&b"Page".to_vec())
+        self.map.get(b"Page".as_slice())
     }
 }
 

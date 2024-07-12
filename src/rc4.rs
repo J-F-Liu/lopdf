@@ -1,13 +1,10 @@
 // This module exists because the rust-crypto module is really old and not maintained.
 // Fortunately the RC4 algorithm is very simple to implement.
-
-///
 pub struct Rc4 {
     initial_state: [u8; 256],
 }
 
 impl Rc4 {
-    ///
     pub fn new<Key: AsRef<[u8]>>(key: Key) -> Self {
         let key = key.as_ref();
         assert!(!key.is_empty() && key.len() <= 256);

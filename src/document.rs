@@ -1,6 +1,7 @@
 use super::encodings::{self, bytes_to_string, string_to_bytes};
 use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::encryption;
+use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
 use crate::{Error, Result, Stream};
 use encoding_rs::UTF_16BE;
@@ -9,7 +10,6 @@ use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::str;
-use crate::xobject::PdfImage;
 
 /// A PDF document.
 ///
@@ -155,7 +155,7 @@ impl Document {
     /// with the given `ObjectId`.
     /// `true` if the object exists, `false` if it does not exist.
     pub fn has_object(&self, id: ObjectId) -> bool {
-        self.objects.get(&id).is_some()
+        self.objects.contains_key(&id)
     }
 
     /// Get mutable reference to object by object id, will iteratively dereference a referenced object.
@@ -200,13 +200,9 @@ impl Document {
     /// Get dictionary in dictionary by key.
     pub fn get_dict_in_dict<'a>(&'a self, node: &'a Dictionary, key: &[u8]) -> Result<&'a Dictionary> {
         match node.get(key)? {
-            Object::Reference(object_id) => {
-                self.get_dictionary(*object_id)
-            }
-            Object::Dictionary(dic) => {
-                Ok(dic)
-            }
-            _ => { Err(Error::Type) }
+            Object::Reference(object_id) => self.get_dictionary(*object_id),
+            Object::Dictionary(dic) => Ok(dic),
+            _ => Err(Error::Type),
         }
     }
 
@@ -454,15 +450,9 @@ impl Document {
         ) {
             if let Ok(font) = resources.get(b"Font") {
                 let font_dict = match font {
-                    Object::Reference(ref id) => {
-                        doc.get_object(*id).and_then(Object::as_dict).ok()
-                    },
-                    Object::Dictionary(ref dict) => {
-                        Some(dict)
-                    },
-                    _ => {
-                        None
-                    }
+                    Object::Reference(ref id) => doc.get_object(*id).and_then(Object::as_dict).ok(),
+                    Object::Dictionary(ref dict) => Some(dict),
+                    _ => None,
                 };
                 if let Some(font_dict) = font_dict {
                     for (name, value) in font_dict.iter() {
@@ -534,24 +524,16 @@ impl Document {
                 let width = dict.get(b"Width")?.as_i64()?;
                 let height = dict.get(b"Height")?.as_i64()?;
                 let color_space = match dict.get(b"ColorSpace") {
-                    Ok(cs) => {
-                        match cs {
-                            Object::Array(array) => {
-                                Some(String::from_utf8_lossy(array[0].as_name()?).to_string())
-                            }
-                            Object::Name(name) => {
-                                Some(String::from_utf8_lossy(name).to_string())
-                            }
-                            _ => None
-                        }
-                    }
-                    Err(_) => None
+                    Ok(cs) => match cs {
+                        Object::Array(array) => Some(String::from_utf8_lossy(array[0].as_name()?).to_string()),
+                        Object::Name(name) => Some(String::from_utf8_lossy(name).to_string()),
+                        _ => None,
+                    },
+                    Err(_) => None,
                 };
                 let bits_per_component = match dict.get(b"BitsPerComponent") {
-                    Ok(bpc) => {
-                        Some(bpc.as_i64()?)
-                    }
-                    Err(_) => None
+                    Ok(bpc) => Some(bpc.as_i64()?),
+                    Err(_) => None,
                 };
                 let mut filters = vec![];
                 if let Ok(filter) = dict.get(b"Filter") {
