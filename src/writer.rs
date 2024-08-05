@@ -402,8 +402,8 @@ impl Writer {
             // Within a Literal string, backslash (\) and unbalanced parentheses should be escaped.
             // This rule apply to each individual byte in a string object,
             // whether the string is interpreted as single-byte or multiple-byte character codes.
-            // If an end-of-line marker appears within a literal string without a preceding backslash, the result is equivalent to \n.
-            // So \r also need be escaped.
+            // If an end-of-line marker appears within a literal string without a preceding backslash, the result is
+            // equivalent to \n. So \r also need be escaped.
             StringFormat::Literal => {
                 let mut escape_indice = Vec::new();
                 let mut parentheses = Vec::new();

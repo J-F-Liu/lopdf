@@ -16,15 +16,13 @@ fn main() {
     //  but you can also set it on any node in the page tree and child pages will
     //  inherit the value.
     for (_, page_id) in doc.get_pages() {
-        let page_dict = doc.get_object_mut(page_id)
+        let page_dict = doc
+            .get_object_mut(page_id)
             .and_then(|obj| obj.as_dict_mut())
             .expect("Missing page!");
 
         // Get the current rotation if any; the default is 0
-        let current_rotation = page_dict
-            .get(b"Rotate")
-            .and_then(|obj| obj.as_i64())
-            .unwrap_or(0);
+        let current_rotation = page_dict.get(b"Rotate").and_then(|obj| obj.as_i64()).unwrap_or(0);
 
         // Add the angle and update
         page_dict.set("Rotate", (current_rotation + angle) % 360);
@@ -32,7 +30,6 @@ fn main() {
     // Store file in current working directory.
     doc.save(output_file).unwrap();
 }
-
 
 #[cfg(feature = "async")]
 #[tokio::main]
@@ -50,15 +47,13 @@ async fn main() {
     //  but you can also set it on any node in the page tree and child pages will
     //  inherit the value.
     for (_, page_id) in doc.get_pages() {
-        let page_dict = doc.get_object_mut(page_id)
+        let page_dict = doc
+            .get_object_mut(page_id)
             .and_then(|obj| obj.as_dict_mut())
             .expect("Missing page!");
 
         // Get the current rotation if any; the default is 0
-        let current_rotation = page_dict
-            .get(b"Rotate")
-            .and_then(|obj| obj.as_i64())
-            .unwrap_or(0);
+        let current_rotation = page_dict.get(b"Rotate").and_then(|obj| obj.as_i64()).unwrap_or(0);
 
         // Add the angle and update
         page_dict.set("Rotate", (current_rotation + angle) % 360);
