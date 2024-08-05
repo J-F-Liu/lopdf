@@ -178,11 +178,9 @@ impl Document {
         let mut content = self.get_and_decode_page_content(page_id)?;
         content.operations.insert(0, Operation::new("q", vec![]));
         content.operations.push(Operation::new("Q", vec![]));
-        // content.operations.push(Operation::new("q", vec![]));
         content
             .operations
             .push(Operation::new("Do", vec![Name(form_name.as_bytes().to_vec())]));
-        // content.operations.push(Operation::new("Q", vec![]));
         let modified_content = content.encode()?;
         self.add_xobject(page_id, form_name, form_id)?;
 
@@ -234,12 +232,12 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
                 };
                 match entry_type {
                     0 => {
-                        //free object
+                        // free object
                         read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
                         read_big_endian_integer(&mut reader, bytes3.as_mut_slice())?;
                     }
                     1 => {
-                        //normal object
+                        // normal object
                         let offset = read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
                         let generation = if !bytes3.is_empty() {
                             read_big_endian_integer(&mut reader, bytes3.as_mut_slice())?
@@ -249,7 +247,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
                         xref.insert((start + j) as u32, XrefEntry::Normal { offset, generation });
                     }
                     2 => {
-                        //compressed object
+                        // compressed object
                         let container = read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
                         let index = read_big_endian_integer(&mut reader, bytes3.as_mut_slice())? as u16;
                         xref.insert((start + j) as u32, XrefEntry::Compressed { container, index });
