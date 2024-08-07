@@ -1,5 +1,5 @@
+use crate::Result;
 use crate::{Dictionary, Document, Object, ObjectId};
-use crate::{Error, Result};
 
 impl Document {
     /// Create new PDF document with version.
@@ -45,29 +45,7 @@ impl Document {
         Ok(())
     }
 
-    /// Get the pages resources. (Errors in case of reference)
-    ///
-    /// Get Object that has the key "Resources".
-    fn get_or_create_resources_mut(&mut self, page_id: ObjectId) -> Result<&mut Object> {
-        let page = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
-        if page.has(b"Resources") {
-            if let Ok(_res_id) = page.get(b"Resources").and_then(Object::as_reference) {
-                // Find and return referenced object.
-                // Note: This returns an error because we can not have 2 mut borrows for `*self`.
-                // self.get_object_mut(res_id)
-                Err(Error::ObjectNotFound)
-            } else {
-                // It exists and is not a reference.
-                page.get_mut(b"Resources")
-            }
-        } else {
-            // "Resources" key does not exist, So create it.
-            page.set("Resources", Dictionary::new());
-            page.get_mut(b"Resources")
-        }
-    }
-
-    /// Get the pages resources.
+    /// Get the page's resource dictionary.
     ///
     /// Get Object that has the key "Resources".
     pub fn get_or_create_resources(&mut self, page_id: ObjectId) -> Result<&mut Object> {
@@ -79,10 +57,14 @@ impl Document {
                 None
             }
         };
-        match resources_id {
-            Some(res_id) => self.get_object_mut(res_id),
-            None => self.get_or_create_resources_mut(page_id),
+        if let Some(res_id) = resources_id {
+            return self.get_object_mut(res_id);
         }
+        let page = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
+        if !page.has(b"Resources") {
+            page.set(b"Resources", Dictionary::new());
+        }
+        page.get_mut(b"Resources")
     }
 
     /// Add XObject to a page.
