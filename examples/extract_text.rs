@@ -106,18 +106,12 @@ fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
 
 #[cfg(feature = "async")]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
-    Ok(
-        Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                Document::load_filtered(path, filter_func)
-                    .await
-                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
-            })?
-    )
+    Ok(Builder::new_current_thread().build().unwrap().block_on(async move {
+        Document::load_filtered(path, filter_func)
+            .await
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+    })?)
 }
-
 
 fn get_pdf_text(doc: &Document) -> Result<PdfText, Error> {
     let mut pdf_text: PdfText = PdfText {
@@ -162,9 +156,7 @@ fn pdf2text<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool, password: 
     let mut doc = load_pdf(&path)?;
     if doc.is_encrypted() {
         doc.decrypt(password)
-            .map_err(|_err|
-                Error::new(ErrorKind::InvalidInput, "Failed to decrypt")
-            )?;
+            .map_err(|_err| Error::new(ErrorKind::InvalidInput, "Failed to decrypt"))?;
     }
     let text = get_pdf_text(&doc)?;
     if !text.errors.is_empty() {

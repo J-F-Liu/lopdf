@@ -20,14 +20,13 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "async")]
 use tokio::pin;
 
-use crate::parser;
 use crate::error::XrefError;
 use crate::object_stream::ObjectStream;
+use crate::parser;
 use crate::xref::XrefEntry;
-use crate::{Document, Error, IncrementalDocument, Result, Object, ObjectId};
+use crate::{Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
-
 
 #[cfg(not(feature = "async"))]
 impl Document {
@@ -99,7 +98,7 @@ impl Document {
             buffer: &buffer,
             document: Document::new(),
         }
-            .read(filter_func)
+        .read(filter_func)
     }
 
     /// Load a PDF document from a memory slice.
@@ -182,7 +181,7 @@ impl IncrementalDocument {
             buffer: &buffer,
             document: Document::new(),
         }
-            .read(None)?;
+        .read(None)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }

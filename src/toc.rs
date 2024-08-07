@@ -32,13 +32,13 @@ impl Toc {
 
 #[derive(Debug, Clone)]
 pub struct Destination {
-    map: IndexMap<Vec<u8>, Object>, // Use IndexMap instead of BTreeMap
+    map: IndexMap<Vec<u8>, Object>,
 }
 
 #[allow(dead_code)]
 impl Destination {
     pub fn new(title: Object, page: Object, typ: Object) -> Self {
-        let mut map = IndexMap::new(); // Use IndexMap
+        let mut map = IndexMap::new();
         map.insert(b"Title".to_vec(), title);
         map.insert(b"Page".to_vec(), page);
         map.insert(b"Type".to_vec(), typ);
@@ -58,7 +58,7 @@ impl Destination {
     }
 }
 
-type OutlinePageIds = IndexMap<Vec<u8>, ((u32, u16), usize, usize)>; // Use IndexMap
+type OutlinePageIds = IndexMap<Vec<u8>, ((u32, u16), usize, usize)>;
 
 fn setup_outline_page_ids<'a>(
     outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, level: usize,
@@ -81,8 +81,7 @@ fn setup_outline_page_ids<'a>(
 
 impl Document {
     fn setup_page_id_to_num(&self) -> IndexMap<(u32, u16), u32> {
-        // Use IndexMap
-        let mut result = IndexMap::new(); // Use IndexMap
+        let mut result = IndexMap::new();
         for (page_num, page_id) in self.get_pages() {
             result.insert(page_id, page_num);
         }
@@ -94,9 +93,9 @@ impl Document {
             toc: Vec::new(),
             errors: Vec::new(),
         };
-        let mut named_destinations = IndexMap::new(); // Use IndexMap
+        let mut named_destinations = IndexMap::new();
         if let Some(outlines) = self.get_outlines(None, None, &mut named_destinations)? {
-            let mut outline_page_ids = IndexMap::new(); // Use IndexMap
+            let mut outline_page_ids = IndexMap::new();
             setup_outline_page_ids(&outlines, &mut outline_page_ids, 1);
             let page_id_to_page_numbers = self.setup_page_id_to_num();
             for (title, (page_id, _page_idx, level)) in outline_page_ids {
