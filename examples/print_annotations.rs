@@ -2,12 +2,10 @@
 //
 //   Run with `cargo run --example print_annotations <pdf-file>`
 
-
-use std::env;
-use std::process;
 use env_logger::Env;
 use lopdf::{Document, Object};
-
+use std::env;
+use std::process;
 
 fn logging() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init()
@@ -29,19 +27,25 @@ fn handle_pdf_page(doc: Document) -> u32 {
 
     for page in doc.page_iter() {
         for a in doc.get_page_annotations(page) {
-            let subtype = a.get_deref(b"Subtype", &doc)
+            let subtype = a
+                .get_deref(b"Subtype", &doc)
                 .and_then(Object::as_name_str)
                 .unwrap_or("");
-            println!("Page {}, {} annotation at {:?}",
-                     page_counter,
-                     subtype,
-                     a.get_deref(b"Rect", &doc).and_then(Object::as_array).unwrap());
+            println!(
+                "Page {}, {} annotation at {:?}",
+                page_counter,
+                subtype,
+                a.get_deref(b"Rect", &doc).and_then(Object::as_array).unwrap()
+            );
             if let Ok(Object::String(c, _)) = a.get_deref(b"Contents", &doc) {
                 println!("  Contents: {:.60}", String::from_utf8_lossy(c).lines().next().unwrap());
             }
             if subtype.eq("Link") {
                 if let Ok(ahref) = a.get_deref(b"A", &doc).and_then(Object::as_dict) {
-                    print!("  {} -> ", ahref.get_deref(b"S", &doc).and_then(Object::as_name_str).unwrap());
+                    print!(
+                        "  {} -> ",
+                        ahref.get_deref(b"S", &doc).and_then(Object::as_name_str).unwrap()
+                    );
                     if let Ok(d) = ahref.get_deref(b"D", &doc).and_then(Object::as_array) {
                         println!("{:?}", d);
                     } else if let Ok(Object::String(u, _)) = ahref.get_deref(b"URI", &doc) {
@@ -59,7 +63,7 @@ fn handle_pdf_page(doc: Document) -> u32 {
 }
 
 #[cfg(not(feature = "async"))]
-fn main () {
+fn main() {
     logging();
 
     let args: Vec<String> = args();

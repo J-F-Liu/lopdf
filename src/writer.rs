@@ -298,25 +298,25 @@ impl Writer {
                 match entry {
                     XrefEntry::Free => {
                         // Type 0
-                        xref_stream.push(0); // Type 0
+                        xref_stream.push(0);
                         xref_stream.extend(obj_id.to_be_bytes());
                         xref_stream.extend(vec![0, 0]); // TODO add generation number
                     }
                     XrefEntry::UnusableFree => {
                         // Type 0
-                        xref_stream.push(0); // Type 0
+                        xref_stream.push(0);
                         xref_stream.extend(obj_id.to_be_bytes());
                         xref_stream.extend(65535_u16.to_be_bytes());
                     }
                     XrefEntry::Normal { offset, generation } => {
                         // Type 1
-                        xref_stream.push(1); // Type 1
+                        xref_stream.push(1);
                         xref_stream.extend(offset.to_be_bytes());
                         xref_stream.extend(generation.to_be_bytes());
                     }
                     XrefEntry::Compressed { container, index } => {
                         // Type 2
-                        xref_stream.push(2); // Type 2
+                        xref_stream.push(2);
                         xref_stream.extend(container.to_be_bytes());
                         xref_stream.extend(index.to_be_bytes());
                     }
@@ -402,8 +402,8 @@ impl Writer {
             // Within a Literal string, backslash (\) and unbalanced parentheses should be escaped.
             // This rule apply to each individual byte in a string object,
             // whether the string is interpreted as single-byte or multiple-byte character codes.
-            // If an end-of-line marker appears within a literal string without a preceding backslash, the result is equivalent to \n.
-            // So \r also need be escaped.
+            // If an end-of-line marker appears within a literal string without a preceding backslash, the result is
+            // equivalent to \n. So \r also need be escaped.
             StringFormat::Literal => {
                 let mut escape_indice = Vec::new();
                 let mut parentheses = Vec::new();

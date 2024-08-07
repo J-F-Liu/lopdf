@@ -13,7 +13,7 @@ license = "MIT"
 name = "lopdf"
 readme = "README.md"
 repository = "https://github.com/J-F-Liu/lopdf.git"
-version = "0.32.0"
+version = "0.33.0"
 
 [dependencies]
 chrono = { version = "^0.4", optional = true, features = [

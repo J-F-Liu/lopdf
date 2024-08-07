@@ -93,18 +93,12 @@ fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
 
 #[cfg(feature = "async")]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
-    Ok(
-        Builder::new_current_thread()
-        .build()
-        .unwrap()
-        .block_on(async move {
-            Document::load_filtered(path, filter_func)
-                .await
-                .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
-        })?
-    )
+    Ok(Builder::new_current_thread().build().unwrap().block_on(async move {
+        Document::load_filtered(path, filter_func)
+            .await
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+    })?)
 }
-
 
 fn pdf2toc<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool) -> Result<(), Error> {
     println!("Load {path:?}");
@@ -147,4 +141,3 @@ fn main() -> Result<(), Error> {
     );
     Ok(())
 }
-
