@@ -161,14 +161,14 @@ impl Document {
     }
 
     /// Renumber objects with a custom starting id, this is very useful in case of multiple
-    /// document objects insertion in a single main document
+    /// document object insertions in a single main document
     pub fn renumber_objects_with(&mut self, starting_id: u32) {
         let mut replace = BTreeMap::new();
         let mut new_id = starting_id;
         let mut i = 0;
 
-        //lets check if we need to order the pages First as this means the first page doesnt have a lower ID
-        //So it ends up in a random spot based on its ID. We check first to avoid double transverse unless we have too.
+        // Check if we need to order the pages first, as this means the first page doesn't have a lower ID.
+        // So it ends up in a random spot based on its ID. We check first to avoid double traversal, unless we have too.
 
         let mut page_order: Vec<(i32, (u32, u16))> = self
             .page_iter()

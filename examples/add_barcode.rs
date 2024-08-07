@@ -70,25 +70,17 @@ fn generate_operations(rects: Vec<(f64, f64, f64, f64, u8)>) -> String {
 
 #[cfg(not(feature = "async"))]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
-    Document::load(path)
-        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+    Document::load(path).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
 }
 
 #[cfg(feature = "async")]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
-    Ok(
-        Builder::new_current_thread()
-            .build()
-            .unwrap()
-            .block_on(async move {
-                Document::load(path)
-                    .await
-                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
-            })?
-    )
+    Ok(Builder::new_current_thread().build().unwrap().block_on(async move {
+        Document::load(path)
+            .await
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+    })?)
 }
-
-
 
 #[allow(non_upper_case_globals)]
 const mm2pt: f32 = 2.834;

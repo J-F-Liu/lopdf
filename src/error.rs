@@ -1,5 +1,5 @@
-use std::fmt;
 use crate::encryption;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum Error {

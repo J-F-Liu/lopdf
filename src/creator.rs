@@ -53,7 +53,7 @@ impl Document {
         if page.has(b"Resources") {
             if let Ok(_res_id) = page.get(b"Resources").and_then(Object::as_reference) {
                 // Find and return referenced object.
-                // Note: This returns an error because we can not have 2 mut barrow for `*self`.
+                // Note: This returns an error because we can not have 2 mut borrows for `*self`.
                 // self.get_object_mut(res_id)
                 Err(Error::ObjectNotFound)
             } else {

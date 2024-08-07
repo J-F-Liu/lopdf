@@ -394,8 +394,8 @@ impl Document {
             };
             let content_object_id = self.add_object(Object::Stream(Stream::new(Dictionary::new(), content)));
             current_content_list.push(Object::Reference(content_object_id));
-            // Set data
 
+            // Set data
             let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut).unwrap();
             page_mut.set("Contents", current_content_list);
             Ok(())
