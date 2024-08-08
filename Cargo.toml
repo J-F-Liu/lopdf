@@ -23,8 +23,8 @@ chrono = { version = "^0.4", optional = true, features = [
 encoding_rs = "0.8.32"
 flate2 = "^1.0"
 image = { version = "^0.24", optional = true }
+indexmap = "2.2.3"
 itoa = "^1.0"
-linked-hash-map = "^0.5"
 log = "^0.4"
 md-5 = "0.10"
 nom = { version = "^7.1", optional = true }
@@ -34,23 +34,22 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 time = { version = "^0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.1"
-indexmap = "2.2.3"
 
 [dev-dependencies]
-tempfile = "3.3"
-serde_json = "1.0"
 clap = { version = "4.0", features = ["derive"] }
-shellexpand = "3.0"
 env_logger = "0.10"
+serde_json = "1.0"
+shellexpand = "3.0"
+tempfile = "3.3"
 
 [features]
+async = ["tokio/rt-multi-thread", "tokio/macros"]
 chrono_time = ["chrono"]
 default = ["chrono_time", "nom_parser", "rayon"]
 embed_image = ["image"]
 nom_parser = ["nom"]
 pom_parser = ["pom"]
 serde = ["dep:serde"]
-async = ["tokio/rt-multi-thread", "tokio/macros"]
 
 [[example]]
 name = "add_barcode"
