@@ -7,11 +7,11 @@ fn main() {
     // with_version specifes the PDF version this document complies with.
     let mut doc = Document::with_version("1.5");
 
-    // Object IDs are used for cross referencing in PDF documents. `lopdf` helps keep track of them
-    // for us. They are simple integers.
-    // Calls to `doc.new_object_id` and `doc.add_object` return an object id
+    // Object IDs are used for cross referencing in PDF documents.
+    // `lopdf` helps keep track of them for us. They are simple integers.
+    // Calls to `doc.new_object_id` and `doc.add_object` return an object IDs.
 
-    // pages is the root node of the page tree
+    // "Pages" is the root node of the page tree
     let pages_id = doc.new_object_id();
 
     // fonts are dictionaries. The type, subtype and basefont tags
@@ -20,7 +20,7 @@ fn main() {
     // The dictionary macro is a helper that allows complex
     // key, value relationships to be represented in a simpler
     // visual manner, similar to a match statement.
-    // Dictionary is linkedHashMap of byte vector, and object
+    // A dictionary is implemented as an IndexMap of Vec<u8>, and Object
     let font_id = doc.add_object(dictionary! {
         // type of dictionary
         "Type" => "Font",
@@ -31,13 +31,12 @@ fn main() {
         "BaseFont" => "Courier",
     });
 
-    // font dictionaries need to be added into resource dictionaries
-    // in order to be used.
-    // Resource dictionaries can contain more than just fonts,
-    // but normally just contains fonts
+    // Font dictionaries need to be added into resource dictionaries in order
+    // to be used. Resource dictionaries can contain more than just fonts,
+    // but normally just contains fonts.
     // Only one resource dictionary is allowed per page tree root
     let resources_id = doc.add_object(dictionary! {
-        // fonts are actually triplely nested dictionaries. Fun!
+        // Fonts are actually triplely nested dictionaries. Fun!
         "Font" => dictionary! {
             // F1 is the font name used when writing text.
             // It must be unique in the document. It does not
@@ -49,18 +48,17 @@ fn main() {
     // Content is a wrapper struct around an operations struct that contains a vector of operations
     // The operations struct contains a vector of operations that match up with a particular PDF
     // operator and operands.
-    // Reference the PDF reference for more details on these operators and operands.
+    // Refer to the PDF spec for more details on these operators and operands.
     // Note, the operators and operands are specified in a reverse order than they
     // actually appear in the PDF file itself.
     let content = Content {
         operations: vec![
             // BT begins a text element. it takes no operands
             Operation::new("BT", vec![]),
-            // Tf specifies the font and font size. Font scaling is complicated in PDFs. Reference
-            // the reference for more info.
-            // The info() methods are defined based on their paired .from() methods (this
-            // functionality is built into rust), and are converting the provided values into
-            // An enum that represents the basic object types in PDF documents.
+            // Tf specifies the font and font size. Font scaling is complicated in PDFs.
+            // Refer to the PDF spec for more info.
+            // The `into()` methods convert the types into
+            // an enum that represents the basic object types in PDF documents.
             Operation::new("Tf", vec!["F1".into(), 48.into()]),
             // Td adjusts the translation components of the text matrix. When used for the first
             // time after BT, it sets the initial text position on the page.
@@ -76,16 +74,14 @@ fn main() {
     };
 
     // Streams are a dictionary followed by a sequence of bytes. What that sequence of bytes
-    // represents depends on context
-    // The stream dictionary is set internally to lopdf and normally doesn't
+    // represents, depends on context.
+    // The stream dictionary is set internally by lopdf and normally doesn't
     // need to be manually nanipulated. It contains keys such as
-    // Length, Filter, DecodeParams, etc
-    //
-    // content is a stream of encoded content data.
+    // Length, Filter, DecodeParams, etc.
     let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
 
     // Page is a dictionary that represents one page of a PDF file.
-    // It has a type, parent and contents
+    // Its required fields are "Type", "Parent" and "Contents".
     let page_id = doc.add_object(dictionary! {
         "Type" => "Page",
         "Parent" => pages_id,
@@ -96,7 +92,7 @@ fn main() {
     // at the top of the page, since we needed it to assign to the parent element of the page
     // dictionary
     //
-    // This is just the basic requirements for a page tree root object. There are also many
+    // These are just the basic requirements for a page tree root object. There are also many
     // additional entries that can be added to the dictionary if needed. Some of these can also be
     // defined on the page dictionary itself, and not inherited from the page tree root.
     let pages = dictionary! {
