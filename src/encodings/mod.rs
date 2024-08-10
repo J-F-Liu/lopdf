@@ -25,3 +25,10 @@ pub fn encode_utf16_be(text: &str) -> Vec<u8> {
     bytes.extend(text.encode_utf16().flat_map(|b| b.to_be_bytes()));
     bytes
 }
+
+pub fn encode_utf8(text: &str) -> Vec<u8> {
+    // Prepend BOM to the mark string as UTF-8 encoded.
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend(text.bytes());
+    bytes
+}
