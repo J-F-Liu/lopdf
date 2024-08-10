@@ -16,3 +16,12 @@ pub fn string_to_bytes(encoding: [Option<u16>; 256], text: &str) -> Vec<u8> {
         .map(|byte| byte as u8)
         .collect()
 }
+
+pub fn encode_utf16_be(text: &str) -> Vec<u8> {
+    // Prepend BOM to the mark string as UTF-16BE encoded.
+    let bom: u16 = 0xFEFF;
+    let mut bytes = vec![];
+    bytes.extend([bom].iter().flat_map(|b| b.to_be_bytes()));
+    bytes.extend(text.encode_utf16().flat_map(|b| b.to_be_bytes()));
+    bytes
+}
