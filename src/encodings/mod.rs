@@ -1,6 +1,6 @@
-mod encodings;
 mod glyphnames;
-pub use self::encodings::*;
+mod mappings;
+pub use self::mappings::*;
 
 pub fn bytes_to_string(encoding: [Option<u16>; 256], bytes: &[u8]) -> String {
     let code_points = bytes
