@@ -17,6 +17,9 @@ pub fn string_to_bytes(encoding: [Option<u16>; 256], text: &str) -> Vec<u8> {
         .collect()
 }
 
+/// Encodes the given `str` to UTF-16BE.
+/// The recommended way to encode text strings, as it supports all of
+/// unicode and all major PDF readers support it.
 pub fn encode_utf16_be(text: &str) -> Vec<u8> {
     // Prepend BOM to the mark string as UTF-16BE encoded.
     let bom: u16 = 0xFEFF;
@@ -26,6 +29,10 @@ pub fn encode_utf16_be(text: &str) -> Vec<u8> {
     bytes
 }
 
+/// Encodes the given `str` to UTF-8. This method of encoding text strings
+/// is first specified in PDF2.0 and reader support is still lacking
+/// (notably, Adobe Acrobat Reader doesn't support it at the time of writing).
+/// Thus, using it is **NOT RECOMMENDED**.
 pub fn encode_utf8(text: &str) -> Vec<u8> {
     // Prepend BOM to the mark string as UTF-8 encoded.
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
