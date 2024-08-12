@@ -7,13 +7,16 @@ mod object;
 mod datetime;
 pub use crate::object::{Dictionary, Object, ObjectId, Stream, StringFormat};
 
+mod common_data_structures;
 mod document;
 mod incremental_document;
 mod object_stream;
 #[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 pub use object_stream::ObjectStream;
 pub mod xref;
+pub use crate::common_data_structures::{decode_text_string, text_string};
 pub use crate::document::Document;
+pub use crate::encodings::{encode_utf16_be, encode_utf8};
 pub use crate::incremental_document::IncrementalDocument;
 
 mod bookmarks;
