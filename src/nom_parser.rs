@@ -3,6 +3,7 @@ use crate::content::*;
 use crate::error::XrefError;
 use crate::xref::*;
 use crate::Error;
+use std::collections::HashSet;
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
@@ -270,12 +271,12 @@ fn dictionary(input: &[u8]) -> NomResult<Dictionary> {
     )(input)
 }
 
-fn stream<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
+fn stream<'a>(input: &'a [u8], reader: &Reader, already_seen: &mut HashSet<ObjectId>) -> NomResult<'a, Object> {
     let (i, dict) = terminated(dictionary, tuple((space, tag(b"stream"), eol)))(input)?;
 
     if let Ok(length) = dict.get(b"Length").and_then(|value| {
         if let Ok(id) = value.as_reference() {
-            reader.get_object(id).and_then(|value| value.as_i64())
+            reader.get_object(id, already_seen).and_then(|value| value.as_i64())
         } else {
             value.as_i64()
         }
@@ -326,14 +327,17 @@ pub fn direct_object(input: &[u8]) -> Option<Object> {
     strip_nom(_direct_object(input))
 }
 
-fn object<'a>(input: &'a [u8], reader: &Reader) -> NomResult<'a, Object> {
-    terminated(alt((|input| stream(input, reader), _direct_objects)), space)(input)
+fn object<'a>(input: &'a [u8], reader: &Reader, already_seen: &mut HashSet<ObjectId>) -> NomResult<'a, Object> {
+    terminated(
+        alt((|input| stream(input, reader, already_seen), _direct_objects)),
+        space,
+    )(input)
 }
 
 pub fn indirect_object(
-    input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
+    input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader, already_seen: &mut HashSet<ObjectId>,
 ) -> crate::Result<(ObjectId, Object)> {
-    let (id, mut object) = _indirect_object(&input[offset..], offset, expected_id, reader)?;
+    let (id, mut object) = _indirect_object(&input[offset..], offset, expected_id, reader, already_seen)?;
 
     offset_stream(&mut object, offset);
 
@@ -341,7 +345,7 @@ pub fn indirect_object(
 }
 
 fn _indirect_object(
-    input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
+    input: &[u8], offset: usize, expected_id: Option<ObjectId>, reader: &Reader, already_seen: &mut HashSet<ObjectId>,
 ) -> crate::Result<(ObjectId, Object)> {
     let (i, (_, object_id)) =
         terminated(tuple((space, object_id)), pair(tag(b"obj"), space))(input).map_err(|_| Error::Parse { offset })?;
@@ -352,8 +356,11 @@ fn _indirect_object(
     }
 
     let object_offset = input.len() - i.len();
-    let (_, mut object) = terminated(|i| object(i, reader), tuple((space, opt(tag(b"endobj")), space)))(i)
-        .map_err(|_| Error::Parse { offset })?;
+    let (_, mut object) = terminated(
+        |i| object(i, reader, already_seen),
+        tuple((space, opt(tag(b"endobj")), space)),
+    )(i)
+    .map_err(|_| Error::Parse { offset })?;
 
     offset_stream(&mut object, object_offset);
 
@@ -418,7 +425,7 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> crate::Result<(Xref, D
             Ok((xref, trailer))
         }),
         (|input| {
-            _indirect_object(input, 0, None, reader)
+            _indirect_object(input, 0, None, reader, &mut HashSet::new())
                 .map(|(_, obj)| {
                     let res = match obj {
                         Object::Stream(stream) => decode_xref_stream(stream),
