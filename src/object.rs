@@ -598,21 +598,18 @@ impl Stream {
         }
 
         let mut input = self.content.as_slice();
-        let mut output = None;
+        let mut output = vec![];
 
         // Filters are in decoding order.
         for filter in filters {
-            output = Some(match filter.as_str() {
+            output = match filter.as_str() {
                 "FlateDecode" => Self::decompress_zlib(input, params)?,
                 "LZWDecode" => Self::decompress_lzw(input, params)?,
-                _ => {
-                    return Err(Error::Type);
-                }
-            });
-            input = output.as_ref().unwrap();
+                _ => return Err(Error::Type),
+            };
+            input = &output;
         }
-
-        output.ok_or(Error::Type)
+        Ok(output)
     }
 
     fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {

@@ -26,7 +26,7 @@ fn handle_pdf_page(doc: Document) -> u32 {
     let mut page_counter = 1;
 
     for page in doc.page_iter() {
-        for a in doc.get_page_annotations(page) {
+        for a in doc.get_page_annotations(page).unwrap() {
             let subtype = a
                 .get_deref(b"Subtype", &doc)
                 .and_then(Object::as_name_str)
