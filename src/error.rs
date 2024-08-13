@@ -31,6 +31,8 @@ pub enum Error {
     PageNumberNotFound(u32),
     /// Invalid object while parsing at offset.
     Parse { offset: usize },
+    /// Dereferencing object failed due to a reference cycle.
+    ReferenceCycle,
     /// Dereferencing object reached the limit.
     /// This might indicate a reference loop.
     ReferenceLimit,
@@ -67,7 +69,8 @@ impl fmt::Display for Error {
             Error::Offset(o) => write!(f, "Invalid file offset: {}", o),
             Error::PageNumberNotFound(p) => write!(f, "Page number {} could not be found", p),
             Error::Parse { offset, .. } => write!(f, "Invalid object at byte {}", offset),
-            Error::ReferenceLimit => write!(f, "Could not dereference an object; possible reference loop"),
+            Error::ReferenceCycle => write!(f, "Could not dereference an object; reference cycle detected"),
+            Error::ReferenceLimit => write!(f, "Could not dereference an object; possible reference cycle"),
             Error::StringDecode => write!(f, "Could not decode string"),
             Error::Syntax(msg) => write!(f, "Syntax error: {}", msg),
             Error::Trailer => write!(f, "Invalid file trailer"),

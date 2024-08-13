@@ -7,7 +7,7 @@ use crate::{Error, Result, Stream};
 use encoding_rs::UTF_16BE;
 use log::info;
 use std::cmp::max;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::str;
 
@@ -421,24 +421,29 @@ impl Document {
 
     /// Get resources used by a page.
     pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
-        fn collect_resources(page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document) {
-            if let Ok(resources_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
-                resource_ids.push(resources_id);
+        fn collect_resources(
+            page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document,
+            already_seen: &mut HashSet<ObjectId>,
+        ) -> Result<()> {
+            if let Ok(resource_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
+                resource_ids.push(resource_id);
             }
-            if let Ok(page_tree) = page_node
-                .get(b"Parent")
-                .and_then(Object::as_reference)
-                .and_then(|id| doc.get_dictionary(id))
-            {
-                collect_resources(page_tree, resource_ids, doc);
+            if let Ok(parent_id) = page_node.get(b"Parent").and_then(Object::as_reference) {
+                if already_seen.contains(&parent_id) {
+                    return Err(Error::ReferenceCycle);
+                }
+                already_seen.insert(parent_id);
+                let parent_dict = doc.get_dictionary(parent_id)?;
+                collect_resources(parent_dict, resource_ids, doc, already_seen)?;
             }
+            Ok(())
         }
 
         let mut resource_dict = None;
         let mut resource_ids = Vec::new();
         if let Ok(page) = self.get_dictionary(page_id) {
             resource_dict = page.get(b"Resources").and_then(Object::as_dict).ok();
-            collect_resources(page, &mut resource_ids, self);
+            collect_resources(page, &mut resource_ids, self, &mut HashSet::new()).unwrap();
         }
         (resource_dict, resource_ids)
     }
