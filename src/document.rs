@@ -420,7 +420,7 @@ impl Document {
     }
 
     /// Get resources used by a page.
-    pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
+    pub fn get_page_resources(&self, page_id: ObjectId) -> Result<(Option<&Dictionary>, Vec<ObjectId>)> {
         fn collect_resources(
             page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document,
             already_seen: &mut HashSet<ObjectId>,
@@ -443,13 +443,13 @@ impl Document {
         let mut resource_ids = Vec::new();
         if let Ok(page) = self.get_dictionary(page_id) {
             resource_dict = page.get(b"Resources").and_then(Object::as_dict).ok();
-            collect_resources(page, &mut resource_ids, self, &mut HashSet::new()).unwrap();
+            collect_resources(page, &mut resource_ids, self, &mut HashSet::new())?;
         }
-        (resource_dict, resource_ids)
+        Ok((resource_dict, resource_ids))
     }
 
     /// Get fonts used by a page.
-    pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<Vec<u8>, &Dictionary> {
+    pub fn get_page_fonts(&self, page_id: ObjectId) -> Result<BTreeMap<Vec<u8>, &Dictionary>> {
         fn collect_fonts_from_resources<'a>(
             resources: &'a Dictionary, fonts: &mut BTreeMap<Vec<u8>, &'a Dictionary>, doc: &'a Document,
         ) {
@@ -475,7 +475,7 @@ impl Document {
         }
 
         let mut fonts = BTreeMap::new();
-        let (resource_dict, resource_ids) = self.get_page_resources(page_id);
+        let (resource_dict, resource_ids) = self.get_page_resources(page_id)?;
         if let Some(resources) = resource_dict {
             collect_fonts_from_resources(resources, &mut fonts, self);
         }
@@ -484,7 +484,7 @@ impl Document {
                 collect_fonts_from_resources(resources, &mut fonts, self);
             }
         }
-        fonts
+        Ok(fonts)
     }
 
     /// Get the PDF annotations of a page. The /Subtype of each annotation dictionary defines the
