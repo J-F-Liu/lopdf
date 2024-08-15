@@ -230,13 +230,18 @@ impl<'a> Reader<'a> {
         let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
 
         // Read previous Xrefs of linearized or incremental updated document.
-        let mut prev_xref_start = trailer.remove(b"Prev");
-        while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
+        let mut already_seen = HashSet::new();
+        let mut prev_xref_start = trailer.get(b"Prev").cloned();
+        while let Ok(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
+            if already_seen.contains(&prev) {
+                break;
+            }
+            already_seen.insert(prev);
             if prev < 0 || prev as usize > self.buffer.len() {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
             xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
@@ -250,7 +255,7 @@ impl<'a> Reader<'a> {
                 xref.merge(prev_xref);
             }
 
-            prev_xref_start = prev_trailer.remove(b"Prev");
+            prev_xref_start = prev_trailer.get(b"Prev").cloned();
         }
 
         let xref_entry_count = xref.max_id() + 1;
