@@ -129,7 +129,6 @@ fn get_text_from_first_page(doc: &Document) -> String {
 #[test]
 fn unicode_can_be_extracted_from_loaded_pdf() -> lopdf::Result<()> {
     let doc = Document::load("assets/unicode.pdf")?;
-    let mut pages = doc.get_pages();
     let extracted_text = get_text_from_first_page(&doc);
     // extract text can currently map a consecutive fragment of text
     // to one divided into multiple lines, therefore we have to remove the

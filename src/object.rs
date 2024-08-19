@@ -357,14 +357,23 @@ impl Dictionary {
     }
 
     pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
-        // Note: it looks like currently not all unicode encodings are handled correctly
-        // e.g. Type3 font subtype with direct differences encoding is not currently implemented
+        debug_assert!(
+            self.type_is(b"Font"),
+            "Encoding should be only retrieved from Font type dictionaries!"
+        );
+
+        // Note: currently not all encodings are handled, not implemented:
+        // - dictionary differences encoding
+        // - default base encoding in dictionary differences encoding
+        // - TrueType cmap tables
+        // - DescendantFonts in CID-Keyed fonts
+        // - predefined CJK CMAP other than indicated in SimpleEncoding
         match self.get(b"Encoding").and_then(Object::as_name_str) {
             Ok("StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
             Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
             Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
             Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
-            Ok("Identity-H") => {
+            Ok("Identity-H") | Ok("Identity-V") => {
                 let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
                 let content = stream.get_plain_content()?;
                 let cmap = ToUnicodeCMap::parse(content)?;

@@ -11,6 +11,7 @@ ToUnicode CMaps are special CMaps and thus can be parsed simpler. Assumptions:
 pub(crate) type ArrayOfTargetStrings = Vec<Vec<u16>>;
 pub(crate) type SourceRangeMapping = ((u16, u16), ArrayOfTargetStrings);
 pub(crate) type SourceCharMapping = (u16, Vec<u16>);
+#[derive(Debug, PartialEq)]
 pub enum CMapSection {
     CsRange(Vec<(u16, u16)>),
     BfChar(Vec<SourceCharMapping>),
