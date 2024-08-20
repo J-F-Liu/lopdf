@@ -5,8 +5,8 @@ mod mappings;
 use crate::Error;
 use crate::Result;
 use cmap::ToUnicodeCMap;
-use encoding::EncoderTrap;
-use encoding::{all::UTF_16BE, DecoderTrap, Encoding as _};
+use encoding_rs::UTF_16BE;
+use log::warn;
 
 pub use self::mappings::*;
 
@@ -46,9 +46,9 @@ impl<'a> Encoding<'a> {
     pub fn bytes_to_string(&self, bytes: &[u8]) -> Result<String> {
         match self {
             Self::OneByteEncoding(map) => Ok(bytes_to_string(map, bytes)),
-            Self::SimpleEncoding(name) if ["UniGB-UCS2-H", "UniGB−UTF16−H"].contains(name) => UTF_16BE
-                .decode(bytes, DecoderTrap::Ignore)
-                .map_err(|_| Error::ContentDecode),
+            Self::SimpleEncoding(name) if ["UniGB-UCS2-H", "UniGB−UTF16−H"].contains(name) => {
+                Ok(UTF_16BE.decode(bytes).0.to_string())
+            }
             Self::UnicodeMapEncoding(unicode_map) => {
                 let utf16_str: Vec<u8> = bytes
                     .chunks_exact(2)
@@ -56,9 +56,7 @@ impl<'a> Encoding<'a> {
                     .flat_map(|cp| unicode_map.get_or_replacement_char(cp))
                     .flat_map(|it| [(it / 256) as u8, (it % 256) as u8])
                     .collect();
-                UTF_16BE
-                    .decode(&utf16_str, DecoderTrap::Ignore)
-                    .map_err(|_| Error::ContentDecode)
+                Ok(UTF_16BE.decode(&utf16_str).0.to_string())
             }
             _ => Err(Error::ContentDecode),
         }
@@ -66,14 +64,38 @@ impl<'a> Encoding<'a> {
     pub fn string_to_bytes(&self, text: &str) -> Vec<u8> {
         match self {
             Self::OneByteEncoding(map) => string_to_bytes(map, text),
-            Self::SimpleEncoding(name) if ["UniGB-UCS2-H", "UniGB-UTF16-H"].contains(name) => {
-                UTF_16BE.encode(text, EncoderTrap::Ignore).unwrap()
-            }
+            Self::SimpleEncoding(name) if ["UniGB-UCS2-H", "UniGB-UTF16-H"].contains(name) => encode_utf16_be(text),
             Self::UnicodeMapEncoding(_unicode_map) => {
                 //maybe only possible if the unicode map is an identity?
                 unimplemented!()
             }
-            _ => string_to_bytes(&STANDARD_ENCODING, text),
+            _ => {
+                warn!("Unknown encoding used to encode text {self:?}");
+                text.as_bytes().to_vec()
+            }
         }
     }
+}
+
+/// Encodes the given `str` to UTF-16BE.
+/// The recommended way to encode text strings, as it supports all of
+/// unicode and all major PDF readers support it.
+pub fn encode_utf16_be(text: &str) -> Vec<u8> {
+    // Prepend BOM to the mark string as UTF-16BE encoded.
+    let bom: u16 = 0xFEFF;
+    let mut bytes = vec![];
+    bytes.extend([bom].iter().flat_map(|b| b.to_be_bytes()));
+    bytes.extend(text.encode_utf16().flat_map(|b| b.to_be_bytes()));
+    bytes
+}
+
+/// Encodes the given `str` to UTF-8. This method of encoding text strings
+/// is first specified in PDF2.0 and reader support is still lacking
+/// (notably, Adobe Acrobat Reader doesn't support it at the time of writing).
+/// Thus, using it is **NOT RECOMMENDED**.
+pub fn encode_utf8(text: &str) -> Vec<u8> {
+    // Prepend BOM to the mark string as UTF-8 encoded.
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend(text.bytes());
+    bytes
 }

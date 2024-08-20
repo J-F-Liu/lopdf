@@ -68,7 +68,7 @@ impl Document {
         let pages = self.get_pages();
         for page_number in page_numbers {
             let page_id = *pages.get(page_number).ok_or(Error::PageNumberNotFound(*page_number))?;
-            let fonts = self.get_page_fonts(page_id);
+            let fonts = self.get_page_fonts(page_id)?;
             let encodings: BTreeMap<Vec<u8>, Encoding> = fonts
                 .into_iter()
                 .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
@@ -108,7 +108,7 @@ impl Document {
             .nth(page)
             .ok_or(Error::PageNumberNotFound(page_number))?;
         let encodings: BTreeMap<Vec<u8>, Encoding> = self
-            .get_page_fonts(page_id)
+            .get_page_fonts(page_id)?
             .into_iter()
             .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
             .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;

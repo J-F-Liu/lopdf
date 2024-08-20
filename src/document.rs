@@ -6,7 +6,7 @@ use crate::xref::{Xref, XrefType};
 use crate::{Error, Result, Stream};
 use log::info;
 use std::cmp::max;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::str;
 
@@ -157,10 +157,10 @@ impl Document {
         self.objects.contains_key(&id)
     }
 
-    /// Get mutable reference to object by object id, will iteratively dereference a referenced object.
+    /// Get mutable reference to object by object ID, will iteratively dereference a referenced object.
     pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
         let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
-        let (ref_id, _) = self.dereference(object)?;
+        let (ref_id, _obj) = self.dereference(object)?;
 
         Ok(self.objects.get_mut(&ref_id.unwrap_or(id)).unwrap())
     }
@@ -303,8 +303,8 @@ impl Document {
             if let Ok(info_dict) = self.get_object_mut(info_obj_id).and_then(Object::as_dict_mut) {
                 for (_, info_obj) in info_dict.iter_mut() {
                     if let Ok(content) = encryption::decrypt_object(&key, info_obj_id, &*info_obj) {
-                        info_obj.as_str_mut().unwrap().clear();
-                        info_obj.as_str_mut().unwrap().extend(content);
+                        info_obj.as_str_mut()?.clear();
+                        info_obj.as_str_mut()?.extend(content);
                     };
                 }
             }
@@ -395,7 +395,7 @@ impl Document {
             current_content_list.push(Object::Reference(content_object_id));
 
             // Set data
-            let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut).unwrap();
+            let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
             page_mut.set("Contents", current_content_list);
             Ok(())
         } else {
@@ -419,31 +419,36 @@ impl Document {
     }
 
     /// Get resources used by a page.
-    pub fn get_page_resources(&self, page_id: ObjectId) -> (Option<&Dictionary>, Vec<ObjectId>) {
-        fn collect_resources(page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document) {
-            if let Ok(resources_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
-                resource_ids.push(resources_id);
+    pub fn get_page_resources(&self, page_id: ObjectId) -> Result<(Option<&Dictionary>, Vec<ObjectId>)> {
+        fn collect_resources(
+            page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document,
+            already_seen: &mut HashSet<ObjectId>,
+        ) -> Result<()> {
+            if let Ok(resource_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
+                resource_ids.push(resource_id);
             }
-            if let Ok(page_tree) = page_node
-                .get(b"Parent")
-                .and_then(Object::as_reference)
-                .and_then(|id| doc.get_dictionary(id))
-            {
-                collect_resources(page_tree, resource_ids, doc);
+            if let Ok(parent_id) = page_node.get(b"Parent").and_then(Object::as_reference) {
+                if already_seen.contains(&parent_id) {
+                    return Err(Error::ReferenceCycle);
+                }
+                already_seen.insert(parent_id);
+                let parent_dict = doc.get_dictionary(parent_id)?;
+                collect_resources(parent_dict, resource_ids, doc, already_seen)?;
             }
+            Ok(())
         }
 
         let mut resource_dict = None;
         let mut resource_ids = Vec::new();
         if let Ok(page) = self.get_dictionary(page_id) {
             resource_dict = page.get(b"Resources").and_then(Object::as_dict).ok();
-            collect_resources(page, &mut resource_ids, self);
+            collect_resources(page, &mut resource_ids, self, &mut HashSet::new())?;
         }
-        (resource_dict, resource_ids)
+        Ok((resource_dict, resource_ids))
     }
 
     /// Get fonts used by a page.
-    pub fn get_page_fonts(&self, page_id: ObjectId) -> BTreeMap<Vec<u8>, &Dictionary> {
+    pub fn get_page_fonts(&self, page_id: ObjectId) -> Result<BTreeMap<Vec<u8>, &Dictionary>> {
         fn collect_fonts_from_resources<'a>(
             resources: &'a Dictionary, fonts: &mut BTreeMap<Vec<u8>, &'a Dictionary>, doc: &'a Document,
         ) {
@@ -469,7 +474,7 @@ impl Document {
         }
 
         let mut fonts = BTreeMap::new();
-        let (resource_dict, resource_ids) = self.get_page_resources(page_id);
+        let (resource_dict, resource_ids) = self.get_page_resources(page_id)?;
         if let Some(resources) = resource_dict {
             collect_fonts_from_resources(resources, &mut fonts, self);
         }
@@ -478,20 +483,19 @@ impl Document {
                 collect_fonts_from_resources(resources, &mut fonts, self);
             }
         }
-        fonts
+        Ok(fonts)
     }
 
     /// Get the PDF annotations of a page. The /Subtype of each annotation dictionary defines the
     /// annotation type (Text, Link, Highlight, Underline, Ink, Popup, Widget, etc.). The /Rect of
     /// an annotation dictionary defines its location on the page.
-    pub fn get_page_annotations(&self, page_id: ObjectId) -> Vec<&Dictionary> {
+    pub fn get_page_annotations(&self, page_id: ObjectId) -> Result<Vec<&Dictionary>> {
         let mut annotations = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
             match page.get(b"Annots") {
                 Ok(Object::Reference(ref id)) => self
                     .get_object(*id)
-                    .and_then(Object::as_array)
-                    .unwrap()
+                    .and_then(Object::as_array)?
                     .iter()
                     .flat_map(Object::as_reference)
                     .flat_map(|id| self.get_dictionary(id))
@@ -504,7 +508,7 @@ impl Document {
                 _ => {}
             }
         }
-        annotations
+        Ok(annotations)
     }
 
     pub fn get_page_images(&self, page_id: ObjectId) -> Result<Vec<PdfImage>> {
@@ -567,7 +571,7 @@ impl Document {
 
     pub fn decode_text(encoding: Option<&Encoding>, bytes: &[u8]) -> Result<String> {
         if let Some(encoding) = encoding {
-            info!("{:#?}", encoding);
+            info!("Decoding text with {:#?}", encoding);
             encoding.bytes_to_string(bytes)
         } else {
             Ok(bytes_to_string(&encodings::STANDARD_ENCODING, bytes))

@@ -2,7 +2,7 @@ use crate::encodings;
 use crate::encodings::cmap::ToUnicodeCMap;
 use crate::encodings::Encoding;
 use crate::{Document, Error, Result};
-use linked_hash_map::{self, Iter, IterMut, LinkedHashMap};
+use indexmap::IndexMap;
 use log::warn;
 use std::cmp::max;
 use std::fmt;
@@ -13,7 +13,7 @@ pub type ObjectId = (u32, u16);
 
 /// Dictionary object.
 #[derive(Clone, Default, PartialEq)]
-pub struct Dictionary(LinkedHashMap<Vec<u8>, Object>);
+pub struct Dictionary(IndexMap<Vec<u8>, Object>);
 
 /// Stream object
 /// Warning - all streams must be indirect objects, while
@@ -297,7 +297,7 @@ impl fmt::Debug for Object {
 
 impl Dictionary {
     pub fn new() -> Dictionary {
-        Dictionary(LinkedHashMap::new())
+        Dictionary(IndexMap::new())
     }
 
     pub fn has(&self, key: &[u8]) -> bool {
@@ -335,7 +335,7 @@ impl Dictionary {
     }
 
     pub fn remove(&mut self, key: &[u8]) -> Option<Object> {
-        self.0.remove(key)
+        self.0.swap_remove(key)
     }
 
     pub fn type_name(&self) -> Result<&str> {
@@ -348,11 +348,11 @@ impl Dictionary {
         self.get(b"Type").and_then(Object::as_name).ok() == Some(type_name)
     }
 
-    pub fn iter(&self) -> Iter<'_, Vec<u8>, Object> {
+    pub fn iter(&self) -> indexmap::map::Iter<Vec<u8>, Object> {
         self.0.iter()
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<'_, Vec<u8>, Object> {
+    pub fn iter_mut(&mut self) -> indexmap::map::IterMut<Vec<u8>, Object> {
         self.0.iter_mut()
     }
 
@@ -373,6 +373,8 @@ impl Dictionary {
             Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
             Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
             Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
+            // it is not customary to use PDFDocEncoding in fonts but it is not forbidden by the standard
+            Ok("PDFDocEncoding") => Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING)),
             Ok("Identity-H") | Ok("Identity-V") => {
                 let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
                 self.get_encoding_from_to_unicode_cmap(stream)
@@ -402,7 +404,7 @@ impl Dictionary {
 
     pub fn extend(&mut self, other: &Dictionary) {
         let keep_both_objects =
-            |new_dict: &mut LinkedHashMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: &Object| {
+            |new_dict: &mut IndexMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: &Object| {
                 let mut final_array;
 
                 match value {
@@ -419,7 +421,7 @@ impl Dictionary {
                 new_dict.insert(key.to_owned(), Object::Array(final_array));
             };
 
-        let mut new_dict = LinkedHashMap::with_capacity(other.0.len() + 1);
+        let mut new_dict = IndexMap::with_capacity(other.0.len() + 1);
 
         for (key, value) in other.0.iter() {
             if let Some(old_value) = self.0.get(key) {
@@ -472,13 +474,13 @@ impl Dictionary {
         self.0 = new_dict;
     }
 
-    /// Return a reference to the inner  [`LinkedHashMap`].
-    pub fn as_hashmap(&self) -> &LinkedHashMap<Vec<u8>, Object> {
+    /// Return a reference to the inner  [`IndexMap`].
+    pub fn as_hashmap(&self) -> &IndexMap<Vec<u8>, Object> {
         &self.0
     }
 
-    /// Return a mut reference to the inner [`LinkedHashMap`].
-    pub fn as_hashmap_mut(&mut self) -> &mut LinkedHashMap<Vec<u8>, Object> {
+    /// Return a mut reference to the inner [`IndexMap`].
+    pub fn as_hashmap_mut(&mut self) -> &mut IndexMap<Vec<u8>, Object> {
         &mut self.0
     }
 }
@@ -510,12 +512,30 @@ impl fmt::Debug for Dictionary {
     }
 }
 
+impl IntoIterator for Dictionary {
+    type Item = (Vec<u8>, Object);
+    type IntoIter = indexmap::map::IntoIter<Vec<u8>, Object>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<'a> IntoIterator for &'a Dictionary {
     type Item = (&'a Vec<u8>, &'a Object);
-    type IntoIter = linked_hash_map::Iter<'a, Vec<u8>, Object>;
+    type IntoIter = indexmap::map::Iter<'a, Vec<u8>, Object>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Dictionary {
+    type Item = (&'a Vec<u8>, &'a mut Object);
+    type IntoIter = indexmap::map::IterMut<'a, Vec<u8>, Object>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
     }
 }
 
@@ -628,21 +648,18 @@ impl Stream {
         }
 
         let mut input = self.content.as_slice();
-        let mut output = None;
+        let mut output = vec![];
 
         // Filters are in decoding order.
         for filter in filters {
-            output = Some(match filter.as_str() {
+            output = match filter.as_str() {
                 "FlateDecode" => Self::decompress_zlib(input, params)?,
                 "LZWDecode" => Self::decompress_lzw(input, params)?,
-                _ => {
-                    return Err(Error::Type);
-                }
-            });
-            input = output.as_ref().unwrap();
+                _ => return Err(Error::Type),
+            };
+            input = &output;
         }
-
-        output.ok_or(Error::Type)
+        Ok(output)
     }
 
     fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {

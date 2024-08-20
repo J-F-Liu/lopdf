@@ -2,7 +2,7 @@
 
 use log::{error, warn};
 use std::cmp;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::convert::TryInto;
 #[cfg(not(feature = "async"))]
 use std::fs::File;
@@ -230,13 +230,18 @@ impl<'a> Reader<'a> {
         let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
 
         // Read previous Xrefs of linearized or incremental updated document.
-        let mut prev_xref_start = trailer.remove(b"Prev");
-        while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
+        let mut already_seen = HashSet::new();
+        let mut prev_xref_start = trailer.get(b"Prev").cloned();
+        while let Ok(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
+            if already_seen.contains(&prev) {
+                break;
+            }
+            already_seen.insert(prev);
             if prev < 0 || prev as usize > self.buffer.len() {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, mut prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
             xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
@@ -250,7 +255,7 @@ impl<'a> Reader<'a> {
                 xref.merge(prev_xref);
             }
 
-            prev_xref_start = prev_trailer.remove(b"Prev");
+            prev_xref_start = prev_trailer.get(b"Prev").cloned();
         }
 
         let xref_entry_count = xref.max_id() + 1;
@@ -273,7 +278,7 @@ impl<'a> Reader<'a> {
         let entries_filter_map = |(_, entry): (&_, &_)| {
             if let XrefEntry::Normal { offset, .. } = *entry {
                 let (object_id, mut object) = self
-                    .read_object(offset as usize, None)
+                    .read_object(offset as usize, None, &mut HashSet::new())
                     .map_err(|e| error!("Object load error: {:?}", e))
                     .ok()?;
                 if let Some(filter_func) = filter_func {
@@ -363,12 +368,22 @@ impl<'a> Reader<'a> {
         let object = self.document.get_object(object_id)?;
         let stream = object.as_stream()?;
 
-        stream.dict.get(b"Length").and_then(|value| {
-            if let Ok(id) = value.as_reference() {
-                return self.document.get_object(id).and_then(Object::as_i64);
-            }
-            value.as_i64()
-        })
+        stream
+            .dict
+            .get(b"Length")
+            .and_then(|value| {
+                if let Ok(id) = value.as_reference() {
+                    return self.document.get_object(id).and_then(Object::as_i64);
+                }
+                value.as_i64()
+            })
+            .map_err(|err| {
+                error!(
+                    "Stream dictionary of '{} {} R' is missing the Length entry",
+                    object_id.0, object_id.1
+                );
+                err
+            })
     }
 
     /// Get object offset by object id.
@@ -386,19 +401,26 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub fn get_object(&self, id: ObjectId) -> Result<Object> {
+    pub fn get_object(&self, id: ObjectId, already_seen: &mut HashSet<ObjectId>) -> Result<Object> {
+        if already_seen.contains(&id) {
+            warn!("reference cycle detected resolving object {} {}", id.0, id.1);
+            return Err(Error::ReferenceCycle);
+        }
+        already_seen.insert(id);
         let offset = self.get_offset(id)?;
-        let (_, obj) = self.read_object(offset as usize, Some(id))?;
+        let (_, obj) = self.read_object(offset as usize, Some(id), already_seen)?;
 
         Ok(obj)
     }
 
-    fn read_object(&self, offset: usize, expected_id: Option<ObjectId>) -> Result<(ObjectId, Object)> {
+    fn read_object(
+        &self, offset: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
+    ) -> Result<(ObjectId, Object)> {
         if offset > self.buffer.len() {
             return Err(Error::Offset(offset));
         }
 
-        parser::indirect_object(self.buffer, offset, expected_id, self)
+        parser::indirect_object(self.buffer, offset, expected_id, self, already_seen)
     }
 
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {
