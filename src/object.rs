@@ -375,19 +375,29 @@ impl Dictionary {
             Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
             Ok("Identity-H") | Ok("Identity-V") => {
                 let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
-                let content = stream.get_plain_content()?;
-                let cmap = ToUnicodeCMap::parse(content)?;
-                Ok(Encoding::UnicodeMapEncoding(cmap))
+                self.get_encoding_from_to_unicode_cmap(stream)
             }
             Ok(name) => Ok(Encoding::SimpleEncoding(name)),
             Err(err) => {
                 warn!(
-                    "Could not parse the encoding, error: {:#?}\nFont: {:#?}\nUsing standard encoding as a fallback",
+                    "Could not parse the encoding, error: {:#?}\nFont: {:#?}\nTrying to retrieve ToUnicode.",
                     err, self
                 );
+                let stream = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream);
+                if let Ok(stream) = stream {
+                    return self.get_encoding_from_to_unicode_cmap(stream);
+                }
+
+                warn!("Using standard encoding as a fallback!");
                 Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
             }
         }
+    }
+
+    fn get_encoding_from_to_unicode_cmap(&self, stream: &Stream) -> Result<Encoding> {
+        let content = stream.get_plain_content()?;
+        let cmap = ToUnicodeCMap::parse(content)?;
+        Ok(Encoding::UnicodeMapEncoding(cmap))
     }
 
     pub fn extend(&mut self, other: &Dictionary) {

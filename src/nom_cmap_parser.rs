@@ -2,7 +2,6 @@ use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, Sou
 use crate::parser::{dictionary, eol, hex_char, name, NomError, NomResult};
 use nom::branch::alt;
 pub use nom::bytes::complete::tag;
-use nom::character::complete::multispace0;
 use nom::combinator::map;
 use nom::multi::{fold_many0, fold_many1, fold_many_m_n, many1, many_m_n, separated_list1};
 use nom::sequence::{pair, preceded, separated_pair};
@@ -58,6 +57,10 @@ fn space1(input: ParserInput) -> NomResult<()> {
     fold_many1(alt((tag(b" "), tag("\t"))), || {}, |_, _| ())(input)
 }
 
+fn multispace0(input: ParserInput) -> NomResult<()> {
+    fold_many0(alt((tag(b" "), tag("\t"), eol)), || {}, |_, _| ())(input)
+}
+
 fn multispace1(input: ParserInput) -> NomResult<()> {
     fold_many1(alt((tag(b" "), tag("\t"), eol)), || {}, |_, _| ())(input)
 }
@@ -66,7 +69,7 @@ fn cidinit_procset(input: ParserInput) -> NomResult<()> {
     tuple_discard_result(
         (
             tag(b"/CIDInit"),
-            space1,
+            space0,
             tag(b"/ProcSet"),
             space1,
             tag(b"findresource"),
@@ -117,7 +120,7 @@ fn cid_system_info(input: ParserInput) -> NomResult<()> {
     tuple_discard_result(
         (
             tag(b"/CIDSystemInfo"),
-            multispace1,
+            multispace0,
             dictionary,
             multispace1,
             tag("def"),
@@ -798,5 +801,59 @@ CMapName currentdict /CMap defineresource pop
 end
 end";
         assert!(cmap_stream(data.as_bytes()).is_ok())
+    }
+
+    #[ignore = "2char ToUnicode cmaps are currently not implemented"]
+    #[test]
+    fn parse_truetype_cmap_section_with_2char_bfchars() {
+        let data = b"/CIDInit/ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo<<
+/Registry (Adobe)
+/Ordering (UCS)
+/Supplement 0
+>> def
+/CMapName/Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+29 beginbfchar
+<01> <0054>
+<02> <0068>
+<03> <0065>
+<04> <0020>
+<05> <0044>
+<06> <0061>
+<07> <006E>
+<08> <0067>
+<09> <0072>
+<0A> <006F>
+<0B> <0066>
+<0C> <0045>
+<0D> <0062>
+<0E> <006B>
+<0F> <0073>
+<10> <004A>
+<11> <0069>
+<12> <0075>
+<13> <0063>
+<14> <003A>
+<15> <0070>
+<16> <0074>
+<17> <002F>
+<18> <0076>
+<19> <0042>
+<1A> <0079>
+<1B> <002E>
+<1C> <006D>
+<1D> <006C>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end\n";
+        assert!(cmap_stream(data).is_ok())
     }
 }
