@@ -27,10 +27,10 @@ fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
 }
 
 #[inline]
-#[allow(clippy::let_unit_value)]
 fn convert_result<O, E>(result: Result<O, E>, input: &[u8], error_kind: ErrorKind) -> NomResult<O> {
     result.map(|o| (input, o)).map_err(|_| {
         // this is a unit bind if NomError = ()
+        #[allow(clippy::let_unit_value)]
         let err: NomError = NomError::from_error_kind(input, error_kind);
         nom::Err::Error(err)
     })
@@ -285,6 +285,7 @@ fn stream<'a>(input: &'a [u8], reader: &Reader, already_seen: &mut HashSet<Objec
     }) {
         if length < 0 {
             // artificial error kind is created to allow descriptive nom errors
+            #[allow(clippy::unit_arg)]
             return Err(nom::Err::Failure(NomError::from_error_kind(i, ErrorKind::LengthValue)));
         }
         let (i, data) = terminated(take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
@@ -437,9 +438,11 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> crate::Result<(Xref, D
                     };
                     (input, res)
                 })
-                .map_err(|_|
+                .map_err(|_| {
                     // artificial error kind is created to allow descriptive nom errors
-                    nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Fail)))
+                    #[allow(clippy::unit_arg)]
+                    nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Fail))
+                })
         }),
     ))(input)
     .map(|(_, o)| o)

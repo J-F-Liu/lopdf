@@ -617,7 +617,7 @@ impl Stream {
 
     pub fn get_plain_content(&self) -> Result<Vec<u8>> {
         match self.filters() {
-            Ok(vec) if vec.len() > 0 => self.decompressed_content(),
+            Ok(vec) if !vec.is_empty() => self.decompressed_content(),
             _ => Ok(self.content.clone()),
         }
     }
