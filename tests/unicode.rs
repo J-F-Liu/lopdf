@@ -126,6 +126,7 @@ fn get_text_from_first_page(doc: &Document) -> String {
     extracted_text
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn unicode_can_be_extracted_from_loaded_pdf() -> lopdf::Result<()> {
     let doc = Document::load("assets/unicode.pdf")?;
@@ -133,6 +134,15 @@ fn unicode_can_be_extracted_from_loaded_pdf() -> lopdf::Result<()> {
     // extract text can currently map a consecutive fragment of text
     // to one divided into multiple lines, therefore we have to remove the
     // new lines
+    assert_eq!(extracted_text.replace("\n", ""), "😀🔧🔨");
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn unicode_can_be_extracted_from_loaded_pdf() -> lopdf::Result<()> {
+    let doc = Document::load("assets/unicode.pdf").await?;
+    let extracted_text = get_text_from_first_page(&doc);
     assert_eq!(extracted_text.replace("\n", ""), "😀🔧🔨");
     Ok(())
 }
