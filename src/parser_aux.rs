@@ -1,5 +1,7 @@
 #![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 
+use log::warn;
+
 use crate::{
     content::{Content, Operation},
     document::Document,
@@ -44,7 +46,7 @@ impl Document {
     }
 
     pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
-        fn collect_text(text: &mut String, encoding: Option<&Encoding>, operands: &[Object]) -> Result<()> {
+        fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> Result<()> {
             for operand in operands.iter() {
                 match *operand {
                     Object::String(ref bytes, _) => {
@@ -86,9 +88,10 @@ impl Document {
                             .as_name()?;
                         current_encoding = encodings.get(current_font);
                     }
-                    "Tj" | "TJ" => {
-                        collect_text(&mut text, current_encoding, &operation.operands)?;
-                    }
+                    "Tj" | "TJ" => match current_encoding {
+                        Some(encoding) => collect_text(&mut text, encoding, &operation.operands)?,
+                        None => warn!("Could not decode extracted text"),
+                    },
                     "ET" => {
                         if !text.ends_with('\n') {
                             text.push('\n')
@@ -125,15 +128,12 @@ impl Document {
                         .as_name()?;
                     current_encoding = encodings.get(current_font);
                 }
-                "Tj" => {
-                    for bytes in operation.operands.iter_mut().flat_map(Object::as_str_mut) {
-                        let decoded_text = Document::decode_text(current_encoding, bytes)?;
-                        if decoded_text == text {
-                            let encoded_bytes = Document::encode_text(current_encoding, other_text);
-                            *bytes = encoded_bytes;
-                        }
+                "Tj" => match current_encoding {
+                    Some(encoding) => try_to_replace_encoded_text(operation, encoding, text, other_text)?,
+                    None => {
+                        warn!("Could not decode extracted text, some of the occurances might not be properly replaced")
                     }
-                }
+                },
                 _ => {}
             }
         }
@@ -185,6 +185,19 @@ impl Document {
 
         self.change_page_content(page_id, modified_content)
     }
+}
+
+fn try_to_replace_encoded_text(
+    operation: &mut Operation, encoding: &Encoding, text_to_replace: &str, replacement: &str,
+) -> Result<()> {
+    for bytes in operation.operands.iter_mut().flat_map(Object::as_str_mut) {
+        let decoded_text = Document::decode_text(encoding, bytes)?;
+        if decoded_text == text_to_replace {
+            let encoded_bytes = Document::encode_text(encoding, replacement);
+            *bytes = encoded_bytes;
+        }
+    }
+    Ok(())
 }
 
 /// Decode CrossReferenceStream

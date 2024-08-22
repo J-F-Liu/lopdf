@@ -1,10 +1,10 @@
-use super::encodings::{self, bytes_to_string, string_to_bytes, Encoding};
+use super::encodings::Encoding;
 use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::encryption;
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
 use crate::{Error, Result, Stream};
-use log::info;
+use log::debug;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
@@ -569,21 +569,13 @@ impl Document {
         Ok(images)
     }
 
-    pub fn decode_text(encoding: Option<&Encoding>, bytes: &[u8]) -> Result<String> {
-        if let Some(encoding) = encoding {
-            info!("Decoding text with {:#?}", encoding);
-            encoding.bytes_to_string(bytes)
-        } else {
-            Ok(bytes_to_string(&encodings::STANDARD_ENCODING, bytes))
-        }
+    pub fn decode_text(encoding: &Encoding, bytes: &[u8]) -> Result<String> {
+        debug!("Decoding text with {:#?}", encoding);
+        encoding.bytes_to_string(bytes)
     }
 
-    pub fn encode_text(encoding: Option<&Encoding>, text: &str) -> Vec<u8> {
-        if let Some(encoding) = encoding {
-            encoding.string_to_bytes(text)
-        } else {
-            string_to_bytes(&encodings::STANDARD_ENCODING, text)
-        }
+    pub fn encode_text(encoding: &Encoding, text: &str) -> Vec<u8> {
+        encoding.string_to_bytes(text)
     }
 }
 

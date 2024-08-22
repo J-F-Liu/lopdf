@@ -1,7 +1,7 @@
 use super::glyphnames::Glyph;
 
-pub type ByteToGlyphMap = [Option<u16>; 256];
-pub const MAC_ROMAN_ENCODING: ByteToGlyphMap = [
+pub type CodedCharacterSet = [Option<u16>; 256];
+pub const MAC_ROMAN_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -260,7 +260,7 @@ pub const MAC_ROMAN_ENCODING: ByteToGlyphMap = [
     Some(Glyph::caron),
 ];
 
-pub const MAC_EXPERT_ENCODING: ByteToGlyphMap = [
+pub const MAC_EXPERT_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -519,7 +519,7 @@ pub const MAC_EXPERT_ENCODING: ByteToGlyphMap = [
     None,
 ];
 
-pub const WIN_ANSI_ENCODING: ByteToGlyphMap = [
+pub const WIN_ANSI_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -778,7 +778,7 @@ pub const WIN_ANSI_ENCODING: ByteToGlyphMap = [
     Some(Glyph::ydieresis),
 ];
 
-pub const STANDARD_ENCODING: ByteToGlyphMap = [
+pub const STANDARD_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -1039,7 +1039,7 @@ pub const STANDARD_ENCODING: ByteToGlyphMap = [
 
 /// MacExpertEncoding
 #[allow(dead_code)]
-pub const EXPERT_ENCODING: ByteToGlyphMap = [
+pub const EXPERT_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -1299,7 +1299,7 @@ pub const EXPERT_ENCODING: ByteToGlyphMap = [
 ];
 
 #[allow(dead_code)]
-pub const SYMBOL_ENCODING: ByteToGlyphMap = [
+pub const SYMBOL_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -1560,7 +1560,7 @@ pub const SYMBOL_ENCODING: ByteToGlyphMap = [
 
 /// PDFDocEncoding
 #[allow(dead_code)]
-pub const PDF_DOC_ENCODING: ByteToGlyphMap = [
+pub const PDF_DOC_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
