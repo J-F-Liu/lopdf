@@ -1,7 +1,7 @@
 use super::glyphnames::Glyph;
 
-/// MacRomanEncoding
-pub const MAC_ROMAN_ENCODING: [Option<u16>; 256] = [
+pub type CodedCharacterSet = [Option<u16>; 256];
+pub const MAC_ROMAN_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -260,8 +260,7 @@ pub const MAC_ROMAN_ENCODING: [Option<u16>; 256] = [
     Some(Glyph::caron),
 ];
 
-/// MacExpertEncoding
-pub const MAC_EXPERT_ENCODING: [Option<u16>; 256] = [
+pub const MAC_EXPERT_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -520,8 +519,7 @@ pub const MAC_EXPERT_ENCODING: [Option<u16>; 256] = [
     None,
 ];
 
-/// WinAnsiEncoding
-pub const WIN_ANSI_ENCODING: [Option<u16>; 256] = [
+pub const WIN_ANSI_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -780,8 +778,7 @@ pub const WIN_ANSI_ENCODING: [Option<u16>; 256] = [
     Some(Glyph::ydieresis),
 ];
 
-/// StandardEncoding
-pub const STANDARD_ENCODING: [Option<u16>; 256] = [
+pub const STANDARD_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -1042,7 +1039,7 @@ pub const STANDARD_ENCODING: [Option<u16>; 256] = [
 
 /// MacExpertEncoding
 #[allow(dead_code)]
-pub const EXPERT_ENCODING: [Option<u16>; 256] = [
+pub const EXPERT_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -1302,7 +1299,7 @@ pub const EXPERT_ENCODING: [Option<u16>; 256] = [
 ];
 
 #[allow(dead_code)]
-pub const SYMBOL_ENCODING: [Option<u16>; 256] = [
+pub const SYMBOL_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,
@@ -1563,7 +1560,7 @@ pub const SYMBOL_ENCODING: [Option<u16>; 256] = [
 
 /// PDFDocEncoding
 #[allow(dead_code)]
-pub const PDF_DOC_ENCODING: [Option<u16>; 256] = [
+pub const PDF_DOC_ENCODING: CodedCharacterSet = [
     None,
     None,
     None,

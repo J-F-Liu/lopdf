@@ -18,8 +18,8 @@ use nom::IResult;
 
 // Change this to something else that implements ParseError to get a
 // different error type out of nom.
-type NomError = ();
-type NomResult<'a, O, E = NomError> = IResult<&'a [u8], O, E>;
+pub(crate) type NomError<'a> = ();
+pub(crate) type NomResult<'a, O, E = NomError<'a>> = IResult<&'a [u8], O, E>;
 
 #[inline]
 fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
@@ -29,8 +29,10 @@ fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
 #[inline]
 fn convert_result<O, E>(result: Result<O, E>, input: &[u8], error_kind: ErrorKind) -> NomResult<O> {
     result.map(|o| (input, o)).map_err(|_| {
-        NomError::from_error_kind(input, error_kind);
-        nom::Err::Error(())
+        // this is a unit bind if NomError = ()
+        #[allow(clippy::let_unit_value)]
+        let err: NomError = NomError::from_error_kind(input, error_kind);
+        nom::Err::Error(err)
     })
 }
 
@@ -41,7 +43,7 @@ fn offset_stream(object: &mut Object, offset: usize) {
     }
 }
 
-fn eol(input: &[u8]) -> NomResult<&[u8]> {
+pub(crate) fn eol(input: &[u8]) -> NomResult<&[u8]> {
     alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r")))(input)
 }
 
@@ -104,7 +106,7 @@ fn real(input: &[u8]) -> NomResult<f32> {
     convert_result(f32::from_str(str::from_utf8(float_input).unwrap()), i, ErrorKind::Digit)
 }
 
-fn hex_char(input: &[u8]) -> NomResult<u8> {
+pub(crate) fn hex_char(input: &[u8]) -> NomResult<u8> {
     map_res(
         verify(take(2usize), |h: &[u8]| h.iter().cloned().all(is_hex_digit)),
         |x| u8::from_str_radix(str::from_utf8(x).unwrap(), 16),
@@ -119,7 +121,7 @@ fn oct_char(input: &[u8]) -> NomResult<u8> {
     )(input)
 }
 
-fn name(input: &[u8]) -> NomResult<Vec<u8>> {
+pub(crate) fn name(input: &[u8]) -> NomResult<Vec<u8>> {
     preceded(
         tag(b"/"),
         many0(alt((
@@ -256,7 +258,7 @@ fn array(input: &[u8]) -> NomResult<Vec<Object>> {
     delimited(pair(tag(b"["), space), many0(_direct_object), tag(b"]"))(input)
 }
 
-fn dictionary(input: &[u8]) -> NomResult<Dictionary> {
+pub(crate) fn dictionary(input: &[u8]) -> NomResult<Dictionary> {
     delimited(
         pair(tag(b"<<"), space),
         fold_many0(
@@ -282,7 +284,9 @@ fn stream<'a>(input: &'a [u8], reader: &Reader, already_seen: &mut HashSet<Objec
         }
     }) {
         if length < 0 {
-            return Err(nom::Err::Failure(()));
+            // artificial error kind is created to allow descriptive nom errors
+            #[allow(clippy::unit_arg)]
+            return Err(nom::Err::Failure(NomError::from_error_kind(i, ErrorKind::LengthValue)));
         }
         let (i, data) = terminated(take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
         Ok((i, Object::Stream(Stream::new(dict, data.to_vec()))))
@@ -416,14 +420,15 @@ fn trailer(input: &[u8]) -> NomResult<Dictionary> {
 }
 
 pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> crate::Result<(Xref, Dictionary)> {
+    let xref_trailer = map(pair(xref, trailer), |(mut xref, trailer)| {
+        xref.size = trailer
+            .get(b"Size")
+            .and_then(Object::as_i64)
+            .map_err(|_| Error::Trailer)? as u32;
+        Ok((xref, trailer))
+    });
     alt((
-        map(pair(xref, trailer), |(mut xref, trailer)| {
-            xref.size = trailer
-                .get(b"Size")
-                .and_then(Object::as_i64)
-                .map_err(|_| Error::Trailer)? as u32;
-            Ok((xref, trailer))
-        }),
+        xref_trailer,
         (|input| {
             _indirect_object(input, 0, None, reader, &mut HashSet::new())
                 .map(|(_, obj)| {
@@ -433,7 +438,11 @@ pub fn xref_and_trailer(input: &[u8], reader: &Reader) -> crate::Result<(Xref, D
                     };
                     (input, res)
                 })
-                .map_err(|_| nom::Err::Error(()))
+                .map_err(|_| {
+                    // artificial error kind is created to allow descriptive nom errors
+                    #[allow(clippy::unit_arg)]
+                    nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Fail))
+                })
         }),
     ))(input)
     .map(|(_, o)| o)

@@ -1,3 +1,6 @@
+use crate::encodings;
+use crate::encodings::cmap::ToUnicodeCMap;
+use crate::encodings::Encoding;
 use crate::{Document, Error, Result};
 use indexmap::IndexMap;
 use log::warn;
@@ -353,10 +356,50 @@ impl Dictionary {
         self.0.iter_mut()
     }
 
-    pub fn get_font_encoding(&self) -> &str {
-        self.get(b"Encoding")
-            .and_then(Object::as_name_str)
-            .unwrap_or("StandardEncoding")
+    pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
+        debug_assert!(
+            self.type_is(b"Font"),
+            "Encoding should be only retrieved from Font type dictionaries!"
+        );
+
+        // Note: currently not all encodings are handled, not implemented:
+        // - dictionary differences encoding
+        // - default base encoding in dictionary differences encoding
+        // - TrueType cmap tables
+        // - DescendantFonts in CID-Keyed fonts
+        // - predefined CJK CMAP other than indicated in SimpleEncoding
+        match self.get(b"Encoding").and_then(Object::as_name_str) {
+            Ok("StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
+            Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
+            Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
+            // it is not customary to use PDFDocEncoding in fonts but it is not forbidden by the standard
+            Ok("PDFDocEncoding") => Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING)),
+            Ok("Identity-H") | Ok("Identity-V") => {
+                let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
+                self.get_encoding_from_to_unicode_cmap(stream)
+            }
+            Ok(name) => Ok(Encoding::SimpleEncoding(name)),
+            Err(err) => {
+                warn!(
+                    "Could not parse the encoding, error: {:#?}\nFont: {:#?}\nTrying to retrieve ToUnicode.",
+                    err, self
+                );
+                let stream = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream);
+                if let Ok(stream) = stream {
+                    return self.get_encoding_from_to_unicode_cmap(stream);
+                }
+
+                warn!("Using standard encoding as a fallback!");
+                Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
+            }
+        }
+    }
+
+    fn get_encoding_from_to_unicode_cmap(&self, stream: &Stream) -> Result<Encoding> {
+        let content = stream.get_plain_content()?;
+        let cmap = ToUnicodeCMap::parse(content)?;
+        Ok(Encoding::UnicodeMapEncoding(cmap))
     }
 
     pub fn extend(&mut self, other: &Dictionary) {
@@ -570,6 +613,13 @@ impl Stream {
         self.dict.remove(b"Filter");
         self.dict.set("Length", content.len() as i64);
         self.content = content;
+    }
+
+    pub fn get_plain_content(&self) -> Result<Vec<u8>> {
+        match self.filters() {
+            Ok(vec) if !vec.is_empty() => self.decompressed_content(),
+            _ => Ok(self.content.clone()),
+        }
     }
 
     pub fn compress(&mut self) -> Result<()> {

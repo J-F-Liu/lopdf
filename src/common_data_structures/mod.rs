@@ -39,7 +39,7 @@ pub fn decode_text_string(obj: &Object) -> Result<String> {
         String::from_utf8(s.to_vec()).map_err(|_| Error::StringDecode)
     } else {
         // If neither BOM is detected, PDFDocEncoding is used
-        Ok(bytes_to_string(encodings::PDF_DOC_ENCODING, s))
+        Ok(bytes_to_string(&encodings::PDF_DOC_ENCODING, s))
     }
 }
 
@@ -52,7 +52,7 @@ mod test {
     #[test]
     fn spec_example1_encode() {
         let input = "text‰";
-        let text_string = encodings::string_to_bytes(encodings::PDF_DOC_ENCODING, input);
+        let text_string = encodings::string_to_bytes(&encodings::PDF_DOC_ENCODING, input);
         // let text_string = input.bytes().collect::<Vec<_>>();
         let dict = Object::Dictionary(dictionary!(
             "Key" => Object::String(text_string, StringFormat::Literal),

@@ -9,7 +9,7 @@ use pom::parser::*;
 use std::cmp::max;
 use std::str::{self, FromStr};
 
-fn eol<'a>() -> Parser<'a, u8, u8> {
+pub(crate) fn eol<'a>() -> Parser<'a, u8, u8> {
     (sym(b'\r') * sym(b'\n')) | sym(b'\n') | sym(b'\r')
 }
 
@@ -21,7 +21,7 @@ fn white_space<'a>() -> Parser<'a, u8, ()> {
     one_of(b" \t\n\r\0\x0C").repeat(0..).discard()
 }
 
-fn space<'a>() -> Parser<'a, u8, ()> {
+pub(crate) fn space<'a>() -> Parser<'a, u8, ()> {
     (one_of(b" \t\n\r\0\x0C").repeat(1..).discard() | comment())
         .repeat(0..)
         .discard()
@@ -39,7 +39,7 @@ fn real<'a>() -> Parser<'a, u8, f32> {
     number.collect().convert(str::from_utf8).convert(f32::from_str)
 }
 
-fn hex_char<'a>() -> Parser<'a, u8, u8> {
+pub(crate) fn hex_char<'a>() -> Parser<'a, u8, u8> {
     let number = is_a(hex_digit).repeat(2);
     number
         .collect()
@@ -53,7 +53,7 @@ fn oct_char<'a>() -> Parser<'a, u8, u8> {
         .convert(|v| u8::from_str_radix(str::from_utf8(v).unwrap(), 8))
 }
 
-fn name<'a>() -> Parser<'a, u8, Vec<u8>> {
+pub(crate) fn name<'a>() -> Parser<'a, u8, Vec<u8>> {
     sym(b'/') * (none_of(b" \t\n\r\x0C()<>[]{}/%#") | (sym(b'#') * hex_char())).repeat(0..)
 }
 
@@ -113,7 +113,7 @@ fn array<'a>() -> Parser<'a, u8, Vec<Object>> {
     sym(b'[') * space() * call(_direct_object).repeat(0..) - sym(b']')
 }
 
-fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
+pub(crate) fn dictionary<'a>() -> Parser<'a, u8, Dictionary> {
     let entry = name() - space() + call(_direct_object);
     let entries = seq(b"<<") * space() * entry.repeat(0..) - seq(b">>");
     entries.map(|entries| {
@@ -148,7 +148,7 @@ fn stream<'a>(reader: &'a Reader) -> Parser<'a, u8, Stream> {
 }
 
 fn object_id<'a>() -> Parser<'a, u8, ObjectId> {
-    let id = one_of(b"0123456789")
+    let id: Parser<u8, u32> = one_of(b"0123456789")
         .repeat(1..)
         .convert(|v| u32::from_str(str::from_utf8(&v).unwrap()));
     let gen = one_of(b"0123456789")
@@ -371,5 +371,37 @@ T* (encoded streams.) Tj
         let content = content(stream);
         println!("{:?}", content);
         assert!(content.is_some());
+    }
+
+    #[test]
+    fn parse_cidsysteminfo_dictionary() {
+        let stream = b"<< /Registry (Adobe) /Ordering (UCS) /Supplement 0 >>";
+        let expected = dictionary!(
+            "Registry" => Object::string_literal("Adobe"),
+            "Ordering" => Object::string_literal("UCS"),
+            "Supplement" => Object::Integer(0));
+
+        let parsed_dict = dictionary().parse(stream);
+        assert_eq!(parsed_dict, Ok(expected));
+    }
+
+    #[test]
+    fn parse_font_dictionary() {
+        // from PDF 1.7 standard example font
+        let stream = b"<< /Type /Font
+    /Subtype /Type0
+    /BaseFont /HeiseiMin-W5-90ms-RKSJ-H
+    /Encoding /90ms-RKSJ-H
+    /DescendantFonts [15 0 R]
+>>";
+        let expected = dictionary!(
+            "Type" => "Font",
+            "Subtype"=> "Type0",
+            "BaseFont" => "HeiseiMin-W5-90ms-RKSJ-H",
+            "Encoding" => "90ms-RKSJ-H",
+            "DescendantFonts" => Object::Array(vec![Object::Reference((15, 0))]));
+        let parsed_dict = dictionary().parse(stream);
+        println!("{:#?}", parsed_dict.clone().unwrap().get(b"DescendantFonts"));
+        assert_eq!(parsed_dict, Ok(expected));
     }
 }

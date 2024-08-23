@@ -1,6 +1,8 @@
 use crate::encryption;
 use std::fmt;
 
+use crate::encodings::cmap::UnicodeCMapError;
+
 #[derive(Debug)]
 pub enum Error {
     /// Brackets limit reached.
@@ -40,6 +42,8 @@ pub enum Error {
     StringDecode,
     /// Syntax error while parsing the file.
     Syntax(String),
+    /// Could not parse ToUnicodeCMap.
+    ToUnicodeCMap(UnicodeCMapError),
     /// The file trailer was invalid.
     Trailer,
     /// The object does not have the expected type.
@@ -73,6 +77,7 @@ impl fmt::Display for Error {
             Error::ReferenceLimit => write!(f, "Could not dereference an object; possible reference cycle"),
             Error::StringDecode => write!(f, "Could not decode string"),
             Error::Syntax(msg) => write!(f, "Syntax error: {}", msg),
+            Error::ToUnicodeCMap(err) => write!(f, "ToUnicode CMap error: {}", err),
             Error::Trailer => write!(f, "Invalid file trailer"),
             Error::Type => write!(f, "An object does not have the expected type"),
             Error::UTF8 => write!(f, "UTF-8 error"),
@@ -127,6 +132,12 @@ impl From<std::string::FromUtf8Error> for Error {
 impl From<std::str::Utf8Error> for Error {
     fn from(_err: std::str::Utf8Error) -> Self {
         Error::UTF8
+    }
+}
+
+impl From<UnicodeCMapError> for Error {
+    fn from(cmap_err: UnicodeCMapError) -> Self {
+        Error::ToUnicodeCMap(cmap_err)
     }
 }
 
