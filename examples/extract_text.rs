@@ -20,7 +20,6 @@ static IGNORE: &[&str] = &[
     "BBox",
     "FormType",
     "Matrix",
-    "Resources",
     "Type",
     "XObject",
     "Subtype",
@@ -37,7 +36,6 @@ static IGNORE: &[&str] = &[
     "PTEX.InfoDict",
     "FontDescriptor",
     "ExtGState",
-    "Font",
     "MediaBox",
     "Annot",
 ];
@@ -83,8 +81,6 @@ fn filter_func(object_id: (u32, u16), object: &mut Object) -> Option<((u32, u16)
         return None;
     }
     if let Ok(d) = object.as_dict_mut() {
-        d.remove(b"Font");
-        d.remove(b"Resources");
         d.remove(b"Producer");
         d.remove(b"ModDate");
         d.remove(b"Creator");
