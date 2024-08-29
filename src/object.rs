@@ -655,6 +655,7 @@ impl Stream {
             output = match filter.as_str() {
                 "FlateDecode" => Self::decompress_zlib(input, params)?,
                 "LZWDecode" => Self::decompress_lzw(input, params)?,
+                "ASCII85Decode" => Self::decode_ascii85(input),
                 _ => return Err(Error::Type),
             };
             input = &output;
@@ -707,6 +708,46 @@ impl Stream {
             });
         }
         Self::decompress_predictor(output, params)
+    }
+
+    fn decode_ascii85(input: &[u8]) -> Vec<u8> {
+        let mut output = vec![];
+        let mut buffer: u32 = 0;
+        let mut count = 0;
+
+        for &ch in input {
+            if ch == b'z' && count == 0 {
+                output.extend_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            if ch.is_ascii_whitespace() {
+                continue;
+            }
+
+            if !(b'!'..=b'u').contains(&ch) {
+                break;
+            }
+
+            buffer = buffer * 85 + ((ch - b'!') as u32);
+            count += 1;
+
+            if count == 5 {
+                output.extend_from_slice(&buffer.to_be_bytes());
+                buffer = 0;
+                count = 0;
+            }
+        }
+
+        if count > 0 {
+            for _ in count..5 {
+                buffer = buffer * 85 + 84;
+            }
+
+            let bytes = buffer.to_be_bytes();
+            output.extend_from_slice(&bytes[..count - 1]);
+        }
+
+        output
     }
 
     fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>) -> Result<Vec<u8>> {
