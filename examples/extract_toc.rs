@@ -76,6 +76,7 @@ fn filter_func(object_id: (u32, u16), object: &mut Object) -> Option<((u32, u16)
         d.remove(b"ModDate");
         d.remove(b"Creator");
         d.remove(b"ProcSet");
+        d.remove(b"Procset");
         d.remove(b"XObject");
         d.remove(b"MediaBox");
         d.remove(b"Annots");

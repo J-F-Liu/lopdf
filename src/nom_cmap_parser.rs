@@ -70,7 +70,7 @@ fn cidinit_procset(input: ParserInput) -> NomResult<()> {
         (
             tag(b"/CIDInit"),
             space0,
-            tag(b"/ProcSet"),
+            alt((tag(b"/ProcSet"), tag(b"/Procset"))),
             space1,
             tag(b"findresource"),
             space1,
@@ -171,7 +171,7 @@ fn hex_u16(input: ParserInput) -> NomResult<u16> {
 fn bf_char_section(input: ParserInput) -> NomResult<CMapSection> {
     let begin_section = tuple((digit1, space1, tag(b"beginbfchar"), multispace1));
     let end_section = tuple((tag(b"endbfchar"), multispace1));
-    let bf_char_line = delimited(space0, separated_pair(source_code, space1, target_string), multispace1);
+    let bf_char_line = delimited(space0, separated_pair(source_code, space0, target_string), multispace1);
     let (rest_of_input, bf_char_mappings) = delimited(begin_section, many1(bf_char_line), end_section)(input)?;
     Ok((rest_of_input, CMapSection::BfChar(bf_char_mappings)))
 }
@@ -850,6 +850,31 @@ endcodespacerange
 <1C> <006D>
 <1D> <006C>
 endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end\n";
+        assert!(cmap_stream(data).is_ok())
+    }
+
+    #[test]
+    fn parse_cmap_section_with_lowercase_pracset_and_nospace_target_string() {
+        let data = b"/CIDInit /Procset findresource begin
+12 dict begin
+begincmap
+/CMapType 2 def
+1 begincodespacerange
+<0000><ffff>
+endcodespacerange
+4 beginbfchar
+<1D50><AC1C>
+<1E29><ACF5>
+<43ED><D2B9>
+<46FC><D5C8>
+endbfchar
+1 beginbfrange
+<067B><0692><0020>
+endbfrange
 endcmap
 CMapName currentdict /CMap defineresource pop
 end
