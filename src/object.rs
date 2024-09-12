@@ -404,28 +404,30 @@ impl Dictionary {
 
     pub fn extend(&mut self, other: &Dictionary) {
         let keep_both_objects =
-            |new_dict: &mut IndexMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: &Object| {
+            |new_dict: &mut IndexMap<Vec<u8>, Object>, key: &Vec<u8>, value: &Object, old_value: Object| {
                 let mut final_array;
 
                 match value {
                     Object::Array(array) => {
                         final_array = Vec::with_capacity(array.len() + 1);
-                        final_array.push(old_value.to_owned());
+                        final_array.push(old_value);
                         final_array.extend(array.to_owned());
                     }
                     _ => {
-                        final_array = vec![value.to_owned(), old_value.to_owned()];
+                        final_array = vec![value.to_owned(), old_value];
                     }
                 }
 
                 new_dict.insert(key.to_owned(), Object::Array(final_array));
             };
 
-        let mut new_dict = IndexMap::with_capacity(other.0.len() + 1);
+        let mut new_dict = std::mem::take(&mut self.0);
+        new_dict.reserve_exact(other.0.len());
 
         for (key, value) in other.0.iter() {
-            if let Some(old_value) = self.0.get(key) {
-                match (old_value, value) {
+            if let Some(old_value) = new_dict.get(key) {
+                let old_value = old_value.to_owned();
+                match (&old_value, value) {
                     (Object::Dictionary(old_dict), Object::Dictionary(dict)) => {
                         let mut replaced_dict = old_dict.to_owned();
                         replaced_dict.extend(dict);
@@ -462,7 +464,7 @@ impl Dictionary {
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::Null, _) | (Object::Boolean(_), _) | (Object::Name(_), _) | (Object::Stream(_), _) => {
-                        new_dict.insert(key.to_owned(), old_value.to_owned());
+                        new_dict.insert(key.to_owned(), old_value);
                     }
                     (_, _) => keep_both_objects(&mut new_dict, key, value, old_value),
                 }
