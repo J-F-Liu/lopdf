@@ -18,7 +18,6 @@ pub struct ToUnicodeCMap {
 #[derive(Debug)]
 pub enum UnicodeCMapError {
     Parse(CMapParseError),
-    UnsupportedCodeSpaceRange,
     InvalidCodeRange,
 }
 
@@ -27,7 +26,6 @@ impl fmt::Display for UnicodeCMapError {
         use UnicodeCMapError::*;
         match self {
             Parse(cmap_parse_error) => write!(f, "Could not parse ToUnicodeCMap: {:#?}!", cmap_parse_error),
-            UnsupportedCodeSpaceRange => write!(f, "Unsupported codespace range given!"),
             InvalidCodeRange => write!(f, "Invalid code range given!"),
         }
     }
