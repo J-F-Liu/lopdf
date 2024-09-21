@@ -37,6 +37,8 @@ impl From<CMapParseError> for UnicodeCMapError {
 }
 
 impl ToUnicodeCMap {
+    const REPLACEMENT_CHAR: u16 = 0xfffd;
+
     pub fn new() -> ToUnicodeCMap {
         ToUnicodeCMap {
             bf_ranges: [(); 4].map(|_| RangeInclusiveMap::new()),
@@ -90,7 +92,7 @@ impl ToUnicodeCMap {
         }
         use BfRangeTarget::*;
 
-        let bf_ranges_map = &self.bf_ranges[code_len as usize];
+        let bf_ranges_map = &self.bf_ranges[(code_len - 1) as usize];
 
         bf_ranges_map.get_key_value(&code).map(|(range, value)| match value {
             HexString(ref vec) => {
@@ -104,14 +106,16 @@ impl ToUnicodeCMap {
     }
 
     pub fn get_or_replacement_char(&self, code: SourceCode, code_len: CodeLen) -> Vec<u16> {
-        self.get(code, code_len).unwrap_or(vec![0xfffd])
+        self.get(code, code_len)
+            .unwrap_or(vec![ToUnicodeCMap::REPLACEMENT_CHAR])
     }
 
     pub fn put(&mut self, src_code_lo: SourceCode, src_code_hi: SourceCode, code_len: CodeLen, target: BfRangeTarget) {
         if code_len > 4 || code_len == 0 {
             error!("Code lenght should be between l and 4 bytes, got {code_len}, ignoring");
+            return;
         }
-        self.bf_ranges[code_len as usize].insert(src_code_lo..=src_code_hi, target)
+        self.bf_ranges[(code_len - 1) as usize].insert(src_code_lo..=src_code_hi, target)
     }
 
     pub fn put_char(&mut self, code: SourceCode, code_len: CodeLen, dst: Vec<u16>) {
@@ -134,4 +138,44 @@ pub enum BfRangeTarget {
     // so that consecutive ranges can be mapped to the same value in the range map
     UTF16CodePoint { offset: u32 },
     ArrayOfHexStrings(Vec<Vec<u16>>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn put_char_can_be_retrieved() {
+        let mut cmap = ToUnicodeCMap::new();
+        let char_code = 0x01;
+        let char_value = vec![0x1234];
+        cmap.put_char(char_code, 2, char_value.clone());
+
+        assert_eq!(cmap.get(char_code, 2), Some(char_value))
+    }
+
+    #[test]
+    fn char_can_be_retrieved_only_by_appropriate_len() {
+        let mut cmap = ToUnicodeCMap::new();
+        let char_code = 0x1;
+        let code_len = 4;
+        let char_value = vec![0x1234];
+        cmap.put_char(char_code, code_len, char_value.clone());
+
+        for i in 1..=3 {
+            assert_eq!(cmap.get(char_code, i), None);
+        }
+
+        assert_eq!(cmap.get(char_code, code_len), Some(char_value));
+    }
+
+    #[test]
+    fn wrong_code_len_does_not_panic() {
+        let mut cmap = ToUnicodeCMap::new();
+        let char_code = 0x1;
+        let char_value = vec![0x1234];
+
+        cmap.put_char(char_code, 5, char_value.clone());
+        cmap.put_char(char_code, 0, char_value.clone());
+    }
 }
