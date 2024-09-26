@@ -47,7 +47,7 @@ pub(crate) fn eol(input: &[u8]) -> NomResult<&[u8]> {
     alt((tag(b"\r\n"), tag(b"\n"), tag(b"\r")))(input)
 }
 
-fn comment(input: &[u8]) -> NomResult<()> {
+pub(crate) fn comment(input: &[u8]) -> NomResult<()> {
     map(
         tuple((tag(b"%"), take_while(|c: u8| !b"\r\n".contains(&c)), eol)),
         |_| (),

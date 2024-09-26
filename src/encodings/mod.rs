@@ -50,10 +50,33 @@ impl<'a> Encoding<'a> {
                 Ok(UTF_16BE.decode(bytes).0.to_string())
             }
             Self::UnicodeMapEncoding(unicode_map) => {
-                let utf16_str: Vec<u8> = bytes
-                    .chunks_exact(2)
-                    .map(|chunk| chunk[0] as u16 * 256 + chunk[1] as u16)
-                    .flat_map(|cp| unicode_map.get_or_replacement_char(cp))
+                let mut output_bytes = Vec::new();
+
+                // source codes can have a variadic length from 1 to 4 bytes
+                let mut bytes_in_considered_code = 0u8;
+                let mut considered_source_code = 0u32;
+                for byte in bytes {
+                    if bytes_in_considered_code == 4 {
+                        let mut value = unicode_map.get_or_replacement_char(considered_source_code, 4);
+                        considered_source_code = 0;
+                        bytes_in_considered_code = 0;
+                        output_bytes.append(&mut value);
+                    }
+                    bytes_in_considered_code += 1;
+                    considered_source_code = considered_source_code * 256 + *byte as u32;
+                    if let Some(mut value) = unicode_map.get(considered_source_code, bytes_in_considered_code) {
+                        considered_source_code = 0;
+                        bytes_in_considered_code = 0;
+                        output_bytes.append(&mut value);
+                    }
+                }
+                if bytes_in_considered_code > 0 {
+                    let mut value =
+                        unicode_map.get_or_replacement_char(considered_source_code, bytes_in_considered_code);
+                    output_bytes.append(&mut value);
+                }
+                let utf16_str: Vec<u8> = output_bytes
+                    .iter()
                     .flat_map(|it| [(it / 256) as u8, (it % 256) as u8])
                     .collect();
                 Ok(UTF_16BE.decode(&utf16_str).0.to_string())
@@ -61,6 +84,7 @@ impl<'a> Encoding<'a> {
             Self::SimpleEncoding(_) => Err(Error::ContentDecode),
         }
     }
+
     pub fn string_to_bytes(&self, text: &str) -> Vec<u8> {
         match self {
             Self::OneByteEncoding(map) => string_to_bytes(map, text),
@@ -98,4 +122,24 @@ pub fn encode_utf8(text: &str) -> Vec<u8> {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend(text.bytes());
     bytes
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn unicode_with_2byte_code_does_not_convert_single_bytes() {
+        let mut cmap = ToUnicodeCMap::new();
+
+        cmap.put(0x0000, 0x0002, 2, cmap::BfRangeTarget::UTF16CodePoint { offset: 0 });
+        cmap.put(0x0024, 0x0025, 2, cmap::BfRangeTarget::UTF16CodePoint { offset: 0 });
+
+        let bytes: [u8; 2] = [0x00, 0x24];
+
+        let result = Encoding::UnicodeMapEncoding(cmap).bytes_to_string(&bytes);
+
+        assert_eq!(result.unwrap(), "\u{0024}");
+    }
 }

@@ -1,8 +1,9 @@
-use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, SourceRangeMapping};
-use crate::parser::{dictionary, eol, hex_char, name, NomError, NomResult};
+use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, CodeLen, SourceCode, SourceRangeMapping};
+use crate::parser::{comment, dictionary, eol, hex_char, name, NomError, NomResult};
 use nom::branch::alt;
 pub use nom::bytes::complete::tag;
 use nom::combinator::map;
+use nom::error::ParseError;
 use nom::multi::{fold_many0, fold_many1, fold_many_m_n, many1, many_m_n, separated_list1};
 use nom::sequence::{pair, preceded, separated_pair};
 use nom::Parser;
@@ -57,17 +58,36 @@ fn space1(input: ParserInput) -> NomResult<()> {
     fold_many1(alt((tag(b" "), tag("\t"))), || {}, |_, _| ())(input)
 }
 
+fn parser_discard_result<'a, O>(
+    parser: impl Fn(ParserInput<'a>) -> NomResult<'a, O>,
+) -> impl Fn(ParserInput<'a>) -> NomResult<'a, ()> {
+    move |input| {
+        let result = parser(input);
+        match result {
+            Ok((rest_of_input, _)) => Ok((rest_of_input, ())),
+            Err(e) => Err(e),
+        }
+    }
+}
+
 fn multispace0(input: ParserInput) -> NomResult<()> {
-    fold_many0(alt((tag(b" "), tag("\t"), eol)), || {}, |_, _| ())(input)
+    let space = parser_discard_result(tag(b" "));
+    let tab = parser_discard_result(tag("\t"));
+    let eol = parser_discard_result(eol);
+    fold_many0(alt((space, tab, eol, comment)), || {}, |_, _| ())(input)
 }
 
 fn multispace1(input: ParserInput) -> NomResult<()> {
-    fold_many1(alt((tag(b" "), tag("\t"), eol)), || {}, |_, _| ())(input)
+    let space = parser_discard_result(tag(b" "));
+    let tab = parser_discard_result(tag("\t"));
+    let eol = parser_discard_result(eol);
+    fold_many1(alt((space, tab, eol, comment)), || {}, |_, _| ())(input)
 }
 
 fn cidinit_procset(input: ParserInput) -> NomResult<()> {
     tuple_discard_result(
         (
+            multispace0,
             tag(b"/CIDInit"),
             space0,
             alt((tag(b"/ProcSet"), tag(b"/Procset"))),
@@ -156,12 +176,33 @@ fn codespace_range_section(input: ParserInput) -> NomResult<CMapSection> {
     Ok((rest_of_input, CMapSection::CsRange(ranges_result)))
 }
 
-fn code_range_pair(input: ParserInput) -> NomResult<(u16, u16)> {
-    separated_pair(source_code, space0, source_code)(input)
+fn code_range_pair(input: ParserInput) -> NomResult<(SourceCode, SourceCode, CodeLen)> {
+    let (rest_of_input, ((code_begin, code_len_beg), (code_end, code_len_end))) =
+        separated_pair(source_code, space0, source_code)(input)?;
+    if code_len_beg != code_len_end {
+        create_code_len_err(rest_of_input)
+    } else {
+        Ok((rest_of_input, (code_begin, code_end, code_len_beg)))
+    }
 }
 
-fn source_code(input: ParserInput) -> NomResult<u16> {
-    delimited(tag(b"<"), hex_u16, tag(b">"))(input)
+fn create_code_len_err<'a, T, E: ParseError<ParserInput<'a>>>(input: ParserInput<'a>) -> Result<T, nom::Err<E>> {
+    Err(nom::Err::Failure(nom::error::make_error(
+        input,
+        nom::error::ErrorKind::LengthValue,
+    )))
+}
+
+fn source_code(input: ParserInput) -> NomResult<(SourceCode, CodeLen)> {
+    let (rest_of_input, bytes) = delimited(tag(b"<"), many_m_n(1, 4, hex_char), tag(b">"))(input)?;
+    let code_len = bytes.len();
+    let source_code = bytes
+        .into_iter()
+        .rev()
+        .zip(0..4)
+        .map(|(byte, i)| 256u32.pow(i) * byte as u32)
+        .sum();
+    Ok((rest_of_input, (source_code, code_len as u8)))
 }
 
 fn hex_u16(input: ParserInput) -> NomResult<u16> {
@@ -212,14 +253,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_1byte_source_code() {
+        let data = b"<0A>";
+        assert_eq!(source_code(data), NomResult::Ok((b"", (0x0a, 1))))
+    }
+
+    #[test]
     fn parse_source_code() {
         let data = b"<080F>";
-        assert_eq!(source_code(data), NomResult::Ok((b"", 0x080f)))
+        assert_eq!(source_code(data), NomResult::Ok((b"", (0x080f, 2))))
     }
 
     #[test]
     fn parse_invalid_source_code() {
-        let data = "<080f01>";
+        let data = "<080g01>";
+        assert!(source_code(data.as_bytes()).is_err())
+    }
+
+    #[test]
+    fn parse_too_long_source_code() {
+        let data = "<080g01030a>";
         assert!(source_code(data.as_bytes()).is_err())
     }
 
@@ -228,14 +281,23 @@ mod tests {
         let data = "<080F> <08FF> ";
         assert_eq!(
             code_range_pair(data.as_bytes()),
-            NomResult::Ok((b" ", (0x080f, 0x08ff)))
+            NomResult::Ok((b" ", (0x080f, 0x08ff, 2)))
         )
     }
 
     #[test]
     fn parse_code_range_pair_without_spaces() {
         let data = "<080F><08FF>";
-        assert_eq!(code_range_pair(data.as_bytes()), NomResult::Ok((b"", (0x080f, 0x08ff))))
+        assert_eq!(
+            code_range_pair(data.as_bytes()),
+            NomResult::Ok((b"", (0x080f, 0x08ff, 2)))
+        )
+    }
+
+    #[test]
+    fn parse_code_range_pair_with_not_matching_len() {
+        let data = "<080F> <08>";
+        assert!(code_range_pair(data.as_bytes()).is_err())
     }
 
     #[test]
@@ -243,7 +305,7 @@ mod tests {
         let data = "<080f> <08ff> <09000110>\n";
         assert_eq!(
             bf_range_line(data.as_bytes()),
-            NomResult::Ok((b"", ((0x080f, 0x08ff), vec![vec![0x0900, 0x0110]])))
+            NomResult::Ok((b"", ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]])))
         )
     }
     #[test]
@@ -251,7 +313,7 @@ mod tests {
         let data = "<080f><08ff><09000110>\n";
         assert_eq!(
             bf_range_line(data.as_bytes()),
-            NomResult::Ok((b"", ((0x080f, 0x08ff), vec![vec![0x0900, 0x0110]])))
+            NomResult::Ok((b"", ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]])))
         )
     }
 
@@ -260,7 +322,7 @@ mod tests {
         let data = "<080f> <08ff> [ <09000110> <08fe> ] \n";
         assert_eq!(
             bf_range_line(data.as_bytes()),
-            NomResult::Ok((b"", ((0x080f, 0x08ff), vec![vec![0x0900, 0x0110], vec![0x08fe]])))
+            NomResult::Ok((b"", ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110], vec![0x08fe]])))
         )
     }
     #[test]
@@ -276,7 +338,7 @@ mod tests {
         endcodespacerange\n";
         assert_eq!(
             codespace_range_section(data.as_bytes()),
-            NomResult::Ok((b"", CMapSection::CsRange(vec![(0x0000, 0xffff)])))
+            NomResult::Ok((b"", CMapSection::CsRange(vec![(0x0000, 0xffff, 2)])))
         )
     }
 
@@ -292,9 +354,9 @@ mod tests {
             NomResult::Ok((
                 b"",
                 CMapSection::BfRange(vec![
-                    ((0x0000, 0x000f), vec![vec![0x0000]]),
-                    ((0x0010, 0x001f), vec![vec![0x0000, 0x0010]]),
-                    ((0x0020, 0x002f), vec![vec![0x0000], vec![0x0000, 0x0010]]),
+                    ((0x0000, 0x000f, 2), vec![vec![0x0000]]),
+                    ((0x0010, 0x001f, 2), vec![vec![0x0000, 0x0010]]),
+                    ((0x0020, 0x002f, 2), vec![vec![0x0000], vec![0x0000, 0x0010]]),
                 ])
             ))
         )
@@ -803,9 +865,8 @@ end";
         assert!(cmap_stream(data.as_bytes()).is_ok())
     }
 
-    #[ignore = "2char ToUnicode cmaps are currently not implemented"]
     #[test]
-    fn parse_truetype_cmap_section_with_2char_bfchars() {
+    fn parse_truetype_cmap_section_with_1byte_bfchars() {
         let data = b"/CIDInit/ProcSet findresource begin
 12 dict begin
 begincmap

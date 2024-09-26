@@ -1,3 +1,5 @@
+#![cfg(feature = "nom_parser")]
+
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, Stream, StringFormat};
 
@@ -121,7 +123,7 @@ fn get_text_from_first_page(doc: &Document) -> String {
     let mut pages = doc.get_pages();
     let first_page = pages.first_entry().expect("Expected pages to be non empty");
     let extracted_text = doc
-        .extract_text(&[first_page.key().clone()])
+        .extract_text(&[*first_page.key()])
         .expect("Expected to find text on the first page");
     extracted_text
 }
