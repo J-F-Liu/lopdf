@@ -231,7 +231,7 @@ impl<'a> Reader<'a> {
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
-        let mut prev_xref_start = trailer.get(b"Prev").cloned();
+        let mut prev_xref_start = trailer.remove(b"Prev").ok_or(Error::DictKey);
         while let Ok(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
             if already_seen.contains(&prev) {
                 break;
