@@ -22,7 +22,7 @@ use tokio::pin;
 
 use crate::error::XrefError;
 use crate::object_stream::ObjectStream;
-use crate::parser;
+use crate::parser::{self, ParserInput};
 use crate::xref::XrefEntry;
 use crate::{Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
@@ -219,7 +219,7 @@ impl<'a> Reader<'a> {
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
-        let version = parser::header(self.buffer).ok_or(Error::Header)?;
+        let version = parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(Error::Header)?;
 
         let xref_start = Self::get_xref_start(self.buffer)?;
         if xref_start > self.buffer.len() {
@@ -227,7 +227,8 @@ impl<'a> Reader<'a> {
         }
         self.document.xref_start = xref_start;
 
-        let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        let (mut xref, mut trailer) =
+            parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[xref_start..], "xref"), &self)?;
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
@@ -241,7 +242,8 @@ impl<'a> Reader<'a> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+            let (prev_xref, prev_trailer) =
+                parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[prev as usize..], ""), &self)?;
             xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
@@ -251,7 +253,8 @@ impl<'a> Reader<'a> {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
 
-                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+                let (prev_xref, _) =
+                    parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[prev as usize..], ""), &self)?;
                 xref.merge(prev_xref);
             }
 
@@ -420,7 +423,13 @@ impl<'a> Reader<'a> {
             return Err(Error::Offset(offset));
         }
 
-        parser::indirect_object(self.buffer, offset, expected_id, self, already_seen)
+        parser::indirect_object(
+            ParserInput::new_extra(self.buffer, "indirect object"),
+            offset,
+            expected_id,
+            self,
+            already_seen,
+        )
     }
 
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {
@@ -431,7 +440,7 @@ impl<'a> Reader<'a> {
             .ok_or(Error::Xref(XrefError::Start))
             .and_then(|xref_pos| {
                 if xref_pos <= buffer.len() {
-                    match parser::xref_start(&buffer[xref_pos..]) {
+                    match parser::xref_start(ParserInput::new_extra(&buffer[xref_pos..], "xref")) {
                         Some(startxref) => Ok(startxref as usize),
                         None => Err(Error::Xref(XrefError::Start)),
                     }

@@ -123,7 +123,7 @@ fn get_pdf_text(doc: &Document) -> Result<PdfText, Error> {
                 let text = doc.extract_text(&[page_num]).map_err(|e| {
                     Error::new(
                         ErrorKind::Other,
-                        format!("Failed to extract text from page {page_num} id={page_id:?}: {e:?}"),
+                        format!("Failed to extract text from page {page_num} id={page_id:?}: {e:}"),
                     )
                 })?;
                 Ok((

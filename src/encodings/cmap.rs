@@ -1,5 +1,6 @@
 use crate::cmap_parser::parse;
 use crate::cmap_section::{CMapParseError, CMapSection, CodeLen, SourceCode};
+use crate::parser::ParserInput;
 
 use log::error;
 use rangemap::RangeInclusiveMap;
@@ -46,7 +47,7 @@ impl ToUnicodeCMap {
     }
 
     pub(crate) fn parse(stream_content: Vec<u8>) -> Result<ToUnicodeCMap, UnicodeCMapError> {
-        let cmap_sections = parse(&stream_content[..])?;
+        let cmap_sections = parse(ParserInput::new_extra(&stream_content[..], "cmap"))?;
         Self::from_sections(cmap_sections)
     }
 

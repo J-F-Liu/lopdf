@@ -8,6 +8,7 @@ use crate::{
     encodings::Encoding,
     error::XrefError,
     object::Object::Name,
+    parser::ParserInput,
     xref::{Xref, XrefEntry, XrefType},
     Error, Result,
 };
@@ -20,7 +21,7 @@ use std::{
 impl Content<Vec<Operation>> {
     /// Decode content operations.
     pub fn decode(data: &[u8]) -> Result<Self> {
-        parser::content(data).ok_or(Error::ContentDecode)
+        parser::content(ParserInput::new_extra(data, "content operations")).ok_or(Error::ContentDecode)
     }
 }
 
