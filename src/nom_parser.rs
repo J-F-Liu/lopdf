@@ -8,6 +8,8 @@ use std::str::{self, FromStr};
 
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
+use nom::character::complete::multispace1;
+use nom::character::complete::space1;
 use nom::character::complete::{digit0, digit1, one_of};
 use nom::character::{is_hex_digit, is_oct_digit};
 use nom::combinator::{map, map_opt, map_res, opt, verify};
@@ -277,6 +279,33 @@ pub(crate) fn dictionary(input: ParserInput) -> NomResult<Dictionary> {
             },
         ),
         tag(b">>"),
+    )(input)
+}
+
+pub(crate) fn dict_dup(input: ParserInput) -> NomResult<Dictionary> {
+    delimited(
+        tuple((
+            digit1,
+            space1,
+            tag(b"dict"),
+            space1,
+            tag(b"dup"),
+            space1,
+            tag(b"begin"),
+            multispace1,
+        )),
+        fold_many0(
+            terminated(
+                pair(terminated(name, space), _direct_object),
+                pair(tag(b"def"), multispace1),
+            ),
+            Dictionary::new,
+            |mut dict, (key, value)| {
+                dict.set(key, value);
+                dict
+            },
+        ),
+        tag(b"end"),
     )(input)
 }
 

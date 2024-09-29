@@ -1,5 +1,5 @@
 use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, CodeLen, SourceCode, SourceRangeMapping};
-use crate::parser::{comment, dictionary, eol, hex_char, name, NomError, NomResult, ParserInput};
+use crate::parser::{comment, dict_dup, dictionary, eol, hex_char, name, NomError, NomResult, ParserInput};
 use nom::branch::alt;
 pub use nom::bytes::complete::tag;
 use nom::combinator::map;
@@ -139,7 +139,7 @@ fn cid_system_info(input: ParserInput) -> NomResult<()> {
         (
             tag(b"/CIDSystemInfo"),
             multispace0,
-            dictionary,
+            alt((dictionary, dict_dup)),
             multispace1,
             tag(b"def"),
             multispace1,
@@ -389,6 +389,17 @@ mod tests {
 /Ordering (UCS)
 /Supplement 0
 >> def
+";
+        assert!(cid_system_info(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_cid_system_info_dict_dup() {
+        let data = b"/CIDSystemInfo 3 dict dup begin
+  /Registry (callas) def
+  /Ordering (MyriadPro-Regular14-UCMap) def
+  /Supplement 0 def
+end def
 ";
         assert!(cid_system_info(test_span(data)).is_ok())
     }
