@@ -46,7 +46,8 @@ pub fn decode_text_string(obj: &Object) -> Result<String> {
 #[cfg(test)]
 mod test {
     use crate::{
-        common_data_structures::decode_text_string, encodings, text_string, writer::Writer, Object, StringFormat,
+        common_data_structures::decode_text_string, encodings, parser::ParserInput, text_string, writer::Writer,
+        Object, StringFormat,
     };
 
     #[test]
@@ -68,7 +69,7 @@ mod test {
     #[test]
     fn spec_example1_decode() {
         let input = b"<</Key(text\\213)>>";
-        let dict = crate::parser::direct_object(input).unwrap();
+        let dict = crate::parser::direct_object(ParserInput::new_extra(input, "")).unwrap();
         let dict = dict.as_dict().unwrap();
         let actual = decode_text_string(dict.get(b"Key").unwrap()).unwrap();
         let expected = "text‰";
@@ -92,7 +93,7 @@ mod test {
     #[test]
     fn spec_example2_decode() {
         let input = b"<</Key<FEFF0442043504410442>>>";
-        let dict = crate::parser::direct_object(input).unwrap();
+        let dict = crate::parser::direct_object(ParserInput::new_extra(input, "")).unwrap();
         let dict = dict.as_dict().unwrap();
         let actual = decode_text_string(dict.get(b"Key").unwrap()).unwrap();
         // Russian for "test"

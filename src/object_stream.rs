@@ -1,6 +1,6 @@
 #![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
 
-use crate::parser;
+use crate::parser::{self, ParserInput};
 use crate::{Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
 use std::str::FromStr;
@@ -52,7 +52,7 @@ impl ObjectStream {
                 warn!("out-of-bounds offset in object stream");
                 return None;
             }
-            let object = parser::direct_object(&stream.content[offset..])?;
+            let object = parser::direct_object(ParserInput::new_extra(&stream.content[offset..], "direct object"))?;
 
             Some(((id, 0), object))
         };

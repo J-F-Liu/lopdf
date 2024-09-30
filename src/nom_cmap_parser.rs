@@ -1,18 +1,16 @@
 use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, CodeLen, SourceCode, SourceRangeMapping};
-use crate::parser::{comment, dictionary, eol, hex_char, name, NomError, NomResult};
+use crate::parser::{comment, dict_dup, dictionary, eol, hex_char, name, NomError, NomResult, ParserInput};
 use nom::branch::alt;
 pub use nom::bytes::complete::tag;
 use nom::combinator::map;
 use nom::error::ParseError;
 use nom::multi::{fold_many0, fold_many1, fold_many_m_n, many1, many_m_n, separated_list1};
-use nom::sequence::{pair, preceded, separated_pair};
+use nom::sequence::{pair, preceded, separated_pair, terminated};
 use nom::Parser;
 use nom::{
     character::complete::digit1,
     sequence::{delimited, tuple},
 };
-
-type ParserInput<'a> = &'a [u8];
 
 impl<E> From<nom::Err<E>> for CMapParseError {
     fn from(err: nom::Err<E>) -> Self {
@@ -141,9 +139,9 @@ fn cid_system_info(input: ParserInput) -> NomResult<()> {
         (
             tag(b"/CIDSystemInfo"),
             multispace0,
-            dictionary,
+            alt((dictionary, dict_dup)),
             multispace1,
-            tag("def"),
+            tag(b"def"),
             multispace1,
         ),
         input,
@@ -220,7 +218,7 @@ fn bf_char_section(input: ParserInput) -> NomResult<CMapSection> {
 fn target_string(input: ParserInput) -> NomResult<Vec<u16>> {
     // according to specification dstString can be up to 512 bytes
     // in ToUnicode cmap these should be 2-byte big endian Unicode values
-    delimited(tag(b"<"), many_m_n(1, 256, hex_u16), tag(b">"))(input)
+    delimited(tag(b"<"), many_m_n(1, 256, terminated(hex_u16, multispace0)), tag(b">"))(input)
 }
 
 fn bf_range_section(input: ParserInput) -> NomResult<CMapSection> {
@@ -249,158 +247,191 @@ fn range_target_array(input: ParserInput) -> NomResult<ArrayOfTargetStrings> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
+    fn test_span(s: &[u8]) -> ParserInput {
+        ParserInput::new_extra(s, "")
+    }
     #[test]
     fn parse_1byte_source_code() {
         let data = b"<0A>";
-        assert_eq!(source_code(data), NomResult::Ok((b"", (0x0a, 1))))
+        let (rem, res) = source_code(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(res, (0x0a, 1));
     }
 
     #[test]
     fn parse_source_code() {
         let data = b"<080F>";
-        assert_eq!(source_code(data), NomResult::Ok((b"", (0x080f, 2))))
+        let (rem, res) = source_code(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(res, (0x080f, 2));
     }
 
     #[test]
     fn parse_invalid_source_code() {
-        let data = "<080g01>";
-        assert!(source_code(data.as_bytes()).is_err())
+        let data = b"<080g01>";
+        assert!(source_code(test_span(data)).is_err())
     }
 
     #[test]
     fn parse_too_long_source_code() {
-        let data = "<080g01030a>";
-        assert!(source_code(data.as_bytes()).is_err())
+        let data = b"<080g01030a>";
+        assert!(source_code(test_span(data)).is_err())
     }
 
     #[test]
     fn parse_code_range_pair() {
-        let data = "<080F> <08FF> ";
-        assert_eq!(
-            code_range_pair(data.as_bytes()),
-            NomResult::Ok((b" ", (0x080f, 0x08ff, 2)))
-        )
+        let data = b"<080F> <08FF> ";
+        let (rem, res) = code_range_pair(test_span(data)).unwrap();
+        assert_eq!(*rem, b" ");
+        assert_eq!(res, (0x080f, 0x08ff, 2));
     }
 
     #[test]
     fn parse_code_range_pair_without_spaces() {
-        let data = "<080F><08FF>";
-        assert_eq!(
-            code_range_pair(data.as_bytes()),
-            NomResult::Ok((b"", (0x080f, 0x08ff, 2)))
-        )
+        let data = b"<080F><08FF>";
+
+        let (rem, res) = code_range_pair(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(res, (0x080f, 0x08ff, 2));
     }
 
     #[test]
     fn parse_code_range_pair_with_not_matching_len() {
-        let data = "<080F> <08>";
-        assert!(code_range_pair(data.as_bytes()).is_err())
+        let data = b"<080F> <08>";
+        assert!(code_range_pair(test_span(data)).is_err())
     }
 
     #[test]
     fn parse_bfrange_line() {
-        let data = "<080f> <08ff> <09000110>\n";
-        assert_eq!(
-            bf_range_line(data.as_bytes()),
-            NomResult::Ok((b"", ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]])))
-        )
+        let data = b"<080f> <08ff> <09000110>\n";
+        let (rem, res) = bf_range_line(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(res, ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]]));
     }
     #[test]
     fn parse_bfrange_line_without_spaces() {
-        let data = "<080f><08ff><09000110>\n";
-        assert_eq!(
-            bf_range_line(data.as_bytes()),
-            NomResult::Ok((b"", ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]])))
-        )
+        let data = b"<080f><08ff><09000110>\n";
+        let (rem, res) = bf_range_line(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(res, ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]]));
     }
 
     #[test]
     fn parse_bfrange_line_array() {
-        let data = "<080f> <08ff> [ <09000110> <08fe> ] \n";
-        assert_eq!(
-            bf_range_line(data.as_bytes()),
-            NomResult::Ok((b"", ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110], vec![0x08fe]])))
-        )
+        let data = b"<080f> <08ff> [ <09000110> <08fe> ] \n";
+        let (rem, res) = bf_range_line(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(res, ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110], vec![0x08fe]]));
     }
     #[test]
     fn parse_invalid_bfrange_line() {
-        let data = "<080f> <08ff> [ <09000110> <08FF> <09fe80> ]\n";
-        assert!(bf_range_line(data.as_bytes()).is_err())
+        let data = b"<080f> <08ff> [ <09000110> <08FF> <09fe80> ]\n";
+        assert!(bf_range_line(test_span(data)).is_err())
     }
 
     #[test]
     fn parse_codespace_range_section() {
-        let data = "1 begincodespacerange\n\
+        let data = b"1 begincodespacerange\n\
             <0000> <FFFF> \n\
         endcodespacerange\n";
-        assert_eq!(
-            codespace_range_section(data.as_bytes()),
-            NomResult::Ok((b"", CMapSection::CsRange(vec![(0x0000, 0xffff, 2)])))
-        )
+        let (rem, res) = codespace_range_section(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(res, CMapSection::CsRange(vec![(0x0000, 0xffff, 2)]));
     }
 
     #[test]
     fn parse_bf_range_section() {
-        let data = "3 beginbfrange \n\
+        let data = b"3 beginbfrange \n\
             <0000> <000f> <0000>\n\
             <0010> <001f> <00000010> \n\
             <0020>  <002f> [<0000> <00000010> ]\n\
         endbfrange\n";
+
+        let (rem, res) = bf_range_section(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
         assert_eq!(
-            bf_range_section(data.as_bytes()),
-            NomResult::Ok((
-                b"",
-                CMapSection::BfRange(vec![
-                    ((0x0000, 0x000f, 2), vec![vec![0x0000]]),
-                    ((0x0010, 0x001f, 2), vec![vec![0x0000, 0x0010]]),
-                    ((0x0020, 0x002f, 2), vec![vec![0x0000], vec![0x0000, 0x0010]]),
-                ])
-            ))
-        )
+            res,
+            CMapSection::BfRange(vec![
+                ((0x0000, 0x000f, 2), vec![vec![0x0000]]),
+                ((0x0010, 0x001f, 2), vec![vec![0x0000, 0x0010]]),
+                ((0x0020, 0x002f, 2), vec![vec![0x0000], vec![0x0000, 0x0010]]),
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_bf_char_section() {
+        let data = b"4 beginbfchar \n\
+            <1d> <0066 0069>\n\
+            <1e> <00A0>\n\
+            <1f> <0066 0066>
+            <20> <0020>\n\
+        endbfchar\n";
+        let (rem, res) = bf_char_section(test_span(data)).unwrap();
+        assert_eq!(*rem, b"");
+        assert_eq!(
+            res,
+            CMapSection::BfChar(vec![
+                ((0x1d, 1), vec![0x0066, 0x0069]),
+                ((0x1e, 1), vec![0x00a0]),
+                ((0x1f, 1), vec![0x0066, 0x0066]),
+                ((0x20, 1), vec![0x0020]),
+            ])
+        );
     }
 
     #[test]
     fn parse_cid_system_info() {
-        let data = "/CIDSystemInfo <<
+        let data = b"/CIDSystemInfo <<
 /Registry (Adobe)
 /Ordering (UCS)
 /Supplement 0
 >> def
 ";
-        assert!(cid_system_info(data.as_bytes()).is_ok())
+        assert!(cid_system_info(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_cid_system_info_dict_dup() {
+        let data = b"/CIDSystemInfo 3 dict dup begin
+  /Registry (callas) def
+  /Ordering (MyriadPro-Regular14-UCMap) def
+  /Supplement 0 def
+end def
+";
+        assert!(cid_system_info(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cid_system_info_with_spaces() {
-        let data = "/CIDSystemInfo
+        let data = b"/CIDSystemInfo
 << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n";
-        assert!(cid_system_info(data.as_bytes()).is_ok())
+        assert!(cid_system_info(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cmap_name() {
-        let data = "/CMapName /Adobe-Identity-UCS def\n";
-        assert!(cmap_name(data.as_bytes()).is_ok())
+        let data = b"/CMapName /Adobe-Identity-UCS def\n";
+        assert!(cmap_name(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cmap_name2() {
-        let data = "/CMapName /Adobe-UCS-0 def\n";
-        assert!(cmap_name(data.as_bytes()).is_ok())
+        let data = b"/CMapName /Adobe-UCS-0 def\n";
+        assert!(cmap_name(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cmap_type() {
-        let data = "/CMapType 2 def\n";
-        assert!(cmap_type(data.as_bytes()).is_ok())
+        let data = b"/CMapType 2 def\n";
+        assert!(cmap_type(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cmap_section_1() {
-        let data = "/CIDInit /ProcSet findresource begin
+        let data = b"/CIDInit /ProcSet findresource begin
 12 dict begin
 begincmap
 /CIDSystemInfo <<
@@ -679,12 +710,12 @@ endcmap
 CMapName currentdict /CMap defineresource pop
 end
 end";
-        assert!(cmap_stream(data.as_bytes()).is_ok())
+        assert!(cmap_stream(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cmap_section_2() {
-        let data = "/CIDInit /ProcSet findresource begin
+        let data = b"/CIDInit /ProcSet findresource begin
 12 dict begin
 begincmap
 /CMapType 2 def
@@ -776,12 +807,12 @@ endcmap
 CMapName currentdict /CMap defineresource pop
 end end
 ";
-        assert!(cmap_stream(data.as_bytes()).is_ok())
+        assert!(cmap_stream(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cmap_section_bfchar() {
-        let data = "/CIDInit /ProcSet findresource begin
+        let data = b"/CIDInit /ProcSet findresource begin
 12 dict begin
 begincmap
 /CIDSystemInfo
@@ -833,12 +864,12 @@ endcmap
 CMapName currentdict /CMap defineresource pop
 end
 end";
-        assert!(cmap_stream(data.as_bytes()).is_ok())
+        assert!(cmap_stream(test_span(data)).is_ok())
     }
 
     #[test]
     fn parse_cmap_section_with_discontigous_range() {
-        let data = "/CIDInit /ProcSet findresource begin
+        let data = b"/CIDInit /ProcSet findresource begin
 12 dict begin
 begincmap
 /CIDSystemInfo
@@ -862,7 +893,7 @@ endcmap
 CMapName currentdict /CMap defineresource pop
 end
 end";
-        assert!(cmap_stream(data.as_bytes()).is_ok())
+        assert!(cmap_stream(test_span(data)).is_ok())
     }
 
     #[test]
@@ -915,7 +946,7 @@ endcmap
 CMapName currentdict /CMap defineresource pop
 end
 end\n";
-        assert!(cmap_stream(data).is_ok())
+        assert!(cmap_stream(test_span(data)).is_ok())
     }
 
     #[test]
@@ -940,6 +971,64 @@ endcmap
 CMapName currentdict /CMap defineresource pop
 end
 end\n";
-        assert!(cmap_stream(data).is_ok())
+        assert!(cmap_stream(test_span(data)).is_ok())
+    }
+    #[test]
+    fn parse_cmap_section_error() {
+        let data = b"%!PS-Adobe-3.0 Resource-CMap
+%%DocumentNeededResources: ProcSet (CIDInit)
+%%IncludeResource: ProcSet (CIDInit)
+%%BeginResource: CMap (MyriadPro-Regular14-UCMap)
+%%Title: (MyriadPro-Regular14-UCMap callas MyriadPro-Regular14-UCMap 0)
+%%EndComments
+
+/CIDInit /ProcSet findresource begin
+
+12 dict begin
+
+begincmap
+
+/CIDSystemInfo 3 dict dup begin
+  /Registry (callas) def
+  /Ordering (MyriadPro-Regular14-UCMap) def
+  /Supplement 0 def
+end def
+
+/CMapName /MyriadPro-Regular14-UCMap def
+/CMapType 2 def
+
+1 begincodespacerange
+<1e> <a9>
+endcodespacerange
+7 beginbfchar
+<1e> <00A0>
+<1f> <0066 0066>
+<20> <0020>
+<56> <0056>
+<5f> <005F>
+<96> <2013>
+<a9> <00A9>
+endbfchar
+8 beginbfrange
+<28> <29> <0028>
+<2c> <3a> <002C>
+<41> <4b> <0041>
+<4d> <54> <004D>
+<61> <69> <0061>
+<6c> <70> <006C>
+<72> <77> <0072>
+<79> <7a> <0079>
+endbfrange
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+
+%%EndResource
+%%EOF
+";
+        let res = cmap_stream(test_span(data));
+        println!("{:#?}", res);
+        assert!(res.is_ok())
     }
 }
