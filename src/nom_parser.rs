@@ -9,8 +9,8 @@ use std::str::{self, FromStr};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
 use nom::character::complete::multispace1;
-use nom::character::complete::space1;
 use nom::character::complete::{digit0, digit1, one_of};
+use nom::character::complete::{space0, space1};
 use nom::character::{is_hex_digit, is_oct_digit};
 use nom::combinator::{map, map_opt, map_res, opt, verify};
 use nom::error::{ErrorKind, ParseError};
@@ -310,7 +310,7 @@ pub(crate) fn dict_dup(input: ParserInput) -> NomResult<Dictionary> {
 }
 
 fn stream<'a>(input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>) -> NomResult<'a, Object> {
-    let (i, dict) = terminated(dictionary, tuple((space, tag(b"stream"), eol)))(input)?;
+    let (i, dict) = terminated(dictionary, tuple((space, tag(b"stream"), space0, eol)))(input)?;
 
     if let Ok(length) = dict.get(b"Length").and_then(|value| {
         if let Ok(id) = value.as_reference() {
