@@ -34,7 +34,7 @@ impl Document {
     pub fn decompress(&mut self) {
         for object in self.objects.values_mut() {
             if let Object::Stream(ref mut stream) = *object {
-                stream.decompress()
+                let _ = stream.decompress();
             }
         }
     }

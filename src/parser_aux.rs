@@ -203,7 +203,9 @@ fn try_to_replace_encoded_text(
 
 /// Decode CrossReferenceStream
 pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
-    stream.decompress();
+    if stream.is_compressed() {
+        stream.decompress()?;
+    }
     let mut dict = stream.dict;
     let mut reader = Cursor::new(stream.content);
     let size = dict

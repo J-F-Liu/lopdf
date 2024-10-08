@@ -16,7 +16,7 @@ pub struct ObjectStream {
 
 impl ObjectStream {
     pub fn new(stream: &mut Stream) -> Result<ObjectStream> {
-        stream.decompress();
+        let _ = stream.decompress();
 
         if stream.content.is_empty() {
             return Ok(ObjectStream {
