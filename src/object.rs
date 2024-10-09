@@ -770,11 +770,15 @@ impl Stream {
         }
     }
 
-    pub fn decompress(&mut self) {
-        if let Ok(data) = self.decompressed_content() {
-            self.dict.remove(b"DecodeParms");
-            self.dict.remove(b"Filter");
-            self.set_content(data);
-        }
+    pub fn decompress(&mut self) -> Result<()> {
+        let data = self.decompressed_content()?;
+        self.dict.remove(b"DecodeParms");
+        self.dict.remove(b"Filter");
+        self.set_content(data);
+        Ok(())
+    }
+
+    pub fn is_compressed(&self) -> bool {
+        self.dict.get(b"Filter").is_ok()
     }
 }
