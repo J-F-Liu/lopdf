@@ -94,17 +94,22 @@ impl Document {
             }
             Ok(())
         }
+        let mut collected_chunks_and_errs: Vec<std::result::Result<String, Error>> = Vec::new();
 
         let page_id = *pages.get(&page_number).ok_or(Error::PageNumberNotFound(page_number))?;
         let fonts = self.get_page_fonts(page_id)?;
         let encodings: BTreeMap<Vec<u8>, Encoding> = fonts
             .into_iter()
-            .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
-            .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
+            .filter_map(|(name, font)| match font.get_font_encoding(self) {
+                Ok(it) => Some((name, it)),
+                Err(err) => {
+                    collected_chunks_and_errs.push(Err(err));
+                    None
+                }
+            })
+            .collect();
         let content_data = self.get_page_content(page_id)?;
         let content = Content::decode(&content_data)?;
-
-        let mut collected_chunks = Vec::new();
 
         // each text with different encoding is extracted as separate chunk
         let mut current_encoding = None;
@@ -120,13 +125,13 @@ impl Document {
                     current_encoding = match current_font {
                         Ok(font) => encodings.get(font),
                         Err(err) => {
-                            collected_chunks.push(Err(err));
+                            collected_chunks_and_errs.push(Err(err));
                             None
                         }
                     };
 
                     if !current_text.is_empty() {
-                        collected_chunks.push(Ok(current_text));
+                        collected_chunks_and_errs.push(Ok(current_text));
                         current_text = String::new();
                     }
                 }
@@ -134,7 +139,7 @@ impl Document {
                     Some(encoding) => {
                         let res = collect_text(&mut current_text, encoding, &operation.operands);
                         if let Err(err) = res {
-                            collected_chunks.push(Err(err));
+                            collected_chunks_and_errs.push(Err(err));
                         }
                     }
                     None => warn!("Could not decode extracted text"),
@@ -148,10 +153,10 @@ impl Document {
             }
         }
         if !current_text.is_empty() {
-            collected_chunks.push(Ok(current_text));
+            collected_chunks_and_errs.push(Ok(current_text));
         }
 
-        Ok(collected_chunks)
+        Ok(collected_chunks_and_errs)
     }
 
     pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) -> Result<()> {
