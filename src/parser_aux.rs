@@ -47,6 +47,25 @@ impl Document {
     }
 
     pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
+        let text_fragments = self.extract_text_per_page(page_numbers);
+        let mut text = String::new();
+        for maybe_text_fragment in text_fragments.into_iter() {
+            let text_fragment = maybe_text_fragment?;
+            text.push_str(&text_fragment);
+        }
+
+        Ok(text)
+    }
+
+    pub fn extract_text_per_page(&self, page_numbers: &[u32]) -> Vec<Result<String>> {
+        let pages: BTreeMap<u32, (u32, u16)> = self.get_pages();
+        page_numbers
+            .iter()
+            .map(|page_number| self.extract_text_from_page(&pages, *page_number))
+            .collect()
+    }
+
+    fn extract_text_from_page(&self, pages: &BTreeMap<u32, (u32, u16)>, page_number: u32) -> Result<String> {
         fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> Result<()> {
             for operand in operands.iter() {
                 match *operand {
@@ -67,39 +86,37 @@ impl Document {
             }
             Ok(())
         }
-        let mut text = String::new();
-        let pages = self.get_pages();
-        for page_number in page_numbers {
-            let page_id = *pages.get(page_number).ok_or(Error::PageNumberNotFound(*page_number))?;
-            let fonts = self.get_page_fonts(page_id)?;
-            let encodings: BTreeMap<Vec<u8>, Encoding> = fonts
-                .into_iter()
-                .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
-                .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
-            let content_data = self.get_page_content(page_id)?;
-            let content = Content::decode(&content_data)?;
-            let mut current_encoding = None;
-            for operation in &content.operations {
-                match operation.operator.as_ref() {
-                    "Tf" => {
-                        let current_font = operation
-                            .operands
-                            .first()
-                            .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
-                            .as_name()?;
-                        current_encoding = encodings.get(current_font);
-                    }
-                    "Tj" | "TJ" => match current_encoding {
-                        Some(encoding) => collect_text(&mut text, encoding, &operation.operands)?,
-                        None => warn!("Could not decode extracted text"),
-                    },
-                    "ET" => {
-                        if !text.ends_with('\n') {
-                            text.push('\n')
-                        }
-                    }
-                    _ => {}
+
+        let mut text: String = String::new();
+        let page_id = *pages.get(&page_number).ok_or(Error::PageNumberNotFound(page_number))?;
+        let fonts = self.get_page_fonts(page_id)?;
+        let encodings: BTreeMap<Vec<u8>, Encoding> = fonts
+            .into_iter()
+            .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
+            .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
+        let content_data = self.get_page_content(page_id)?;
+        let content = Content::decode(&content_data)?;
+        let mut current_encoding = None;
+        for operation in &content.operations {
+            match operation.operator.as_ref() {
+                "Tf" => {
+                    let current_font = operation
+                        .operands
+                        .first()
+                        .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
+                        .as_name()?;
+                    current_encoding = encodings.get(current_font);
                 }
+                "Tj" | "TJ" => match current_encoding {
+                    Some(encoding) => collect_text(&mut text, encoding, &operation.operands)?,
+                    None => warn!("Could not decode extracted text"),
+                },
+                "ET" => {
+                    if !text.ends_with('\n') {
+                        text.push('\n')
+                    }
+                }
+                _ => {}
             }
         }
         Ok(text)
