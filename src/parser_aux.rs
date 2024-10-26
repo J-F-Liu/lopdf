@@ -47,7 +47,7 @@ impl Document {
     }
 
     pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
-        let text_fragments = self.extract_text_per_page(page_numbers);
+        let text_fragments = self.extract_text_chunks(page_numbers);
         let mut text = String::new();
         for maybe_text_fragment in text_fragments.into_iter() {
             let text_fragment = maybe_text_fragment?;
@@ -57,15 +57,23 @@ impl Document {
         Ok(text)
     }
 
-    pub fn extract_text_per_page(&self, page_numbers: &[u32]) -> Vec<Result<String>> {
+    pub fn extract_text_chunks(&self, page_numbers: &[u32]) -> Vec<Result<String>> {
         let pages: BTreeMap<u32, (u32, u16)> = self.get_pages();
         page_numbers
             .iter()
-            .map(|page_number| self.extract_text_from_page(&pages, *page_number))
+            .flat_map(|page_number| {
+                let result = self.extract_text_chunks_from_page(&pages, *page_number);
+                match result {
+                    Ok(text_chunks) => text_chunks,
+                    Err(err) => vec![Err(err)],
+                }
+            })
             .collect()
     }
 
-    fn extract_text_from_page(&self, pages: &BTreeMap<u32, (u32, u16)>, page_number: u32) -> Result<String> {
+    fn extract_text_chunks_from_page(
+        &self, pages: &BTreeMap<u32, (u32, u16)>, page_number: u32,
+    ) -> Result<Vec<Result<String>>> {
         fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> Result<()> {
             for operand in operands.iter() {
                 match *operand {
@@ -87,7 +95,6 @@ impl Document {
             Ok(())
         }
 
-        let mut text: String = String::new();
         let page_id = *pages.get(&page_number).ok_or(Error::PageNumberNotFound(page_number))?;
         let fonts = self.get_page_fonts(page_id)?;
         let encodings: BTreeMap<Vec<u8>, Encoding> = fonts
@@ -96,7 +103,12 @@ impl Document {
             .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
         let content_data = self.get_page_content(page_id)?;
         let content = Content::decode(&content_data)?;
+
+        let mut collected_chunks = Vec::new();
+
+        // each text with different encoding is extracted as separate chunk
         let mut current_encoding = None;
+        let mut current_text = String::new();
         for operation in &content.operations {
             match operation.operator.as_ref() {
                 "Tf" => {
@@ -104,22 +116,42 @@ impl Document {
                         .operands
                         .first()
                         .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
-                        .as_name()?;
-                    current_encoding = encodings.get(current_font);
+                        .as_name();
+                    current_encoding = match current_font {
+                        Ok(font) => encodings.get(font),
+                        Err(err) => {
+                            collected_chunks.push(Err(err));
+                            None
+                        }
+                    };
+
+                    if !current_text.is_empty() {
+                        collected_chunks.push(Ok(current_text));
+                        current_text = String::new();
+                    }
                 }
                 "Tj" | "TJ" => match current_encoding {
-                    Some(encoding) => collect_text(&mut text, encoding, &operation.operands)?,
+                    Some(encoding) => {
+                        let res = collect_text(&mut current_text, encoding, &operation.operands);
+                        if let Err(err) = res {
+                            collected_chunks.push(Err(err));
+                        }
+                    }
                     None => warn!("Could not decode extracted text"),
                 },
                 "ET" => {
-                    if !text.ends_with('\n') {
-                        text.push('\n')
+                    if !current_text.ends_with('\n') {
+                        current_text.push('\n')
                     }
                 }
                 _ => {}
             }
         }
-        Ok(text)
+        if !current_text.is_empty() {
+            collected_chunks.push(Ok(current_text));
+        }
+
+        Ok(collected_chunks)
     }
 
     pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) -> Result<()> {
@@ -315,27 +347,57 @@ fn parse_integer_array(array: &Object) -> Result<Vec<i64>> {
     Ok(out)
 }
 
-#[cfg(all(test, not(feature = "async")))]
-#[test]
-fn load_and_save() {
-    // test load_from() and save_to()
-    use crate::creator::tests::{create_document, save_document};
-    use std::fs::File;
-    use std::io::Cursor;
-    // Create temporary folder to store file.
-    let temp_dir = tempfile::tempdir().unwrap();
-    let file_path = temp_dir.path().join("test_1_load_and_save.pdf");
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::creator::tests::{create_document, create_document_with_texts, save_document};
 
-    let mut doc = create_document();
+    #[cfg(not(feature = "async"))]
+    #[test]
+    fn load_and_save() {
+        // test load_from() and save_to()
+        use std::fs::File;
+        use std::io::Cursor;
+        // Create temporary folder to store file.
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test_1_load_and_save.pdf");
 
-    save_document(&file_path, &mut doc);
+        let mut doc = create_document();
 
-    let in_file = File::open(file_path).unwrap();
-    let mut in_doc = Document::load_from(in_file).unwrap();
+        save_document(&file_path, &mut doc);
 
-    let out_buf = Vec::new();
-    let mut memory_cursor = Cursor::new(out_buf);
-    in_doc.save_to(&mut memory_cursor).unwrap();
-    // Check if saved file is not an empty bytes vector.
-    assert!(!memory_cursor.get_ref().is_empty());
+        let in_file = File::open(file_path).unwrap();
+        let mut in_doc = Document::load_from(in_file).unwrap();
+
+        let out_buf = Vec::new();
+        let mut memory_cursor = Cursor::new(out_buf);
+        in_doc.save_to(&mut memory_cursor).unwrap();
+        // Check if saved file is not an empty bytes vector.
+        assert!(!memory_cursor.get_ref().is_empty());
+    }
+
+    #[test]
+    fn extract_text_chunks() {
+        let text1 = "Hello world!";
+        let text2 = "Ferris is the best!";
+        let doc = create_document_with_texts(&[text1, text2]);
+        let extracted_texts = doc.extract_text_chunks(&[1, 2]);
+        assert_eq!(extracted_texts.len(), 2);
+        assert_eq!(
+            [
+                extracted_texts[0].as_ref().unwrap().trim(),
+                extracted_texts[1].as_ref().unwrap().trim()
+            ],
+            [text1, text2]
+        );
+    }
+
+    #[test]
+    fn extract_text_concatenates_text_from_multiple_pages() {
+        let text1 = "Hello world!";
+        let text2 = "Ferris is the best!";
+        let doc = create_document_with_texts(&[text1, text2]);
+        let extracted_text = doc.extract_text(&[1, 2]);
+        assert_eq!(extracted_text.unwrap(), format!("{text1}\n{text2}\n"));
+    }
 }
