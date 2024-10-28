@@ -117,6 +117,10 @@ pub mod tests {
 
     /// Create and return a document for testing
     pub fn create_document() -> Document {
+        create_document_with_texts(&["Hello World!"])
+    }
+
+    pub fn create_document_with_texts(texts_for_pages: &[&str]) -> Document {
         let mut doc = Document::with_version("1.5");
         let info_id = doc.add_object(dictionary! {
             "Title" => Object::string_literal("Create PDF document example"),
@@ -134,24 +138,29 @@ pub mod tests {
                 "F1" => font_id,
             },
         });
-        let content = Content {
+        let contents = texts_for_pages.iter().map(|text| Content {
             operations: vec![
                 Operation::new("BT", vec![]),
                 Operation::new("Tf", vec!["F1".into(), 48.into()]),
                 Operation::new("Td", vec![100.into(), 600.into()]),
-                Operation::new("Tj", vec![Object::string_literal("Hello World!")]),
+                Operation::new("Tj", vec![Object::string_literal(*text)]),
                 Operation::new("ET", vec![]),
             ],
-        };
-        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
-        let page_id = doc.add_object(dictionary! {
-            "Type" => "Page",
-            "Parent" => pages_id,
-            "Contents" => content_id,
         });
+
+        let pages = contents.map(|content| {
+            let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+            let page = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "Contents" => content_id,
+            });
+            page.into()
+        });
+
         let pages = dictionary! {
             "Type" => "Pages",
-            "Kids" => vec![page_id.into()],
+            "Kids" => pages.collect::<Vec<Object>>(),
             "Count" => 1,
             "Resources" => resources_id,
             "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
@@ -164,7 +173,6 @@ pub mod tests {
         doc.trailer.set("Root", catalog_id);
         doc.trailer.set("Info", info_id);
         doc.compress();
-
         doc
     }
 
