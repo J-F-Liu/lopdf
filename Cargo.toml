@@ -37,6 +37,8 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.1"
 rangemap = "1.5"
+aes = "0.8.4"
+cbc = "0.1.2"
 
 [dev-dependencies]
 clap = { version = "4.0", features = ["derive"] }
