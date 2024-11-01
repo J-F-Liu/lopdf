@@ -2,6 +2,11 @@ use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
 use md5::{Digest as _, Md5};
 use std::fmt;
+use aes::cipher::{
+    block_padding::Pkcs7,
+    BlockDecryptMut,
+    KeyIvInit
+};
 
 #[derive(Debug)]
 pub enum DecryptionError {
@@ -49,6 +54,8 @@ const PAD_BYTES: [u8; 32] = [
     0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ];
 
+type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
+
 const DEFAULT_KEY_LEN: Object = Object::Integer(40);
 const DEFAULT_ALGORITHM: Object = Object::Integer(0);
 
@@ -83,9 +90,11 @@ where
         .unwrap_or(&DEFAULT_ALGORITHM)
         .as_i64()
         .map_err(|_| DecryptionError::InvalidType)?;
-    // Currently only support V = 1 or 2
-    if !(1..=2).contains(&algorithm) {
-        return Err(DecryptionError::UnsupportedEncryption);
+    // Currently only support V = 1, 2 or 4
+    match algorithm {
+        1..=2 => {}
+        4 => {}
+        _ => return Err(DecryptionError::UnsupportedEncryption),
     }
 
     // Revision number dictates hashing strategy
@@ -94,7 +103,7 @@ where
         .map_err(|_| DecryptionError::MissingRevision)?
         .as_i64()
         .map_err(|_| DecryptionError::InvalidType)?;
-    if !(2..=3).contains(&revision) {
+    if !(2..=4).contains(&revision) {
         return Err(DecryptionError::UnsupportedEncryption);
     }
 
@@ -138,8 +147,14 @@ where
         .map_err(|_| DecryptionError::InvalidType)?;
     key.extend_from_slice(file_id_0);
 
+    let encrypt_metadata = encryption_dict
+        .get(b"EncryptMetadata")
+        .unwrap_or(&Object::Boolean(true))
+        .as_bool()
+        .map_err(|_| DecryptionError::InvalidType)?;
+
     // 3.2.6 Revision >=4
-    if revision >= 4 {
+    if revision >= 4 && !encrypt_metadata {
         key.extend_from_slice(&[0xFF_u8, 0xFF, 0xFF, 0xFF]);
     }
 
@@ -208,12 +223,17 @@ where
 
 /// Decrypts `obj` and returns the content of the string or stream.
 /// If obj is not an decryptable type, returns the NotDecryptable error.
-pub fn decrypt_object<Key>(key: Key, obj_id: ObjectId, obj: &Object) -> Result<Vec<u8>, DecryptionError>
+pub fn decrypt_object<Key>(key: Key, obj_id: ObjectId, obj: &Object, aes: bool) -> Result<Vec<u8>, DecryptionError>
 where
     Key: AsRef<[u8]>,
 {
     let key = key.as_ref();
-    let mut builder = Vec::<u8>::with_capacity(key.len() + 5);
+    let len = if aes {
+        key.len() + 9
+    } else {
+        key.len() + 5
+    };
+    let mut builder = Vec::<u8>::with_capacity(len);
     builder.extend_from_slice(key.as_ref());
 
     // Extend the key with the lower 3 bytes of the object number
@@ -221,7 +241,11 @@ where
     // and the lower 2 bytes of the generation number
     builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
 
-    // Now construct the rc4 key
+    if aes {
+		builder.append(&mut vec![0x73, 0x41, 0x6C, 0x54]);
+	}
+
+	// Now construct the rc4 key
     let key_len = std::cmp::min(key.len() + 5, 16);
     let rc4_key = &Md5::digest(builder)[..key_len];
 
@@ -233,8 +257,21 @@ where
         }
     };
 
-    // Decrypt using the rc4 algorithm
-    Ok(Rc4::new(rc4_key).decrypt(encrypted))
+    if aes {
+        let mut iv = [0x00u8; 16];
+        for (elem, i) in encrypted.iter().zip(0..16) {
+            iv[i] = *elem;
+        }
+        // Decrypt using the aes algorithm
+        let data = &mut encrypted[16..].to_vec();
+        let pt = Aes128CbcDec::new(rc4_key.into(), &iv.into())
+            .decrypt_padded_mut::<Pkcs7>(data)
+            .unwrap();
+        Ok(pt.to_vec())
+    } else {
+        // Decrypt using the rc4 algorithm
+        Ok(Rc4::new(rc4_key).decrypt(encrypted))
+    }
 }
 
 #[cfg(test)]

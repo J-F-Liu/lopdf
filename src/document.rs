@@ -270,6 +270,12 @@ impl Document {
             .unwrap_or(true);
 
         let key = encryption::get_encryption_key(self, &password, true)?;
+        let cfm = self.get_encrypted()?.get(b"CF")?.as_dict()?
+            .get(b"StdCF")?
+            .as_dict()?
+            .get(b"CFM")?
+            .as_name().unwrap_or_default();
+        let is_aes = cfm == b"AESV2";
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
             if id == encryption_obj_id {
@@ -281,7 +287,7 @@ impl Document {
                 continue;
             }
 
-            let decrypted = match encryption::decrypt_object(&key, id, &*obj) {
+            let decrypted = match encryption::decrypt_object(&key, id, &*obj, is_aes) {
                 Ok(content) => content,
                 Err(encryption::DecryptionError::NotDecryptable) => {
                     continue;
@@ -302,7 +308,7 @@ impl Document {
         if let Ok(info_obj_id) = self.trailer.get(b"Info").and_then(Object::as_reference) {
             if let Ok(info_dict) = self.get_object_mut(info_obj_id).and_then(Object::as_dict_mut) {
                 for (_, info_obj) in info_dict.iter_mut() {
-                    if let Ok(content) = encryption::decrypt_object(&key, info_obj_id, &*info_obj) {
+                    if let Ok(content) = encryption::decrypt_object(&key, info_obj_id, &*info_obj, is_aes) {
                         info_obj.as_str_mut()?.clear();
                         info_obj.as_str_mut()?.extend(content);
                     };
