@@ -2,7 +2,7 @@ use crate::*;
 use crate::{Dictionary, Stream};
 
 #[cfg(feature = "embed_image")]
-use image::{self, ColorType, GenericImageView, ImageFormat};
+use image::{self, ColorType, ImageFormat};
 
 #[cfg(feature = "embed_image")]
 use std::path::Path;
@@ -48,22 +48,33 @@ pub fn image<P: AsRef<Path>>(path: P) -> Result<Stream> {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
 
-    image_from(buffer)
+    image_from(buffer, path.as_ref())
 }
 
 #[cfg(feature = "embed_image")]
-pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
-    let img = image::load_from_memory(buffer.as_ref())?;
+pub fn image_from(buffer: Vec<u8>, path: &Path) -> Result<Stream> {
+    let (width, height) = image::image_dimensions(path)?;
 
-    let (width, height) = img.dimensions();
+    let format = image::guess_format(&buffer)?;
+
+    let is_jpeg = format == ImageFormat::Jpeg;
+
+    let (img, color_type) = if is_jpeg {
+        (None, ColorType::Rgb8) // JPEG do not need to be decoded
+    } else {
+        // Other formats need to be decoded
+        let img = image::load_from_memory(&buffer)?;
+        let color_type = img.color();
+        (Some(img), color_type)
+    };
 
     // It looks like Adobe Illustrator uses a predictor offset of 2 bytes rather than 1 byte as
     // the PNG specification suggests. This seems to come from the fact that the PNG specification
     // doesn't allow 4-bit color images (only 8-bit and 16-bit color). With 1-bit, 2-bit and 4-bit
     // mono images there isn't the same problem because there's only one component.
-    let bits = img.color().bits_per_pixel() / 3;
+    let bits = color_type.bits_per_pixel() / 3;
 
-    let color_space = match img.color() {
+    let color_space = match color_type {
         ColorType::L8 => b"DeviceGray".to_vec(),
         ColorType::La8 => b"DeviceGray".to_vec(),
         ColorType::Rgb8 => b"DeviceRGB".to_vec(),
@@ -82,19 +93,11 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     dict.set("ColorSpace", Object::Name(color_space));
     dict.set("BitsPerComponent", bits);
 
-    let is_jpeg = match image::guess_format(buffer.as_ref()) {
-        Ok(format) => match format {
-            ImageFormat::Jpeg => true,
-            _ => false,
-        },
-        Err(_) => false,
-    };
-
     if is_jpeg {
         dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
         Ok(Stream::new(dict, buffer))
     } else {
-        let mut img_object = Stream::new(dict, img.into_bytes());
+        let mut img_object = Stream::new(dict, img.unwrap().into_bytes());
         // Ignore any compression error.
         let _ = img_object.compress();
         Ok(img_object)
