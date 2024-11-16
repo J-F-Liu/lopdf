@@ -86,8 +86,12 @@ pub fn decode_row(filter: FilterType, bpp: usize, previous: &[u8], current: &mut
 
 pub fn decode_frame(content: &[u8], bytes_per_pixel: usize, pixels_per_row: usize) -> Result<Vec<u8>> {
     let bytes_per_row = bytes_per_pixel * pixels_per_row;
-    let mut previous = vec![0_u8; bytes_per_row];
-    let mut current = vec![0_u8; bytes_per_row];
+    let mut previous = Vec::new();
+    previous.try_reserve(bytes_per_row)?;
+    previous.resize(bytes_per_row, 0_u8);
+    let mut current = Vec::new();
+    current.try_reserve(bytes_per_row)?;
+    current.resize(bytes_per_row, 0_u8);
     let mut decoded = Vec::new();
     let mut pos = 0;
     while pos < content.len() {
