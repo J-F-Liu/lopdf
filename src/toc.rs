@@ -62,21 +62,21 @@ type OutlinePageIds = IndexMap<Vec<u8>, ((u32, u16), usize, usize)>;
 
 fn setup_outline_page_ids<'a>(
     outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, level: usize,
-) -> &'a Vec<Outline> {
+) -> Result<&'a Vec<Outline>> {
     for outline in outlines.iter() {
         match outline {
             Outline::Destination(destination) => {
                 result.insert(
-                    destination.title().unwrap().as_str().unwrap().to_vec(),
-                    (destination.page().unwrap().as_reference().unwrap(), result.len(), level),
+                    destination.title()?.as_str()?.to_vec(),
+                    (destination.page()?.as_reference()?, result.len(), level),
                 );
             }
             Outline::SubOutlines(sub_outlines) => {
-                setup_outline_page_ids(sub_outlines, result, level + 1);
+                setup_outline_page_ids(sub_outlines, result, level + 1)?;
             }
         }
     }
-    outlines
+    Ok(outlines)
 }
 
 impl Document {
@@ -96,7 +96,7 @@ impl Document {
         let mut named_destinations = IndexMap::new();
         if let Some(outlines) = self.get_outlines(None, None, &mut named_destinations)? {
             let mut outline_page_ids = IndexMap::new();
-            setup_outline_page_ids(&outlines, &mut outline_page_ids, 1);
+            setup_outline_page_ids(&outlines, &mut outline_page_ids, 1)?;
             let page_id_to_page_numbers = self.setup_page_id_to_num();
             for (title, (page_id, _page_idx, level)) in outline_page_ids {
                 if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {

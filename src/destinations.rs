@@ -1,33 +1,31 @@
-use std::collections::BTreeMap;
-
 use super::{Dictionary, Document, Object, Result};
 use indexmap::IndexMap;
 #[derive(Debug, Clone)]
-pub struct Destination {
-    map: BTreeMap<Vec<u8>, Object>,
-}
+pub struct Destination(Dictionary);
 
 impl Destination {
     pub fn new(title: Object, page: Object, typ: Object) -> Self {
-        let mut map = BTreeMap::new();
-        map.insert(b"Title".to_vec(), title);
-        map.insert(b"Page".to_vec(), page);
-        map.insert(b"Type".to_vec(), typ);
-        Destination { map }
+        let mut dict = Dictionary::new();
+        dict.set(b"Title", title);
+        dict.set(b"Page", page);
+        dict.set(b"Type", typ);
+        Destination(dict)
     }
 
-    pub fn set(&mut self, key: Vec<u8>, value: Object) {
-        self.map.insert(key, value);
+    pub fn set<K, V>(&mut self, key: K, value: V)
+    where
+        K: Into<Vec<u8>>,
+        V: Into<Object>,
+    {
+        self.0.set(key, value);
     }
 
-    #[allow(dead_code)]
-    pub fn title(&self) -> Option<&Object> {
-        self.map.get(b"Title".as_slice())
+    pub fn title(&self) -> Result<&Object> {
+        self.0.get(b"Title")
     }
 
-    #[allow(dead_code)]
-    pub fn page(&self) -> Option<&Object> {
-        self.map.get(b"Page".as_slice())
+    pub fn page(&self) -> Result<&Object> {
+        self.0.get(b"Page")
     }
 }
 
