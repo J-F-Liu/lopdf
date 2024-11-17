@@ -650,7 +650,7 @@ impl Stream {
             output = match filter.as_str() {
                 "FlateDecode" => Self::decompress_zlib(input, params)?,
                 "LZWDecode" => Self::decompress_lzw(input, params)?,
-                "ASCII85Decode" => Self::decode_ascii85(input),
+                "ASCII85Decode" => Self::decode_ascii85(input)?,
                 _ => return Err(Error::Type),
             };
             input = &output;
@@ -705,16 +705,22 @@ impl Stream {
         Self::decompress_predictor(output, params)
     }
 
-    fn decode_ascii85(input: &[u8]) -> Vec<u8> {
+    fn decode_ascii85(input: &[u8]) -> Result<Vec<u8>> {
         let mut output = vec![];
         let mut buffer: u32 = 0;
         let mut count = 0;
-
-        for &ch in input {
-            if ch == b'z' && count == 0 {
+        // Check for EOD marker
+        assert_eq!(b"~>", &input[input.len() - 2..]);
+        for &ch in &input[..input.len() - 2] {
+            if ch == b'z' {
+                if count != 0 {
+                    // z character is not allowed in middle of a group
+                    return Err(Error::ContentDecode);
+                }
                 output.extend_from_slice(&[0, 0, 0, 0]);
                 continue;
             }
+
             if ch.is_ascii_whitespace() {
                 continue;
             }
@@ -722,8 +728,8 @@ impl Stream {
             if !(b'!'..=b'u').contains(&ch) {
                 break;
             }
-
-            buffer = buffer * 85 + ((ch - b'!') as u32);
+            buffer = buffer.checked_mul(85).ok_or(Error::ContentDecode)?;
+            buffer += (ch - b'!') as u32;
             count += 1;
 
             if count == 5 {
@@ -735,14 +741,15 @@ impl Stream {
 
         if count > 0 {
             for _ in count..5 {
-                buffer = buffer * 85 + 84;
+                buffer = buffer.checked_mul(85).ok_or(Error::ContentDecode)?;
+                buffer += 84;
             }
 
             let bytes = buffer.to_be_bytes();
             output.extend_from_slice(&bytes[..count - 1]);
         }
 
-        output
+        Ok(output)
     }
 
     fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>) -> Result<Vec<u8>> {
@@ -773,5 +780,33 @@ impl Stream {
 
     pub fn is_compressed(&self) -> bool {
         self.dict.get(b"Filter").is_ok()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::Error;
+
+    use super::Stream;
+
+    #[test]
+    fn test_decode_ascii85() {
+        let input = r#"9jqo^BlbD-BleB1DJ+*+F(f,q/0JhKF<GL>Cj@.4Gp$d7F!,L7@<6@)/0JDEF<G%<+EV:2F!,O<
+            DJ+*.@<*K0@<6L(Df-\0Ec5e;DffZ(EZee.Bl.9pF"AGXBPCsi+DGm>@3BB/F*&OCAfu2/AKYi(
+            DIb:@FD,*)+C]U=@3BN#EcYf8ATD3s@q?d$AftVqCh[NqF<G:8+EV:.+Cf>-FD5W8ARlolDIal(
+            DId<j@<?3r@:F%a+D58'ATD4$Bl@l3De:,-DJs`8ARoFb/0JMK@qB4^F!,R<AKZ&-DfTqBG%G>u
+            D.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>"#;
+        let expected = "Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.";
+        let output = Stream::decode_ascii85(input.as_bytes()).unwrap();
+        println!("{}", String::from_utf8(output.clone()).unwrap());
+        assert_eq!(&output, expected.as_bytes());
+    }
+
+    #[test]
+    fn test_decode_ascii85_overflow() {
+        let input = b"uuuuu~>";
+        let output = Stream::decode_ascii85(input);
+        // let expected: Result<Vec<u8>, Error> = Err(Error::ContentDecode);
+        assert!(matches!(output, Err(Error::ContentDecode)));
     }
 }

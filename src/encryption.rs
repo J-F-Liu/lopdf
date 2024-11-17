@@ -1,12 +1,8 @@
 use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
+use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use md5::{Digest as _, Md5};
 use std::fmt;
-use aes::cipher::{
-    block_padding::Pkcs7,
-    BlockDecryptMut,
-    KeyIvInit
-};
 
 #[derive(Debug)]
 pub enum DecryptionError {
@@ -228,11 +224,7 @@ where
     Key: AsRef<[u8]>,
 {
     let key = key.as_ref();
-    let len = if aes {
-        key.len() + 9
-    } else {
-        key.len() + 5
-    };
+    let len = if aes { key.len() + 9 } else { key.len() + 5 };
     let mut builder = Vec::<u8>::with_capacity(len);
     builder.extend_from_slice(key.as_ref());
 
@@ -242,10 +234,10 @@ where
     builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
 
     if aes {
-		builder.append(&mut vec![0x73, 0x41, 0x6C, 0x54]);
-	}
+        builder.append(&mut vec![0x73, 0x41, 0x6C, 0x54]);
+    }
 
-	// Now construct the rc4 key
+    // Now construct the rc4 key
     let key_len = std::cmp::min(key.len() + 5, 16);
     let rc4_key = &Md5::digest(builder)[..key_len];
 
