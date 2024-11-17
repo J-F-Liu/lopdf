@@ -103,7 +103,7 @@ impl Document {
             )),
             Object::String(ref key, ref _fmt) => {
                 if let Some(destination) = named_destinations.get_mut(key) {
-                    destination.set(b"Title".to_vec(), title.to_owned());
+                    destination.set(b"Title", title.to_owned());
                     Outline::Destination(destination.clone())
                 } else {
                     return Ok(None);
