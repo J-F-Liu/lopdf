@@ -270,11 +270,15 @@ impl Document {
             .unwrap_or(true);
 
         let key = encryption::get_encryption_key(self, &password, true)?;
-        let cfm = self.get_encrypted()?.get(b"CF")?.as_dict()?
+        let cfm = self
+            .get_encrypted()?
+            .get(b"CF")?
+            .as_dict()?
             .get(b"StdCF")?
             .as_dict()?
             .get(b"CFM")?
-            .as_name().unwrap_or_default();
+            .as_name()
+            .unwrap_or_default();
         let is_aes = cfm == b"AESV2";
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
