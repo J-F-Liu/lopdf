@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
+use nom::bytes::complete::take_until;
 use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
 use nom::character::complete::multispace1;
 use nom::character::complete::{digit0, digit1, one_of};
@@ -534,10 +535,30 @@ fn operation(input: ParserInput) -> NomResult<Operation> {
     map(
         preceded(
             many0(comment),
-            terminated(pair(many0(operand), operator), content_space),
+            alt((inline_image, terminated(pair(many0(operand), operator), content_space))),
         ),
         |(operands, operator)| Operation { operator, operands },
     )(input)
+}
+
+fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    let (input, _bi) = tag(b"BI")(input)?;
+    let (input, _space) = content_space(input)?;
+    let (input, stream_dict) = fold_many0(
+        pair(terminated(name, space), _direct_object),
+        Dictionary::new,
+        |mut dict, (key, value)| {
+            dict.set(key, value);
+            dict
+        },
+    )(input)?;
+    let (input, _id) = tag(b"ID")(input)?;
+    let (input, content) = take_until("EI")(input)?;
+    let (input, _ei) = tag(b"EI")(input)?;
+    let stream = Object::Stream(Stream::new(stream_dict, content.to_vec()));
+    println!("{:?}", stream);
+    println!("{:?}", String::from_utf8(content.to_vec()).unwrap());
+    Ok((input, (vec![stream], String::from("BI"))))
 }
 
 fn _content(input: ParserInput) -> NomResult<Content<Vec<Operation>>> {
