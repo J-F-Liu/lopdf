@@ -350,10 +350,9 @@ impl Dictionary {
     }
 
     pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
-        debug_assert!(
-            self.type_is(b"Font"),
-            "Encoding should be only retrieved from Font type dictionaries!"
-        );
+        if !self.type_is(b"Font") {
+            return Err(Error::DictKey);
+        }
 
         // Note: currently not all encodings are handled, not implemented:
         // - dictionary differences encoding
