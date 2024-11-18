@@ -709,7 +709,7 @@ impl Stream {
         let mut buffer: u32 = 0;
         let mut count = 0;
         // Check for EOD marker
-        let input_no_eod = if &input[input.len() - 2..] == b"~>" {
+        let input_no_eod = if input.len() >= 2 && &input[input.len() - 2..] == b"~>" {
             &input[..input.len() - 2]
         } else {
             log::warn!("ASCII85 stream is missing its EOD marker");
