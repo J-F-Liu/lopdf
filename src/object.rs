@@ -709,8 +709,13 @@ impl Stream {
         let mut buffer: u32 = 0;
         let mut count = 0;
         // Check for EOD marker
-        assert_eq!(b"~>", &input[input.len() - 2..]);
-        for &ch in &input[..input.len() - 2] {
+        let input_no_eod = if input.len() >= 2 && &input[input.len() - 2..] == b"~>" {
+            &input[..input.len() - 2]
+        } else {
+            log::warn!("ASCII85 stream is missing its EOD marker");
+            input
+        };
+        for &ch in input_no_eod {
             if ch == b'z' {
                 if count != 0 {
                     // z character is not allowed in middle of a group
