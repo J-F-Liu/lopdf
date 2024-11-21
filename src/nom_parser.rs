@@ -8,7 +8,6 @@ use std::collections::HashSet;
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
-use nom::bytes::complete::take_until;
 use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
 use nom::character::complete::multispace1;
 use nom::character::complete::{digit0, digit1, one_of};
@@ -41,7 +40,6 @@ fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
 fn convert_result<O, E>(result: Result<O, E>, input: ParserInput, error_kind: ErrorKind) -> NomResult<O> {
     result.map(|o| (input, o)).map_err(|_| {
         // this is a unit bind if NomError = ()
-        #[allow(clippy::let_unit_value)]
         let err: NomError = nom::error::Error::from_error_kind(input, error_kind);
         nom::Err::Error(err)
     })
@@ -325,7 +323,6 @@ fn stream<'a>(input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSe
     }) {
         if length < 0 {
             // artificial error kind is created to allow descriptive nom errors
-            #[allow(clippy::unit_arg)]
             return Err(nom::Err::Failure(NomError::from_error_kind(i, ErrorKind::LengthValue)));
         }
         let (i, data) = terminated(take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
@@ -484,7 +481,6 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
                 })
                 .map_err(|_| {
                     // artificial error kind is created to allow descriptive nom errors
-                    #[allow(clippy::unit_arg)]
                     nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Fail))
                 })
         }),
@@ -542,6 +538,7 @@ fn operation(input: ParserInput) -> NomResult<Operation> {
 }
 
 fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    // TODO stop parsing content stream if parsing inline image fails after finding "BI"
     let (input, _bi) = tag(b"BI")(input)?;
     let (input, _space) = content_space(input)?;
     let (input, stream_dict) = fold_many0(
@@ -553,7 +550,31 @@ fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
         },
     )(input)?;
     let (input, _id) = tag(b"ID")(input)?;
-    let (input, content) = take_until("EI")(input)?;
+    let (input, _) = content_space(input)?;
+
+    let get_abbr = |key_abbr: &[u8], key: &[u8]| stream_dict.get(key_abbr).or_else(|_| stream_dict.get(key));
+
+    let width = get_abbr(b"W", b"Width").unwrap().as_i64().unwrap() as usize;
+    let height = get_abbr(b"H", b"Height").unwrap().as_i64().unwrap() as usize;
+    let _colorspace = get_abbr(b"CS", b"ColorSpace").unwrap().as_name().unwrap();
+    let bpc = get_abbr(b"BPC", b"BitsPerComponent").unwrap().as_i64().unwrap() as usize;
+
+    let stride = (width * (3 * bpc) + 7) / 8;
+    let length = height * stride;
+    println!("stride:{stride}, length: {length}");
+
+    let (input, content) = match get_abbr(b"F", b"Filter") {
+        Err(_) => {
+            // no decompression needed
+            take(length)(input)?
+        }
+        Ok(Object::Name(_filter)) => todo!(),
+        Ok(Object::Array(_filters)) => todo!(),
+        Ok(_) => todo!(),
+    };
+
+    // let (input, content) = take_until("EI")(input)?;
+    let (input, _) = content_space(input)?;
     let (input, _ei) = tag(b"EI")(input)?;
     let stream = Object::Stream(Stream::new(stream_dict, content.to_vec()));
     println!("{:?}", stream);
