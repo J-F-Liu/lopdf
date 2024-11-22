@@ -1,5 +1,5 @@
-use crate::cmap_parser::parse;
 use crate::cmap_section::{CMapParseError, CMapSection, CodeLen, SourceCode};
+use crate::parser::cmap_parser::parse;
 use crate::parser::ParserInput;
 
 use log::error;

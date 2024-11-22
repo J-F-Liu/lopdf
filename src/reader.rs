@@ -1,3 +1,4 @@
+#[cfg(feature = "nom_parser")]
 use log::{error, warn};
 use std::cmp;
 use std::collections::{BTreeMap, HashSet};
