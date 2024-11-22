@@ -13,6 +13,7 @@ use nom::character::complete::multispace1;
 use nom::character::complete::{digit0, digit1, one_of};
 use nom::character::complete::{space0, space1};
 use nom::character::{is_hex_digit, is_oct_digit};
+use nom::combinator::cut;
 use nom::combinator::{map, map_opt, map_res, opt, verify};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::{fold_many0, fold_many1, many0, many0_count};
@@ -270,17 +271,17 @@ fn array(input: ParserInput) -> NomResult<Vec<Object>> {
 }
 
 pub(crate) fn dictionary(input: ParserInput) -> NomResult<Dictionary> {
-    delimited(
-        pair(tag(b"<<"), space),
-        fold_many0(
-            pair(terminated(name, space), _direct_object),
-            Dictionary::new,
-            |mut dict, (key, value)| {
-                dict.set(key, value);
-                dict
-            },
-        ),
-        tag(b">>"),
+    delimited(pair(tag(b"<<"), space), inner_dictionary, tag(b">>"))(input)
+}
+
+fn inner_dictionary(input: ParserInput) -> NomResult<Dictionary> {
+    fold_many0(
+        pair(terminated(name, space), _direct_object),
+        Dictionary::new,
+        |mut dict, (key, value)| {
+            dict.set(key, value);
+            dict
+        },
     )(input)
 }
 
@@ -538,48 +539,59 @@ fn operation(input: ParserInput) -> NomResult<Operation> {
 }
 
 fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
-    // TODO stop parsing content stream if parsing inline image fails after finding "BI"
-    let (input, _bi) = tag(b"BI")(input)?;
-    let (input, _space) = content_space(input)?;
-    let (input, stream_dict) = fold_many0(
-        pair(terminated(name, space), _direct_object),
-        Dictionary::new,
-        |mut dict, (key, value)| {
-            dict.set(key, value);
-            dict
-        },
-    )(input)?;
-    let (input, _id) = tag(b"ID")(input)?;
+    preceded(pair(tag(b"BI"), content_space), cut(inline_image_impl))(input)
+}
+
+fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    let (input, stream_dict) = inner_dictionary(input)?;
+    let (input, _) = pair(tag(b"ID"), content_space)(input)?;
+    let (input, stream) = image_data_stream(input, stream_dict).unwrap();
     let (input, _) = content_space(input)?;
+    let (input, _ei) = tag(b"EI")(input)?;
+    let (input, _) = content_space(input)?;
+    println!("{:?}", Object::Stream(stream.clone()));
+    println!("{:?}", String::from_utf8(stream.content.clone()).unwrap());
+    Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
+}
 
+fn image_data_stream<'a>(input: ParserInput<'a>, stream_dict: Dictionary) -> crate::Result<(ParserInput<'a>, Stream)> {
     let get_abbr = |key_abbr: &[u8], key: &[u8]| stream_dict.get(key_abbr).or_else(|_| stream_dict.get(key));
+    let width = get_abbr(b"W", b"Width")?.as_i64()? as usize;
+    let height = get_abbr(b"H", b"Height")?.as_i64()? as usize;
+    let bpc = get_abbr(b"BPC", b"BitsPerComponent")?.as_i64()? as usize;
+    let colorspace = get_abbr(b"CS", b"ColorSpace")?.as_name()?;
+    let colors = match colorspace {
+        b"DeviceGray" | b"Gray" => 1,
+        b"DeviceRGB" | b"RGB" => 3,
+        b"DeviceRGBA" | b"RGBA" => 4,
+        b"DeviceCMYK" | b"CMYK" => 4,
+        b"Pattern" => {
+            log::warn!("Pattern colorspace is not allowed in inline images");
+            return Err(Error::DictKey);
+        }
+        _ => {
+            log::warn!("Colorspace of inline image not recognized / not yet implemented");
+            return Err(Error::DictKey);
+        }
+    };
 
-    let width = get_abbr(b"W", b"Width").unwrap().as_i64().unwrap() as usize;
-    let height = get_abbr(b"H", b"Height").unwrap().as_i64().unwrap() as usize;
-    let _colorspace = get_abbr(b"CS", b"ColorSpace").unwrap().as_name().unwrap();
-    let bpc = get_abbr(b"BPC", b"BitsPerComponent").unwrap().as_i64().unwrap() as usize;
-
-    let stride = (width * (3 * bpc) + 7) / 8;
+    let stride = (width * (colors * bpc) + 7) / 8;
     let length = height * stride;
     println!("stride:{stride}, length: {length}");
 
     let (input, content) = match get_abbr(b"F", b"Filter") {
         Err(_) => {
             // no decompression needed
-            take(length)(input)?
+            take(length)(input).map_err(|_: nom::Err<()>| Error::ContentDecode)?
         }
         Ok(Object::Name(_filter)) => todo!(),
         Ok(Object::Array(_filters)) => todo!(),
-        Ok(_) => todo!(),
+        Ok(_) => {
+            log::warn!("Filter must be either a Name or and Array.");
+            return Err(Error::DictKey);
+        }
     };
-
-    // let (input, content) = take_until("EI")(input)?;
-    let (input, _) = content_space(input)?;
-    let (input, _ei) = tag(b"EI")(input)?;
-    let stream = Object::Stream(Stream::new(stream_dict, content.to_vec()));
-    println!("{:?}", stream);
-    println!("{:?}", String::from_utf8(content.to_vec()).unwrap());
-    Ok((input, (vec![stream], String::from("BI"))))
+    Ok((input, Stream::new(stream_dict, content.to_vec())))
 }
 
 fn _content(input: ParserInput) -> NomResult<Content<Vec<Operation>>> {
