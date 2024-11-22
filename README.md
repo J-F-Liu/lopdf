@@ -402,7 +402,7 @@ use lopdf::Document;
 
 // For this example to work a parser feature needs to be enabled
 #[cfg(not(feature = "async"))]
-#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
+#[cfg(feature = "nom_parser")]
 {
     let mut doc = Document::load("assets/example.pdf").unwrap();
 
@@ -416,7 +416,7 @@ use lopdf::Document;
 }
 
 #[cfg(feature = "async")]
-#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
+#[cfg(feature = "nom_parser")]
 {
     tokio::runtime::Builder::new_current_thread()
         .build()

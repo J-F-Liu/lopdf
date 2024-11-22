@@ -25,7 +25,7 @@ fn test_get_object() {
     assert!(obj2_exists);
 }
 
-#[cfg(any(feature = "pom_parser", feature = "nom_parser"))]
+#[cfg(feature = "nom_parser")]
 #[cfg(all(test, not(feature = "async")))]
 mod tests_with_parsing {
     use super::*;
