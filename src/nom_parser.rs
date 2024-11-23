@@ -752,4 +752,18 @@ startxref
         let out = content(test_span(input)).unwrap();
         assert_eq!(out.operations.len(), 3);
     }
+
+    #[test]
+    fn inline_image() {
+        let input = b"BI /W 4 /H 4 /CS /RGB /BPC 8
+ID
+00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz
+EI";
+        let out = super::inline_image(test_span(input)).unwrap().1;
+        assert_eq!(&out.1, "BI");
+        assert_eq!(
+            &out.0[0].as_stream().unwrap().content,
+            b"00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz"
+        )
+    }
 }
