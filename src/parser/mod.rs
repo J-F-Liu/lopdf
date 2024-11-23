@@ -579,8 +579,14 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
             // no decompression needed
             take(length)(input).map_err(|_: nom::Err<()>| Error::ContentDecode)?
         }
-        Ok(Object::Name(_filter)) => todo!(),
-        Ok(Object::Array(_filters)) => todo!(),
+        Ok(Object::Name(_filter)) => {
+            log::warn!("Filters for inline images are not yet implemented");
+            return Err(Error::ContentDecode);
+        }
+        Ok(Object::Array(_filters)) => {
+            log::warn!("Filters for inline images are not yet implemented");
+            return Err(Error::ContentDecode);
+        }
         Ok(_) => {
             log::warn!("Filter must be either a Name or and Array.");
             return Err(Error::DictKey);
