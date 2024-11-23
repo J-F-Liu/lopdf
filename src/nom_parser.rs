@@ -547,8 +547,6 @@ fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     let (input, _) = pair(tag(b"ID"), content_space)(input)?;
     let (input, stream) = convert_result(image_data_stream(input, stream_dict), input, ErrorKind::Fail)?;
     let (input, _) = tuple((content_space, tag(b"EI"), content_space))(input)?;
-    println!("{:?}", Object::Stream(stream.1.clone()));
-    println!("{:?}", String::from_utf8(stream.1.content.clone()).unwrap());
     Ok((input, (vec![Object::Stream(stream.1)], String::from("BI"))))
 }
 
@@ -575,7 +573,6 @@ fn image_data_stream<'a>(input: ParserInput<'a>, stream_dict: Dictionary) -> cra
 
     let stride = (width * (num_colors * bpc) + 7) / 8;
     let length = height * stride;
-    println!("stride:{stride}, length: {length}");
 
     let (input, content) = match get_abbr(b"F", b"Filter") {
         Err(_) => {
