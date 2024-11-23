@@ -545,13 +545,11 @@ fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
 fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     let (input, stream_dict) = inner_dictionary(input)?;
     let (input, _) = pair(tag(b"ID"), content_space)(input)?;
-    let (input, stream) = image_data_stream(input, stream_dict).unwrap();
-    let (input, _) = content_space(input)?;
-    let (input, _ei) = tag(b"EI")(input)?;
-    let (input, _) = content_space(input)?;
-    println!("{:?}", Object::Stream(stream.clone()));
-    println!("{:?}", String::from_utf8(stream.content.clone()).unwrap());
-    Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
+    let (input, stream) = convert_result(image_data_stream(input, stream_dict), input, ErrorKind::Fail)?;
+    let (input, _) = tuple((content_space, tag(b"EI"), content_space))(input)?;
+    println!("{:?}", Object::Stream(stream.1.clone()));
+    println!("{:?}", String::from_utf8(stream.1.content.clone()).unwrap());
+    Ok((input, (vec![Object::Stream(stream.1)], String::from("BI"))))
 }
 
 fn image_data_stream<'a>(input: ParserInput<'a>, stream_dict: Dictionary) -> crate::Result<(ParserInput<'a>, Stream)> {
@@ -560,7 +558,7 @@ fn image_data_stream<'a>(input: ParserInput<'a>, stream_dict: Dictionary) -> cra
     let height = get_abbr(b"H", b"Height")?.as_i64()? as usize;
     let bpc = get_abbr(b"BPC", b"BitsPerComponent")?.as_i64()? as usize;
     let colorspace = get_abbr(b"CS", b"ColorSpace")?.as_name()?;
-    let colors = match colorspace {
+    let num_colors = match colorspace {
         b"DeviceGray" | b"Gray" => 1,
         b"DeviceRGB" | b"RGB" => 3,
         b"DeviceRGBA" | b"RGBA" => 4,
@@ -575,7 +573,7 @@ fn image_data_stream<'a>(input: ParserInput<'a>, stream_dict: Dictionary) -> cra
         }
     };
 
-    let stride = (width * (colors * bpc) + 7) / 8;
+    let stride = (width * (num_colors * bpc) + 7) / 8;
     let length = height * stride;
     println!("stride:{stride}, length: {length}");
 
