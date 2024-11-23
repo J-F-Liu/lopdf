@@ -545,12 +545,12 @@ fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
 fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     let (input, stream_dict) = inner_dictionary(input)?;
     let (input, _) = pair(tag(b"ID"), content_space)(input)?;
-    let (input, stream) = convert_result(image_data_stream(input, stream_dict), input, ErrorKind::Fail)?;
+    let (_, (input, stream)) = convert_result(image_data_stream(input, stream_dict), input, ErrorKind::Fail)?;
     let (input, _) = tuple((content_space, tag(b"EI"), content_space))(input)?;
-    Ok((input, (vec![Object::Stream(stream.1)], String::from("BI"))))
+    Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
 }
 
-fn image_data_stream<'a>(input: ParserInput<'a>, stream_dict: Dictionary) -> crate::Result<(ParserInput<'a>, Stream)> {
+fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Result<(ParserInput, Stream)> {
     let get_abbr = |key_abbr: &[u8], key: &[u8]| stream_dict.get(key_abbr).or_else(|_| stream_dict.get(key));
     let width = get_abbr(b"W", b"Width")?.as_i64()? as usize;
     let height = get_abbr(b"H", b"Height")?.as_i64()? as usize;
@@ -750,6 +750,7 @@ startxref
 
     #[test]
     fn inline_image() {
+        env_logger::init();
         let input = b"BI /W 4 /H 4 /CS /RGB /BPC 8
 ID
 00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz
