@@ -1,5 +1,4 @@
-#![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
-
+#[cfg(feature = "nom_parser")]
 use log::{error, warn};
 use std::cmp;
 use std::collections::{BTreeMap, HashSet};

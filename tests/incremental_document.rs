@@ -1,5 +1,5 @@
 // Only run test when parser is enabled
-#![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
+#![cfg(feature = "nom_parser")]
 
 use lopdf::Result;
 use tempfile::tempdir;

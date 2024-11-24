@@ -1,3 +1,4 @@
+#[cfg(feature = "nom_parser")]
 use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
 use crate::content::*;
 use crate::error::XrefError;
@@ -20,6 +21,8 @@ use nom::AsBytes;
 use nom::IResult;
 use nom::Slice;
 use nom_locate::LocatedSpan;
+
+pub(crate) mod cmap_parser;
 
 pub(crate) type ParserInput<'a> = LocatedSpan<&'a [u8], &'a str>;
 // Change this to something else that implements ParseError to get a

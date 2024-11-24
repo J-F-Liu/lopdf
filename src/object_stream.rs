@@ -1,5 +1,4 @@
-#![cfg(any(feature = "pom_parser", feature = "nom_parser"))]
-
+#[cfg(feature = "nom_parser")]
 use crate::parser::{self, ParserInput};
 use crate::{Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;

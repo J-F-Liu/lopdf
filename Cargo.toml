@@ -30,7 +30,6 @@ log = "0.4"
 md-5 = "0.10"
 nom = { version = "7.1", optional = true }
 nom_locate = { version = "4.2.0", optional = true }
-pom = { version = "3.2", optional = true }
 rayon = { version = "1.6", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 time = { version = "0.3", features = ["formatting", "parsing"] }
@@ -53,12 +52,7 @@ chrono_time = ["chrono"]
 default = ["chrono_time", "nom_parser", "rayon"]
 embed_image = ["image"]
 nom_parser = ["nom", "nom_locate"]
-pom_parser = ["pom"]
 serde = ["dep:serde"]
-
-[[example]]
-name = "add_barcode"
-required-features = ["pom_parser"]
 
 [[example]]
 name = "extract_toc"
@@ -75,10 +69,6 @@ required-features = ["default"]
 [[example]]
 name = "rotate"
 required-features = ["nom_parser"]
-
-[[test]]
-name = "modify"
-required-features = ["pom_parser"]
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }

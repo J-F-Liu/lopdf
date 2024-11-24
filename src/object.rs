@@ -365,8 +365,10 @@ impl Dictionary {
             Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
             Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
             Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
-            // it is not customary to use PDFDocEncoding in fonts but it is not forbidden by the standard
-            Ok("PDFDocEncoding") => Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING)),
+            Ok("PDFDocEncoding") => {
+                log::warn!("PDFDocEncoding is not a valid character encoding for a font");
+                Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING))
+            }
             Ok("Identity-H") | Ok("Identity-V") => {
                 let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
                 self.get_encoding_from_to_unicode_cmap(stream)
