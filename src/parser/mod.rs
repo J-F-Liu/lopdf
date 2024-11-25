@@ -13,6 +13,7 @@ use nom::character::complete::multispace1;
 use nom::character::complete::{digit0, digit1, one_of};
 use nom::character::complete::{space0, space1};
 use nom::character::{is_hex_digit, is_oct_digit};
+use nom::combinator::cut;
 use nom::combinator::{map, map_opt, map_res, opt, verify};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::{fold_many0, fold_many1, many0, many0_count};
@@ -40,7 +41,6 @@ fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
 fn convert_result<O, E>(result: Result<O, E>, input: ParserInput, error_kind: ErrorKind) -> NomResult<O> {
     result.map(|o| (input, o)).map_err(|_| {
         // this is a unit bind if NomError = ()
-        #[allow(clippy::let_unit_value)]
         let err: NomError = nom::error::Error::from_error_kind(input, error_kind);
         nom::Err::Error(err)
     })
@@ -271,17 +271,17 @@ fn array(input: ParserInput) -> NomResult<Vec<Object>> {
 }
 
 pub(crate) fn dictionary(input: ParserInput) -> NomResult<Dictionary> {
-    delimited(
-        pair(tag(b"<<"), space),
-        fold_many0(
-            pair(terminated(name, space), _direct_object),
-            Dictionary::new,
-            |mut dict, (key, value)| {
-                dict.set(key, value);
-                dict
-            },
-        ),
-        tag(b">>"),
+    delimited(pair(tag(b"<<"), space), inner_dictionary, tag(b">>"))(input)
+}
+
+fn inner_dictionary(input: ParserInput) -> NomResult<Dictionary> {
+    fold_many0(
+        pair(terminated(name, space), _direct_object),
+        Dictionary::new,
+        |mut dict, (key, value)| {
+            dict.set(key, value);
+            dict
+        },
     )(input)
 }
 
@@ -324,7 +324,6 @@ fn stream<'a>(input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSe
     }) {
         if length < 0 {
             // artificial error kind is created to allow descriptive nom errors
-            #[allow(clippy::unit_arg)]
             return Err(nom::Err::Failure(NomError::from_error_kind(i, ErrorKind::LengthValue)));
         }
         let (i, data) = terminated(take(length as usize), pair(opt(eol), tag(b"endstream")))(i)?;
@@ -483,7 +482,6 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
                 })
                 .map_err(|_| {
                     // artificial error kind is created to allow descriptive nom errors
-                    #[allow(clippy::unit_arg)]
                     nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Fail))
                 })
         }),
@@ -534,10 +532,67 @@ fn operation(input: ParserInput) -> NomResult<Operation> {
     map(
         preceded(
             many0(comment),
-            terminated(pair(many0(operand), operator), content_space),
+            alt((inline_image, terminated(pair(many0(operand), operator), content_space))),
         ),
         |(operands, operator)| Operation { operator, operands },
     )(input)
+}
+
+fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    preceded(pair(tag(b"BI"), content_space), cut(inline_image_impl))(input)
+}
+
+fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    let (input, stream_dict) = inner_dictionary(input)?;
+    let (input, _) = pair(tag(b"ID"), content_space)(input)?;
+    let (_, (input, stream)) = convert_result(image_data_stream(input, stream_dict), input, ErrorKind::Fail)?;
+    let (input, _) = tuple((content_space, tag(b"EI"), content_space))(input)?;
+    Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
+}
+
+fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Result<(ParserInput, Stream)> {
+    let get_abbr = |key_abbr: &[u8], key: &[u8]| stream_dict.get(key_abbr).or_else(|_| stream_dict.get(key));
+    let width = get_abbr(b"W", b"Width")?.as_i64()? as usize;
+    let height = get_abbr(b"H", b"Height")?.as_i64()? as usize;
+    let bpc = get_abbr(b"BPC", b"BitsPerComponent")?.as_i64()? as usize;
+    let colorspace = get_abbr(b"CS", b"ColorSpace")?.as_name()?;
+    let num_colors = match colorspace {
+        b"DeviceGray" | b"Gray" => 1,
+        b"DeviceRGB" | b"RGB" => 3,
+        b"DeviceRGBA" | b"RGBA" => 4,
+        b"DeviceCMYK" | b"CMYK" => 4,
+        b"Pattern" => {
+            log::warn!("Pattern colorspace is not allowed in inline images");
+            return Err(Error::DictKey);
+        }
+        _ => {
+            log::warn!("Colorspace of inline image not recognized / not yet implemented");
+            return Err(Error::DictKey);
+        }
+    };
+
+    let stride = (width * (num_colors * bpc) + 7) / 8;
+    let length = height * stride;
+
+    let (input, content) = match get_abbr(b"F", b"Filter") {
+        Err(_) => {
+            // no decompression needed
+            take(length)(input).map_err(|_: nom::Err<()>| Error::ContentDecode)?
+        }
+        Ok(Object::Name(_filter)) => {
+            log::warn!("Filters for inline images are not yet implemented");
+            return Err(Error::ContentDecode);
+        }
+        Ok(Object::Array(_filters)) => {
+            log::warn!("Filters for inline images are not yet implemented");
+            return Err(Error::ContentDecode);
+        }
+        Ok(_) => {
+            log::warn!("Filter must be either a Name or and Array.");
+            return Err(Error::DictKey);
+        }
+    };
+    Ok((input, Stream::new(stream_dict, content.to_vec())))
 }
 
 fn _content(input: ParserInput) -> NomResult<Content<Vec<Operation>>> {
@@ -697,5 +752,20 @@ startxref
 ";
         let out = content(test_span(input)).unwrap();
         assert_eq!(out.operations.len(), 3);
+    }
+
+    #[test]
+    fn inline_image() {
+        env_logger::init();
+        let input = b"BI /W 4 /H 4 /CS /RGB /BPC 8
+ID
+00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz
+EI";
+        let out = super::inline_image(test_span(input)).unwrap().1;
+        assert_eq!(&out.1, "BI");
+        assert_eq!(
+            &out.0[0].as_stream().unwrap().content,
+            b"00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz"
+        )
     }
 }
