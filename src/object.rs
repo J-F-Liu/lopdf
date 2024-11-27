@@ -161,8 +161,8 @@ impl Object {
     }
 
     pub fn as_f32(&self) -> Result<f32> {
-        match *self {
-            Object::Real(ref value) => Ok(*value),
+        match self {
+            Object::Real(value) => Ok(*value),
             _ => Err(Error::ObjectType {
                 expected: "Real",
                 found: self.enum_variant(),
@@ -171,13 +171,13 @@ impl Object {
     }
 
     /// Get the object value as a float.
-    /// Unlike as_f64() this will also cast an Integer to a Real.
+    /// Unlike [`Object::as_f32`] this will also cast an Integer to a Real.
     pub fn as_float(&self) -> Result<f32> {
-        match *self {
-            Object::Integer(ref value) => Ok(*value as f32),
-            Object::Real(ref value) => Ok(*value),
+        match self {
+            Object::Integer(value) => Ok(*value as f32),
+            Object::Real(value) => Ok(*value),
             _ => Err(Error::ObjectType {
-                expected: "Numeric", // TODO
+                expected: "Integer or Real",
                 found: self.enum_variant(),
             }),
         }
@@ -284,20 +284,15 @@ impl Object {
     }
 
     // TODO: maybe remove
-    pub fn type_name(&self) -> Result<&str> {
+    pub fn type_name(&self) -> Result<&[u8]> {
         match self {
-            Object::Dictionary(dict) => dict.type_name(),
-            Object::Stream(stream) => stream.dict.type_name(),
+            Object::Dictionary(dict) => dict.get_type(),
+            Object::Stream(stream) => stream.dict.get_type(),
             obj => Err(Error::ObjectType {
                 expected: "Dictionary or Stream",
                 found: obj.enum_variant(),
             }),
         }
-    }
-
-    // TODO: maybe remove
-    pub fn as_name_str(&self) -> Result<&str> {
-        Ok(str::from_utf8(self.as_name().map_err(|_| Error::UTF8)?)?)
     }
 
     pub fn enum_variant(&self) -> &'static str {
@@ -393,13 +388,13 @@ impl Dictionary {
         self.0.swap_remove(key)
     }
 
-    pub fn type_name(&self) -> Result<&str> {
+    pub fn get_type(&self) -> Result<&[u8]> {
         self.get(b"Type")
-            .and_then(Object::as_name_str)
-            .or_else(|_| self.get(b"Linearized").and(Ok("Linearized")))
+            .and_then(Object::as_name)
+            .or_else(|_| self.get(b"Linearized").and(Ok(b"Linearized")))
     }
 
-    pub fn type_is(&self, type_name: &[u8]) -> bool {
+    pub fn has_type(&self, type_name: &[u8]) -> bool {
         self.get(b"Type").and_then(|s| s.as_name()).ok() == Some(type_name)
     }
 
@@ -412,7 +407,7 @@ impl Dictionary {
     }
 
     pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
-        if !self.type_is(b"Font") {
+        if !self.has_type(b"Font") {
             return Err(Error::DictKey);
         }
 
@@ -422,16 +417,16 @@ impl Dictionary {
         // - TrueType cmap tables
         // - DescendantFonts in CID-Keyed fonts
         // - predefined CJK CMAP other than indicated in SimpleEncoding
-        match self.get(b"Encoding").and_then(Object::as_name_str) {
-            Ok("StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
-            Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
-            Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
-            Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
-            Ok("PDFDocEncoding") => {
+        match self.get(b"Encoding").and_then(Object::as_name) {
+            Ok(b"StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            Ok(b"MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
+            Ok(b"MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
+            Ok(b"WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
+            Ok(b"PDFDocEncoding") => {
                 log::warn!("PDFDocEncoding is not a valid character encoding for a font");
                 Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING))
             }
-            Ok("Identity-H") | Ok("Identity-V") => {
+            Ok(b"Identity-H") | Ok(b"Identity-V") => {
                 let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
                 self.get_encoding_from_to_unicode_cmap(stream)
             }
@@ -636,20 +631,13 @@ impl Stream {
         self
     }
 
-    // Return first filter
-    pub fn filter(&self) -> Result<String> {
-        self.filters()
-            .and_then(|f| f.into_iter().next().ok_or(Error::ObjectNotFound))
-    }
-
-    // TODO change return type String to Name
-    pub fn filters(&self) -> Result<Vec<String>> {
+    pub fn filters(&self) -> Result<Vec<&[u8]>> {
         let filter = self.dict.get(b"Filter")?;
 
-        if let Ok(name) = filter.as_name_str() {
-            Ok(vec![name.into()])
+        if let Ok(name) = filter.as_name() {
+            Ok(vec![name])
         } else if let Ok(names) = filter.as_array() {
-            names.iter().map(|n| n.as_name_str().map(String::from)).collect()
+            names.iter().map(Object::as_name).collect()
         } else {
             Err(Error::ObjectType {
                 expected: "Name or Array",
@@ -703,10 +691,10 @@ impl Stream {
 
         // Filters are in decoding order.
         for filter in filters {
-            output = match filter.as_str() {
-                "FlateDecode" => Self::decompress_zlib(input, params)?,
-                "LZWDecode" => Self::decompress_lzw(input, params)?,
-                "ASCII85Decode" => Self::decode_ascii85(input)?,
+            output = match filter {
+                b"FlateDecode" => Self::decompress_zlib(input, params)?,
+                b"LZWDecode" => Self::decompress_lzw(input, params)?,
+                b"ASCII85Decode" => Self::decode_ascii85(input)?,
                 _ => return Err(Error::Unimplemented("decompression algorithms".to_string())),
             };
             input = &output;

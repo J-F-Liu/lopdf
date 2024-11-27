@@ -290,7 +290,7 @@ impl Document {
             }
 
             // If a Metadata stream but metadata isn't encrypted, leave it alone
-            if obj.type_name().unwrap_or("") == "Metadata" && !metadata_is_encrypted {
+            if obj.type_name().ok() == Some(b"Metadata") && !metadata_is_encrypted {
                 continue;
             }
 
@@ -653,12 +653,12 @@ impl Iterator for PageTreeIter<'_> {
                 self.kids = Some(new_kids);
 
                 if let Ok(kid_id) = kid.as_reference() {
-                    if let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::type_name) {
+                    if let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::get_type) {
                         match type_name {
-                            "Page" => {
+                            b"Page" => {
                                 return Some(kid_id);
                             }
-                            "Pages" => {
+                            b"Pages" => {
                                 if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT {
                                     let kids = self.kids.unwrap();
                                     if !kids.is_empty() {
@@ -690,7 +690,7 @@ impl Iterator for PageTreeIter<'_> {
             .chain(self.stack.iter().flat_map(|k| k.iter()))
             .map(|kid| {
                 if let Ok(dict) = kid.as_reference().and_then(|id| self.doc.get_dictionary(id)) {
-                    if let Ok("Pages") = dict.type_name() {
+                    if let Ok(b"Pages") = dict.get_type() {
                         let count = dict.get_deref(b"Count", self.doc).and_then(Object::as_i64).unwrap_or(0);
                         // Don't let page count go backwards in case of an invalid document.
                         max(0, count) as usize

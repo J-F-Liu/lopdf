@@ -17,8 +17,8 @@ impl Document {
                 return self.build_outline_result(node.get(b"Dest")?, node.get(b"Title")?, named_destinations);
             }
         };
-        let command = action.get(b"S")?.as_name_str()?;
-        if command != "GoTo" && command != "GoToR" {
+        let command = action.get(b"S")?.as_name()?;
+        if command != b"GoTo" && command != b"GoToR" {
             return Err(Error::Invalid("Expected GoTo or GoToR".to_string()));
         }
         let title_obj = node.get(b"Title")?;

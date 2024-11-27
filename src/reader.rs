@@ -286,7 +286,7 @@ impl<'a> Reader<'a> {
                     filter_func(object_id, &mut object)?;
                 }
                 if let Ok(ref mut stream) = object.as_stream_mut() {
-                    if stream.dict.type_is(b"ObjStm") {
+                    if stream.dict.has_type(b"ObjStm") {
                         let obj_stream = ObjectStream::new(stream).ok()?;
                         let mut object_streams = object_streams.lock().unwrap();
                         // TODO: Is insert and replace intended behavior?
