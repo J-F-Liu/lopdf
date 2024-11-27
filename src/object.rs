@@ -313,34 +313,27 @@ impl Object {
 
 impl fmt::Debug for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Object::Null => f.write_str("null"),
-            Object::Boolean(ref value) => {
-                if *value {
-                    f.write_str("true")
-                } else {
-                    f.write_str("false")
-                }
-            }
-            Object::Integer(ref value) => write!(f, "{}", *value),
-            Object::Real(ref value) => write!(f, "{}", *value),
-            Object::Name(ref name) => write!(f, "/{}", String::from_utf8_lossy(name)),
-            Object::String(ref text, StringFormat::Literal) => write!(f, "({})", String::from_utf8_lossy(text)),
-            Object::String(ref text, StringFormat::Hexadecimal) => {
+        match self {
+            Object::Null => write!(f, "Null"),
+            Object::Boolean(value) => write!(f, "{}", value),
+            Object::Integer(value) => write!(f, "{}", value),
+            Object::Real(value) => write!(f, "{}", value),
+            Object::Name(name) => write!(f, "/{}", String::from_utf8_lossy(name)),
+            Object::String(text, StringFormat::Literal) => write!(f, "({})", String::from_utf8_lossy(text)),
+            Object::String(text, StringFormat::Hexadecimal) => {
                 write!(f, "<")?;
                 for b in text {
                     write!(f, "{:02x}", b)?;
                 }
-                write!(f, ">")?;
-                Ok(())
+                write!(f, ">")
             }
-            Object::Array(ref array) => {
+            Object::Array(array) => {
                 let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
                 write!(f, "[{}]", items.join(" "))
             }
-            Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
-            Object::Stream(ref stream) => write!(f, "{:?}stream...endstream", stream.dict),
-            Object::Reference(ref id) => write!(f, "{} {} R", id.0, id.1),
+            Object::Dictionary(dict) => write!(f, "{:?}", dict),
+            Object::Stream(stream) => write!(f, "{:?}stream...endstream", stream.dict),
+            Object::Reference(id) => write!(f, "{} {} R", id.0, id.1),
         }
     }
 }
@@ -358,8 +351,8 @@ impl Dictionary {
         self.0.get(key).ok_or(Error::DictKey)
     }
 
-    /// Extract object from dictionary, dereferencing the object if it
-    /// is a reference.
+    /// Extract object from dictionary, dereferencing
+    /// the object if it is a reference.
     pub fn get_deref<'a>(&'a self, key: &[u8], doc: &'a Document) -> Result<&'a Object> {
         doc.dereference(self.get(key)?).map(|(_, object)| object)
     }
@@ -388,14 +381,14 @@ impl Dictionary {
         self.0.swap_remove(key)
     }
 
+    pub fn has_type(&self, type_name: &[u8]) -> bool {
+        self.get(b"Type").and_then(|s| s.as_name()).ok() == Some(type_name)
+    }
+
     pub fn get_type(&self) -> Result<&[u8]> {
         self.get(b"Type")
             .and_then(Object::as_name)
             .or_else(|_| self.get(b"Linearized").and(Ok(b"Linearized")))
-    }
-
-    pub fn has_type(&self, type_name: &[u8]) -> bool {
-        self.get(b"Type").and_then(|s| s.as_name()).ok() == Some(type_name)
     }
 
     pub fn iter(&self) -> indexmap::map::Iter<Vec<u8>, Object> {
@@ -482,23 +475,19 @@ impl Dictionary {
                     (Object::Dictionary(old_dict), Object::Dictionary(dict)) => {
                         let mut replaced_dict = old_dict.to_owned();
                         replaced_dict.extend(dict);
-
                         new_dict.insert(key.to_owned(), Object::Dictionary(replaced_dict));
                     }
                     (Object::Array(old_array), Object::Array(array)) => {
                         let mut replaced_array = old_array.to_owned();
                         replaced_array.extend(array.to_owned());
-
                         new_dict.insert(key.to_owned(), Object::Array(replaced_array));
                     }
                     (Object::Integer(old_id), Object::Integer(id)) => {
                         let array = vec![Object::Integer(*old_id), Object::Integer(*id)];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::Real(old_id), Object::Real(id)) => {
                         let array = vec![Object::Real(*old_id), Object::Real(*id)];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::String(old_ids, old_format), Object::String(ids, format)) => {
@@ -506,12 +495,10 @@ impl Dictionary {
                             Object::String(old_ids.to_owned(), old_format.to_owned()),
                             Object::String(ids.to_owned(), format.to_owned()),
                         ];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::Reference(old_object_id), Object::Reference(object_id)) => {
                         let array = vec![Object::Reference(*old_object_id), Object::Reference(*object_id)];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::Null, _) | (Object::Boolean(_), _) | (Object::Name(_), _) | (Object::Stream(_), _) => {
