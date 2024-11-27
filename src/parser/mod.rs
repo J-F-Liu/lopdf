@@ -393,8 +393,8 @@ fn _indirect_object<'a>(
     input: ParserInput<'a>, offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
     already_seen: &mut HashSet<ObjectId>,
 ) -> crate::Result<(ObjectId, Object)> {
-    let (i, (_, object_id)) =
-        terminated(tuple((space, object_id)), pair(tag(b"obj"), space))(input).map_err(|_| Error::Parse { offset })?;
+    let (i, (_, object_id)) = terminated(tuple((space, object_id)), pair(tag(b"obj"), space))(input)
+        .map_err(|_| Error::OldParse { offset })?;
     if let Some(expected_id) = expected_id {
         if object_id != expected_id {
             return Err(crate::error::Error::ObjectIdMismatch);
@@ -406,7 +406,7 @@ fn _indirect_object<'a>(
         |i: ParserInput<'a>| object(i, reader, already_seen),
         tuple((space, opt(tag(b"endobj")), space)),
     )(i)
-    .map_err(|_| Error::Parse { offset })?;
+    .map_err(|_| Error::OldParse { offset })?;
 
     offset_stream(&mut object, object_offset);
 
@@ -576,20 +576,23 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
 
     let (input, content) = match get_abbr(b"F", b"Filter") {
         Err(_) => {
-            // no decompression needed
-            take(length)(input).map_err(|_: nom::Err<()>| Error::ContentDecode)?
+            // no decompression needed as no filter was applied
+            take(length)(input).map_err(|_: nom::Err<()>| crate::error::ParseError::EndOfInput)?
         }
         Ok(Object::Name(_filter)) => {
             log::warn!("Filters for inline images are not yet implemented");
-            return Err(Error::ContentDecode);
+            return Err(Error::Unimplemented("filters for inline images"));
         }
         Ok(Object::Array(_filters)) => {
             log::warn!("Filters for inline images are not yet implemented");
-            return Err(Error::ContentDecode);
+            return Err(Error::Unimplemented("filters for inline images"));
         }
-        Ok(_) => {
+        Ok(obj) => {
             log::warn!("Filter must be either a Name or and Array.");
-            return Err(Error::DictKey);
+            return Err(Error::ObjectType {
+                expected: "Name or Array",
+                found: obj.enum_variant(),
+            });
         }
     };
     Ok((input, Stream::new(stream_dict, content.to_vec())))

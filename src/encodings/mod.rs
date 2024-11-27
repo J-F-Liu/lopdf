@@ -15,7 +15,7 @@ pub fn bytes_to_string(encoding: &CodedCharacterSet, bytes: &[u8]) -> String {
         .iter()
         .filter_map(|&byte| encoding[byte as usize])
         .collect::<Vec<u16>>();
-    String::from_utf16_lossy(&code_points)
+    String::from_utf16(&code_points).expect("decoded string should only contain valid UTF16")
 }
 
 pub fn string_to_bytes(encoding: &CodedCharacterSet, text: &str) -> Vec<u8> {
@@ -81,7 +81,7 @@ impl<'a> Encoding<'a> {
                     .collect();
                 Ok(UTF_16BE.decode(&utf16_str).0.to_string())
             }
-            Self::SimpleEncoding(_) => Err(Error::ContentDecode),
+            Self::SimpleEncoding(_) => Err(Error::CharacterEncoding),
         }
     }
 

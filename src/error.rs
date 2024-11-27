@@ -16,16 +16,24 @@ pub enum Error {
         found: &'static str,
     },
     /// Lopdf does not (yet) implement a needed feature.
-    #[error("missing feature of lopdf: {0}")]
-    Unimplemented(String),
-    /// Brackets limit reached.
-    /// To many brackets nested.
-    // TODO: This does not seem to be used.
+    #[error("missing feature of lopdf: {0}. Please open an issue at https://github.com/J-F-Liu/lopdf/ to let the developers know of your usecase")]
+    Unimplemented(&'static str),
+    /// The encountered character encoding is invalid.
+    #[error("invalid character encoding")]
+    CharacterEncoding,
+    /// The stream couldn't be decompressed.
+    #[error("couldn't decompress stream {0}")]
+    Decompress(#[from] DecompressError),
+    /// Failed to parse input.
+    #[error("couldn't parse input {0}")]
+    Parse(#[from] ParseError),
+    /// Failed to parse content stream.
+    #[error("couldn't parse content stream")]
+    ContentStream,
+
+    /// Invalid object while parsing at offset.
     #[error("")]
-    BracketLimit,
-    /// Could not decode content.
-    #[error("")]
-    ContentDecode,
+    OldParse { offset: usize },
     /// Error when decrypting the contents of the file
     #[error("")]
     Decryption(encryption::DecryptionError),
@@ -56,9 +64,6 @@ pub enum Error {
     /// Page number was not found in document.
     #[error("")]
     PageNumberNotFound(u32),
-    /// Invalid object while parsing at offset.
-    #[error("")]
-    Parse { offset: usize },
     /// Dereferencing object failed due to a reference cycle.
     #[error("")]
     ReferenceCycle,
@@ -88,6 +93,18 @@ pub enum Error {
     #[cfg(feature = "embed_image")]
     #[error("")]
     Image(image::ImageError),
+}
+
+#[derive(Error, Debug)]
+pub enum DecompressError {
+    #[error("decoding ASCII85 failed: {0}")]
+    Ascii85(&'static str),
+}
+
+#[derive(Error, Debug)]
+pub enum ParseError {
+    #[error("unexpected end of input")]
+    EndOfInput,
 }
 
 // impl fmt::Display for PDFError {

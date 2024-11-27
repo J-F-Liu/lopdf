@@ -1,6 +1,7 @@
 use crate::encodings;
 use crate::encodings::cmap::ToUnicodeCMap;
 use crate::encodings::Encoding;
+use crate::error::DecompressError;
 use crate::{Document, Error, Result};
 use indexmap::IndexMap;
 use log::warn;
@@ -682,7 +683,7 @@ impl Stream {
                 b"FlateDecode" => Self::decompress_zlib(input, params)?,
                 b"LZWDecode" => Self::decompress_lzw(input, params)?,
                 b"ASCII85Decode" => Self::decode_ascii85(input)?,
-                _ => return Err(Error::Unimplemented("decompression algorithms".to_string())),
+                _ => return Err(Error::Unimplemented("decompression algorithms")),
             };
             input = &output;
         }
@@ -750,8 +751,7 @@ impl Stream {
         for &ch in input_no_eod {
             if ch == b'z' {
                 if count != 0 {
-                    // z character is not allowed in middle of a group
-                    return Err(Error::ContentDecode);
+                    return Err(DecompressError::Ascii85("z character is not allowed in the middle of a group").into());
                 }
                 output.extend_from_slice(&[0, 0, 0, 0]);
                 continue;
@@ -764,7 +764,9 @@ impl Stream {
             if !(b'!'..=b'u').contains(&ch) {
                 break;
             }
-            buffer = buffer.checked_mul(85).ok_or(Error::ContentDecode)?;
+            buffer = buffer
+                .checked_mul(85)
+                .ok_or(DecompressError::Ascii85("multiplication overflow"))?;
             buffer += (ch - b'!') as u32;
             count += 1;
 
@@ -777,7 +779,9 @@ impl Stream {
 
         if count > 0 {
             for _ in count..5 {
-                buffer = buffer.checked_mul(85).ok_or(Error::ContentDecode)?;
+                buffer = buffer
+                    .checked_mul(85)
+                    .ok_or(DecompressError::Ascii85("multiplication overflow"))?;
                 buffer += 84;
             }
 
@@ -821,7 +825,7 @@ impl Stream {
 
 #[cfg(test)]
 mod test {
-    use crate::Error;
+    use crate::{error::DecompressError, Error};
 
     use super::Stream;
 
@@ -843,6 +847,6 @@ mod test {
         let input = b"uuuuu~>";
         let output = Stream::decode_ascii85(input);
         // let expected: Result<Vec<u8>, Error> = Err(Error::ContentDecode);
-        assert!(matches!(output, Err(Error::ContentDecode)));
+        assert!(matches!(output, Err(Error::Decompress(DecompressError::Ascii85(_)))));
     }
 }
