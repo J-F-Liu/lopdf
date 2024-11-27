@@ -39,7 +39,7 @@ pub use bookmarks::Bookmark;
 pub use common_data_structures::{decode_text_string, text_string};
 pub use destinations::Destination;
 pub use encodings::{encode_utf16_be, encode_utf8, Encoding};
-pub use error::{Error, Result, XrefError};
+pub use error::{Error, Result};
 pub use incremental_document::IncrementalDocument;
 pub use object_stream::ObjectStream;
 pub use outlines::Outline;

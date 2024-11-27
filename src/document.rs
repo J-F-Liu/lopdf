@@ -201,7 +201,7 @@ impl Document {
         match node.get(key)? {
             Object::Reference(object_id) => self.get_dictionary(*object_id),
             Object::Dictionary(dic) => Ok(dic),
-            _ => Err(Error::Type),
+            _ => Err(Error::REMOVEType),
         }
     }
 

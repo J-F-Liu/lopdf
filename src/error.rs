@@ -1,94 +1,127 @@
+use thiserror::Error;
+
 use crate::encryption;
 use std::fmt;
 
 use crate::encodings::cmap::UnicodeCMapError;
 
-#[derive(Debug)]
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Error)]
 pub enum Error {
+    #[error("object has wrong type; expected type {expected} but found type {found}")]
+    Type {
+        expected: &'static str,
+        found: &'static str,
+    },
     /// Brackets limit reached.
     /// To many brackets nested.
     // TODO: This does not seem to be used.
+    #[error("")]
     BracketLimit,
     /// Could not decode content.
+    #[error("")]
     ContentDecode,
     /// Error when decrypting the contents of the file
+    #[error("")]
     Decryption(encryption::DecryptionError),
     /// Dictionary key was not found.
+    #[error("")]
     DictKey,
     /// Invalid file header
+    #[error("")]
     Header,
     /// Invalid command.
+    #[error("")]
     Invalid(String),
     /// IO error
+    #[error("")]
     IO(std::io::Error),
     /// PDF document has no Outlines.
+    #[error("")]
     NoOutlines,
     /// Found Object ID does not match Expected Object ID.
+    #[error("")]
     ObjectIdMismatch,
     /// The Object ID was not found.
+    #[error("")]
     ObjectNotFound,
     /// Offset in file is invalid.
+    #[error("")]
     Offset(usize),
     /// Page number was not found in document.
+    #[error("")]
     PageNumberNotFound(u32),
     /// Invalid object while parsing at offset.
+    #[error("")]
     Parse { offset: usize },
     /// Dereferencing object failed due to a reference cycle.
+    #[error("")]
     ReferenceCycle,
     /// Dereferencing object reached the limit.
     /// This might indicate a reference loop.
+    #[error("")]
     ReferenceLimit,
     /// Decoding byte vector failed.
+    #[error("")]
     StringDecode,
     /// Syntax error while parsing the file.
+    #[error("")]
     Syntax(String),
     /// Could not parse ToUnicodeCMap.
+    #[error("")]
     ToUnicodeCMap(UnicodeCMapError),
     /// The file trailer was invalid.
+    #[error("")]
     Trailer,
     /// The object does not have the expected type.
-    Type,
+    #[error("")]
+    REMOVEType, // TODO
     /// Decoding byte vector to UTF8 String failed.
+    #[error("")]
     UTF8,
     /// Error while parsing cross reference table.
+    #[error("")]
     Xref(XrefError),
     /// Error when handling images.
     #[cfg(feature = "embed_image")]
+    #[error("")]
     Image(image::ImageError),
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::BracketLimit => write!(f, "Too deep embedding of ()'s."),
-            Error::ContentDecode => write!(f, "Could not decode content"),
-            Error::Decryption(d) => d.fmt(f),
-            Error::DictKey => write!(f, "A required dictionary key was not found"),
-            Error::Header => write!(f, "Invalid file header"),
-            Error::Invalid(msg) => write!(f, "Invalid command: {}", msg),
-            Error::IO(e) => e.fmt(f),
-            Error::NoOutlines => write!(f, "PDF document has no Outlines"),
-            Error::ObjectIdMismatch => write!(f, "The object id found did not match the requested object"),
-            Error::ObjectNotFound => write!(f, "A required object was not found"),
-            Error::Offset(o) => write!(f, "Invalid file offset: {}", o),
-            Error::PageNumberNotFound(p) => write!(f, "Page number {} could not be found", p),
-            Error::Parse { offset, .. } => write!(f, "Invalid object at byte {}", offset),
-            Error::ReferenceCycle => write!(f, "Could not dereference an object; reference cycle detected"),
-            Error::ReferenceLimit => write!(f, "Could not dereference an object; possible reference cycle"),
-            Error::StringDecode => write!(f, "Could not decode string"),
-            Error::Syntax(msg) => write!(f, "Syntax error: {}", msg),
-            Error::ToUnicodeCMap(err) => write!(f, "ToUnicode CMap error: {}", err),
-            Error::Trailer => write!(f, "Invalid file trailer"),
-            Error::Type => write!(f, "An object does not have the expected type"),
-            Error::UTF8 => write!(f, "UTF-8 error"),
-            Error::Xref(e) => write!(f, "Invalid cross-reference table ({})", e),
-            #[cfg(feature = "embed_image")]
-            Error::Image(e) => e.fmt(f),
-        }
-    }
-}
+// impl fmt::Display for PDFError {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         match self {
+//             PDFError::BracketLimit => write!(f, "Too deep embedding of ()'s."),
+//             PDFError::ContentDecode => write!(f, "Could not decode content"),
+//             PDFError::Decryption(d) => d.fmt(f),
+//             PDFError::DictKey => write!(f, "A required dictionary key was not found"),
+//             PDFError::Header => write!(f, "Invalid file header"),
+//             PDFError::Invalid(msg) => write!(f, "Invalid command: {}", msg),
+//             PDFError::IO(e) => e.fmt(f),
+//             PDFError::NoOutlines => write!(f, "PDF document has no Outlines"),
+//             PDFError::ObjectIdMismatch => write!(f, "The object id found did not match the requested object"),
+//             PDFError::ObjectNotFound => write!(f, "A required object was not found"),
+//             PDFError::Offset(o) => write!(f, "Invalid file offset: {}", o),
+//             PDFError::PageNumberNotFound(p) => write!(f, "Page number {} could not be found", p),
+//             PDFError::Parse { offset, .. } => write!(f, "Invalid object at byte {}", offset),
+//             PDFError::ReferenceCycle => write!(f, "Could not dereference an object; reference cycle detected"),
+//             PDFError::ReferenceLimit => write!(f, "Could not dereference an object; possible reference cycle"),
+//             PDFError::StringDecode => write!(f, "Could not decode string"),
+//             PDFError::Syntax(msg) => write!(f, "Syntax error: {}", msg),
+//             PDFError::ToUnicodeCMap(err) => write!(f, "ToUnicode CMap error: {}", err),
+//             PDFError::Trailer => write!(f, "Invalid file trailer"),
+//             PDFError::Type => write!(f, "An object does not have the expected type"),
+//             PDFError::UTF8 => write!(f, "UTF-8 error"),
+//             PDFError::Xref(e) => write!(f, "Invalid cross-reference table ({})", e),
+//             #[cfg(feature = "embed_image")]
+//             PDFError::Image(e) => e.fmt(f),
+//             _ => unimplemented!(),
+//         }
+//     }
+// }
 
-impl std::error::Error for Error {}
+// impl std::error::Error for PDFError {}
 
 #[derive(Debug)]
 pub enum XrefError {
@@ -114,8 +147,6 @@ impl fmt::Display for XrefError {
 }
 
 impl std::error::Error for XrefError {}
-
-pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
