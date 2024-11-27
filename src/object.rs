@@ -143,7 +143,7 @@ impl Object {
     pub fn as_bool(&self) -> Result<bool> {
         match *self {
             Object::Boolean(ref value) => Ok(*value),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Boolean",
                 found: self.enum_variant(),
             }),
@@ -153,7 +153,7 @@ impl Object {
     pub fn as_i64(&self) -> Result<i64> {
         match *self {
             Object::Integer(ref value) => Ok(*value),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Integer",
                 found: self.enum_variant(),
             }),
@@ -163,7 +163,7 @@ impl Object {
     pub fn as_f32(&self) -> Result<f32> {
         match *self {
             Object::Real(ref value) => Ok(*value),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Real",
                 found: self.enum_variant(),
             }),
@@ -176,7 +176,7 @@ impl Object {
         match *self {
             Object::Integer(ref value) => Ok(*value as f32),
             Object::Real(ref value) => Ok(*value),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Numeric", // TODO
                 found: self.enum_variant(),
             }),
@@ -186,7 +186,7 @@ impl Object {
     pub fn as_name(&self) -> Result<&[u8]> {
         match *self {
             Object::Name(ref name) => Ok(name),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Name",
                 found: self.enum_variant(),
             }),
@@ -196,7 +196,7 @@ impl Object {
     pub fn as_str(&self) -> Result<&[u8]> {
         match self {
             Object::String(string, _) => Ok(string),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "String",
                 found: self.enum_variant(),
             }),
@@ -206,7 +206,7 @@ impl Object {
     pub fn as_str_mut(&mut self) -> Result<&mut Vec<u8>> {
         match self {
             Object::String(string, _) => Ok(string),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "String",
                 found: self.enum_variant(),
             }),
@@ -216,7 +216,7 @@ impl Object {
     pub fn as_reference(&self) -> Result<ObjectId> {
         match *self {
             Object::Reference(ref id) => Ok(*id),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Reference",
                 found: self.enum_variant(),
             }),
@@ -226,7 +226,7 @@ impl Object {
     pub fn as_array(&self) -> Result<&Vec<Object>> {
         match *self {
             Object::Array(ref arr) => Ok(arr),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Array",
                 found: self.enum_variant(),
             }),
@@ -236,7 +236,7 @@ impl Object {
     pub fn as_array_mut(&mut self) -> Result<&mut Vec<Object>> {
         match *self {
             Object::Array(ref mut arr) => Ok(arr),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Array",
                 found: self.enum_variant(),
             }),
@@ -246,7 +246,7 @@ impl Object {
     pub fn as_dict(&self) -> Result<&Dictionary> {
         match *self {
             Object::Dictionary(ref dict) => Ok(dict),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Dictionary",
                 found: self.enum_variant(),
             }),
@@ -256,7 +256,7 @@ impl Object {
     pub fn as_dict_mut(&mut self) -> Result<&mut Dictionary> {
         match *self {
             Object::Dictionary(ref mut dict) => Ok(dict),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Dictionary",
                 found: self.enum_variant(),
             }),
@@ -266,7 +266,7 @@ impl Object {
     pub fn as_stream(&self) -> Result<&Stream> {
         match *self {
             Object::Stream(ref stream) => Ok(stream),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Stream",
                 found: self.enum_variant(),
             }),
@@ -276,7 +276,7 @@ impl Object {
     pub fn as_stream_mut(&mut self) -> Result<&mut Stream> {
         match *self {
             Object::Stream(ref mut stream) => Ok(stream),
-            _ => Err(Error::Type {
+            _ => Err(Error::ObjectType {
                 expected: "Stream",
                 found: self.enum_variant(),
             }),
@@ -285,19 +285,22 @@ impl Object {
 
     // TODO: maybe remove
     pub fn type_name(&self) -> Result<&str> {
-        match *self {
-            Object::Dictionary(ref dict) => dict.type_name(),
-            Object::Stream(ref stream) => stream.dict.type_name(),
-            _ => Err(Error::REMOVEType),
+        match self {
+            Object::Dictionary(dict) => dict.type_name(),
+            Object::Stream(stream) => stream.dict.type_name(),
+            obj => Err(Error::ObjectType {
+                expected: "Dictionary or Stream",
+                found: obj.enum_variant(),
+            }),
         }
     }
 
     // TODO: maybe remove
     pub fn as_name_str(&self) -> Result<&str> {
-        Ok(str::from_utf8(self.as_name().map_err(|_| Error::REMOVEType)?)?)
+        Ok(str::from_utf8(self.as_name().map_err(|_| Error::UTF8)?)?)
     }
 
-    fn enum_variant(&self) -> &'static str {
+    pub fn enum_variant(&self) -> &'static str {
         match self {
             Object::Null => "Null",
             Object::Boolean(_) => "Boolean",
@@ -397,10 +400,7 @@ impl Dictionary {
     }
 
     pub fn type_is(&self, type_name: &[u8]) -> bool {
-        self.get(b"Type")
-            .and_then(|s| s.as_name().map_err(|_| Error::REMOVEType)) // TODO
-            .ok()
-            == Some(type_name)
+        self.get(b"Type").and_then(|s| s.as_name()).ok() == Some(type_name)
     }
 
     pub fn iter(&self) -> indexmap::map::Iter<Vec<u8>, Object> {
@@ -642,22 +642,19 @@ impl Stream {
             .and_then(|f| f.into_iter().next().ok_or(Error::ObjectNotFound))
     }
 
+    // TODO change return type String to Name
     pub fn filters(&self) -> Result<Vec<String>> {
         let filter = self.dict.get(b"Filter")?;
 
         if let Ok(name) = filter.as_name_str() {
             Ok(vec![name.into()])
         } else if let Ok(names) = filter.as_array() {
-            // It is an error if a single conversion fails.
-            names
-                .iter()
-                .map(|n| match Object::as_name_str(n) {
-                    Ok(n) => Ok(String::from(n)),
-                    Err(_) => Err(Error::REMOVEType),
-                })
-                .collect()
+            names.iter().map(|n| n.as_name_str().map(String::from)).collect()
         } else {
-            Err(Error::REMOVEType)
+            Err(Error::ObjectType {
+                expected: "Name or Array",
+                found: filter.enum_variant(),
+            })
         }
     }
 
@@ -701,10 +698,6 @@ impl Stream {
         let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict).ok();
         let filters = self.filters()?;
 
-        if self.dict.get(b"Subtype").and_then(Object::as_name_str).ok() == Some("Image") {
-            return Err(Error::REMOVEType);
-        }
-
         let mut input = self.content.as_slice();
         let mut output = vec![];
 
@@ -714,7 +707,7 @@ impl Stream {
                 "FlateDecode" => Self::decompress_zlib(input, params)?,
                 "LZWDecode" => Self::decompress_lzw(input, params)?,
                 "ASCII85Decode" => Self::decode_ascii85(input)?,
-                _ => return Err(Error::REMOVEType),
+                _ => return Err(Error::Unimplemented("decompression algorithms".to_string())),
             };
             input = &output;
         }

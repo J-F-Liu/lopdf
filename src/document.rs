@@ -201,7 +201,10 @@ impl Document {
         match node.get(key)? {
             Object::Reference(object_id) => self.get_dictionary(*object_id),
             Object::Dictionary(dic) => Ok(dic),
-            _ => Err(Error::REMOVEType),
+            obj => Err(Error::ObjectType {
+                expected: "Dictionary",
+                found: obj.enum_variant(),
+            }),
         }
     }
 

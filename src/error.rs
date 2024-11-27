@@ -9,11 +9,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    /// An Object has the wrong type, e.g. the Object is an Array where a Name would be expected.
     #[error("object has wrong type; expected type {expected} but found type {found}")]
-    Type {
+    ObjectType {
         expected: &'static str,
         found: &'static str,
     },
+    /// Lopdf does not (yet) implement a needed feature.
+    #[error("missing feature of lopdf: {0}")]
+    Unimplemented(String),
     /// Brackets limit reached.
     /// To many brackets nested.
     // TODO: This does not seem to be used.
@@ -74,9 +78,6 @@ pub enum Error {
     /// The file trailer was invalid.
     #[error("")]
     Trailer,
-    /// The object does not have the expected type.
-    #[error("")]
-    REMOVEType, // TODO
     /// Decoding byte vector to UTF8 String failed.
     #[error("")]
     UTF8,
