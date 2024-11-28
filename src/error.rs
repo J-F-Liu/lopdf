@@ -44,13 +44,13 @@ pub enum Error {
     /// Invalid document outline.
     #[error("invalid document outline: {0}")]
     InvalidOutline(String),
+    /// IO error
+    #[error("IO error: {0}")]
+    IO(#[from] std::io::Error),
 
     /// Invalid object while parsing at offset.
     #[error("")]
     OldParse { offset: usize },
-    /// IO error
-    #[error("")]
-    IO(std::io::Error),
     /// PDF document has no Outlines.
     #[error("")]
     NoOutlines,
@@ -169,12 +169,6 @@ impl fmt::Display for XrefError {
 }
 
 impl std::error::Error for XrefError {}
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::IO(err)
-    }
-}
 
 impl From<std::string::FromUtf8Error> for Error {
     fn from(_err: std::string::FromUtf8Error) -> Self {
