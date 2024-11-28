@@ -33,10 +33,10 @@ pub fn decode_text_string(obj: &Object) -> Result<String> {
                 })
                 .collect::<Vec<u16>>(),
         )
-        .map_err(|_| Error::StringDecode)
+        .map_err(|_| Error::TextStringDecode)
     } else if s.starts_with(b"\xEF\xBB\xBF") {
         // Detected UTF-8 BOM
-        String::from_utf8(s.to_vec()).map_err(|_| Error::StringDecode)
+        String::from_utf8(s.to_vec()).map_err(|_| Error::TextStringDecode)
     } else {
         // If neither BOM is detected, PDFDocEncoding is used
         Ok(bytes_to_string(&encodings::PDF_DOC_ENCODING, s))

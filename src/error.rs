@@ -76,6 +76,9 @@ pub enum Error {
     /// This might indicate a reference loop.
     #[error("")]
     ReferenceLimit,
+    /// Decoding text string failed.
+    #[error("decoding text string failed")]
+    TextStringDecode,
 
     /// Invalid object while parsing at offset.
     #[error("")]
@@ -83,9 +86,6 @@ pub enum Error {
     /// Found Object ID does not match Expected Object ID.
     #[error("")]
     ObjectIdMismatch,
-    /// Decoding byte vector failed.
-    #[error("")]
-    StringDecode,
     /// Syntax error while parsing the file.
     #[error("")]
     Syntax(String),
