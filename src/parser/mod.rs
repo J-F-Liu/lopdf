@@ -563,11 +563,13 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
         b"DeviceCMYK" | b"CMYK" => 4,
         b"Pattern" => {
             log::warn!("Pattern colorspace is not allowed in inline images");
-            return Err(Error::DictKey);
+            return Err(Error::DictValue(String::from(
+                "Pattern colorspace is not allowed in inline images",
+            )));
         }
         _ => {
             log::warn!("Colorspace of inline image not recognized / not yet implemented");
-            return Err(Error::DictKey);
+            return Err(Error::Unimplemented("inline image colorspaces"));
         }
     };
 

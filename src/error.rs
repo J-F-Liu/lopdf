@@ -15,6 +15,8 @@ pub enum Error {
         expected: &'static str,
         found: &'static str,
     },
+    #[error("dictionary has wrong type: ")]
+    DictType { expected: &'static str, found: String },
     /// Lopdf does not (yet) implement a needed feature.
     #[error("missing feature of lopdf: {0}. Please open an issue at https://github.com/J-F-Liu/lopdf/ to let the developers know of your usecase")]
     Unimplemented(&'static str),
@@ -33,13 +35,16 @@ pub enum Error {
     /// Error when decrypting the contents of the file
     #[error("decryption error: {0}")]
     Decryption(#[from] encryption::DecryptionError),
+    /// Dictionary key was not found.
+    #[error("missing required dictionary key \"{0}\"")]
+    DictKey(String),
+    /// An unexpected dictionary value was found.
+    #[error("unexpected dictionary value \"{0}\"")]
+    DictValue(String),
 
     /// Invalid object while parsing at offset.
     #[error("")]
     OldParse { offset: usize },
-    /// Dictionary key was not found.
-    #[error("")]
-    DictKey,
     /// Invalid file header
     #[error("")]
     Header,

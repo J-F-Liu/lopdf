@@ -231,8 +231,8 @@ impl<'a> Reader<'a> {
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
-        let mut prev_xref_start = trailer.remove(b"Prev").ok_or(Error::DictKey);
-        while let Ok(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
+        let mut prev_xref_start = trailer.remove(b"Prev");
+        while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
             if already_seen.contains(&prev) {
                 break;
             }
@@ -257,7 +257,7 @@ impl<'a> Reader<'a> {
                 xref.merge(prev_xref);
             }
 
-            prev_xref_start = prev_trailer.get(b"Prev").cloned();
+            prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
         }
         let xref_entry_count = xref.max_id().checked_add(1).ok_or(Error::Xref(XrefError::Parse))?;
         if xref.size != xref_entry_count {

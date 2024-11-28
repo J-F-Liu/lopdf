@@ -401,7 +401,7 @@ impl Document {
                     vec![Object::Reference(*id)]
                 }
                 Ok(Object::Array(ref arr)) => arr.clone(),
-                Err(Error::DictKey) => vec![],
+                Err(Error::DictKey(_)) => vec![],
                 _ => vec![],
             };
             let content_object_id = self.add_object(Object::Stream(Stream::new(Dictionary::new(), content)));

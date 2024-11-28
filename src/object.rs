@@ -349,7 +349,9 @@ impl Dictionary {
     }
 
     pub fn get(&self, key: &[u8]) -> Result<&Object> {
-        self.0.get(key).ok_or(Error::DictKey)
+        self.0
+            .get(key)
+            .ok_or(Error::DictKey(String::from_utf8_lossy(key).to_string()))
     }
 
     /// Extract object from dictionary, dereferencing
@@ -359,7 +361,9 @@ impl Dictionary {
     }
 
     pub fn get_mut(&mut self, key: &[u8]) -> Result<&mut Object> {
-        self.0.get_mut(key).ok_or(Error::DictKey)
+        self.0
+            .get_mut(key)
+            .ok_or(Error::DictKey(String::from_utf8_lossy(key).to_string()))
     }
 
     pub fn set<K, V>(&mut self, key: K, value: V)
@@ -402,7 +406,10 @@ impl Dictionary {
 
     pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
         if !self.has_type(b"Font") {
-            return Err(Error::DictKey);
+            return Err(Error::DictType {
+                expected: "Font",
+                found: String::from_utf8_lossy(self.get_type().unwrap_or(b"None")).to_string(),
+            });
         }
 
         // Note: currently not all encodings are handled, not implemented:
