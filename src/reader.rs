@@ -359,7 +359,8 @@ impl<'a> Reader<'a> {
             return Err(Error::InvalidStream("negative stream length.".to_string()));
         }
 
-        let end = start + length as usize;
+        let length = usize::try_from(length).map_err(|e| Error::NumericCast(e.to_string()))?;
+        let end = start + length;
 
         if end > self.buffer.len() {
             return Err(Error::InvalidStream("stream extends after document end.".to_string()));
@@ -424,7 +425,7 @@ impl<'a> Reader<'a> {
         &self, offset: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
     ) -> Result<(ObjectId, Object)> {
         if offset > self.buffer.len() {
-            return Err(Error::Offset(offset));
+            return Err(Error::InvalidOffset(offset));
         }
 
         parser::indirect_object(

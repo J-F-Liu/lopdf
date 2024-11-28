@@ -47,6 +47,9 @@ pub enum Error {
     /// Invalid stream.
     #[error("invalid stream: {0}")]
     InvalidStream(String),
+    /// Byte offset in stream or file is invalid.
+    #[error("invalid byte offset")]
+    InvalidOffset(usize),
     /// IO error
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
@@ -63,6 +66,9 @@ pub enum Error {
     /// Dereferencing object failed due to a reference cycle.
     #[error("reference cycle with object ID {} {}", .0.0, .0.1)]
     ReferenceCycle(ObjectId),
+    /// Numeric type cast failed.
+    #[error("numberic type cast failed: {0}")]
+    NumericCast(String),
 
     /// Invalid object while parsing at offset.
     #[error("")]
@@ -70,9 +76,6 @@ pub enum Error {
     /// Found Object ID does not match Expected Object ID.
     #[error("")]
     ObjectIdMismatch,
-    /// Offset in file is invalid.
-    #[error("")]
-    Offset(usize),
     /// Page number was not found in document.
     #[error("")]
     PageNumberNotFound(u32),
