@@ -141,6 +141,6 @@ impl Document {
                 });
             }
         }
-        return Ok(toc);
+        Ok(toc)
     }
 }

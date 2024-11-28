@@ -411,7 +411,7 @@ impl<'a> Reader<'a> {
     pub fn get_object(&self, id: ObjectId, already_seen: &mut HashSet<ObjectId>) -> Result<Object> {
         if already_seen.contains(&id) {
             warn!("reference cycle detected resolving object {} {}", id.0, id.1);
-            return Err(Error::ReferenceCycle);
+            return Err(Error::ReferenceCycle(id));
         }
         already_seen.insert(id);
         let offset = self.get_offset(id)?;

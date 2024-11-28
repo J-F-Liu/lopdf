@@ -58,8 +58,11 @@ pub enum Error {
     #[error("missing xref entry")]
     MissingXrefEntry,
     /// The Object ID was not found.
-    #[error("object with ID {} {} not found", .0.0, .0.1)]
+    #[error("object ID {} {} not found", .0.0, .0.1)]
     ObjectNotFound(ObjectId),
+    /// Dereferencing object failed due to a reference cycle.
+    #[error("reference cycle with object ID {} {}", .0.0, .0.1)]
+    ReferenceCycle(ObjectId),
 
     /// Invalid object while parsing at offset.
     #[error("")]
@@ -73,9 +76,6 @@ pub enum Error {
     /// Page number was not found in document.
     #[error("")]
     PageNumberNotFound(u32),
-    /// Dereferencing object failed due to a reference cycle.
-    #[error("")]
-    ReferenceCycle,
     /// Dereferencing object reached the limit.
     /// This might indicate a reference loop.
     #[error("")]

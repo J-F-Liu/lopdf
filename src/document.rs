@@ -430,7 +430,7 @@ impl Document {
             }
             if let Ok(parent_id) = page_node.get(b"Parent").and_then(Object::as_reference) {
                 if already_seen.contains(&parent_id) {
-                    return Err(Error::ReferenceCycle);
+                    return Err(Error::ReferenceCycle(parent_id));
                 }
                 already_seen.insert(parent_id);
                 let parent_dict = doc.get_dictionary(parent_id)?;
