@@ -38,16 +38,16 @@ pub enum Error {
     /// Dictionary key was not found.
     #[error("missing required dictionary key \"{0}\"")]
     DictKey(String),
-    /// An unexpected dictionary value was found.
-    #[error("unexpected dictionary value \"{0}\"")]
-    DictValue(String),
+    /// Invalid inline image.
+    #[error("invalid inline image: {0}")]
+    InvalidInlineImage(String),
+    /// Invalid document outline.
+    #[error("invalid document outline: {0}")]
+    InvalidOutline(String),
 
     /// Invalid object while parsing at offset.
     #[error("")]
     OldParse { offset: usize },
-    /// Invalid command.
-    #[error("")]
-    Invalid(String),
     /// IO error
     #[error("")]
     IO(std::io::Error),
