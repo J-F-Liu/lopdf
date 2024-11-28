@@ -66,9 +66,16 @@ pub enum Error {
     /// Dereferencing object failed due to a reference cycle.
     #[error("reference cycle with object ID {} {}", .0.0, .0.1)]
     ReferenceCycle(ObjectId),
+    /// Page number was not found in document.
+    #[error("page number not found")]
+    PageNumberNotFound(u32),
     /// Numeric type cast failed.
     #[error("numberic type cast failed: {0}")]
     NumericCast(String),
+    /// Dereferencing object reached the limit.
+    /// This might indicate a reference loop.
+    #[error("")]
+    ReferenceLimit,
 
     /// Invalid object while parsing at offset.
     #[error("")]
@@ -76,13 +83,6 @@ pub enum Error {
     /// Found Object ID does not match Expected Object ID.
     #[error("")]
     ObjectIdMismatch,
-    /// Page number was not found in document.
-    #[error("")]
-    PageNumberNotFound(u32),
-    /// Dereferencing object reached the limit.
-    /// This might indicate a reference loop.
-    #[error("")]
-    ReferenceLimit,
     /// Decoding byte vector failed.
     #[error("")]
     StringDecode,

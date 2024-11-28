@@ -353,14 +353,14 @@ impl Document {
         let mut streams = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
             let mut nb_deref = 0;
-            // Since we're looking for object ids, we can't use get_deref
+            // Since we're looking for object IDs, we can't use get_deref
             // so manually walk any references in contents object
             if let Ok(mut contents) = page.get(b"Contents") {
                 loop {
-                    match *contents {
+                    match contents {
                         Object::Reference(id) => match self.objects.get(&id) {
                             None | Some(Object::Stream(_)) => {
-                                streams.push(id);
+                                streams.push(*id);
                             }
                             Some(o) => {
                                 nb_deref += 1;
@@ -370,7 +370,7 @@ impl Document {
                                 }
                             }
                         },
-                        Object::Array(ref arr) => {
+                        Object::Array(arr) => {
                             for content in arr {
                                 if let Ok(id) = content.as_reference() {
                                     streams.push(id)
