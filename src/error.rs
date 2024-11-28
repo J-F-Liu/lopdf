@@ -27,7 +27,7 @@ pub enum Error {
     #[error("couldn't decompress stream {0}")]
     Decompress(#[from] DecompressError),
     /// Failed to parse input.
-    #[error("couldn't parse input {0}")]
+    #[error("couldn't parse input: {0}")]
     Parse(#[from] ParseError),
     /// Failed to parse content stream.
     #[error("couldn't parse content stream")]
@@ -45,9 +45,6 @@ pub enum Error {
     /// Invalid object while parsing at offset.
     #[error("")]
     OldParse { offset: usize },
-    /// Invalid file header
-    #[error("")]
-    Header,
     /// Invalid command.
     #[error("")]
     Invalid(String),
@@ -110,6 +107,8 @@ pub enum DecompressError {
 pub enum ParseError {
     #[error("unexpected end of input")]
     EndOfInput,
+    #[error("invalid file header")]
+    InvalidFileHeader,
 }
 
 // impl fmt::Display for PDFError {

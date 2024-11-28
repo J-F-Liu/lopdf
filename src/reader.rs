@@ -19,7 +19,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "async")]
 use tokio::pin;
 
-use crate::error::XrefError;
+use crate::error::{ParseError, XrefError};
 use crate::object_stream::ObjectStream;
 use crate::parser::{self, ParserInput};
 use crate::xref::XrefEntry;
@@ -218,7 +218,8 @@ impl<'a> Reader<'a> {
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
-        let version = parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(Error::Header)?;
+        let version =
+            parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(ParseError::InvalidFileHeader)?;
 
         let xref_start = Self::get_xref_start(self.buffer)?;
         if xref_start > self.buffer.len() {
