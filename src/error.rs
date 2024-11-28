@@ -47,13 +47,14 @@ pub enum Error {
     /// IO error
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
+    // TODO: Maybe remove, as outline is not required in spec.
+    /// PDF document has no outline.
+    #[error("PDF document does not have an outline")]
+    NoOutline,
 
     /// Invalid object while parsing at offset.
     #[error("")]
     OldParse { offset: usize },
-    /// PDF document has no Outlines.
-    #[error("")]
-    NoOutlines,
     /// Found Object ID does not match Expected Object ID.
     #[error("")]
     ObjectIdMismatch,

@@ -165,19 +165,14 @@ impl Document {
         Ok(self.objects.get_mut(&ref_id.unwrap_or(id)).unwrap())
     }
 
-    /// Get page object_id of the specified object object_id
+    /// Get the object ID of the page that contains `id`.
     pub fn get_object_page(&self, id: ObjectId) -> Result<ObjectId> {
         for (_, object_id) in self.get_pages() {
             let page = self.get_object(object_id)?.as_dict()?;
             let annots = page.get(b"Annots")?.as_array()?;
             let mut objects_ids = annots.iter().map(Object::as_reference);
 
-            let contains = objects_ids.any(|object_id| {
-                if let Ok(object_id) = object_id {
-                    return id == object_id;
-                }
-                false
-            });
+            let contains = objects_ids.any(|object_id| Some(id) == object_id.ok());
             if contains {
                 return Ok(object_id);
             }
