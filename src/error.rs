@@ -30,13 +30,13 @@ pub enum Error {
     /// Failed to parse content stream.
     #[error("couldn't parse content stream")]
     ContentStream,
+    /// Error when decrypting the contents of the file
+    #[error("decryption error: {0}")]
+    Decryption(#[from] encryption::DecryptionError),
 
     /// Invalid object while parsing at offset.
     #[error("")]
     OldParse { offset: usize },
-    /// Error when decrypting the contents of the file
-    #[error("")]
-    Decryption(encryption::DecryptionError),
     /// Dictionary key was not found.
     #[error("")]
     DictKey,
@@ -194,11 +194,5 @@ impl From<UnicodeCMapError> for Error {
 impl From<image::ImageError> for Error {
     fn from(err: image::ImageError) -> Self {
         Error::Image(err)
-    }
-}
-
-impl From<encryption::DecryptionError> for Error {
-    fn from(_err: encryption::DecryptionError) -> Self {
-        Error::Decryption(_err)
     }
 }
