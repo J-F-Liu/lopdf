@@ -89,9 +89,6 @@ pub enum Error {
     /// Could not parse ToUnicodeCMap.
     #[error("")]
     ToUnicodeCMap(UnicodeCMapError),
-    /// The file trailer was invalid.
-    #[error("")]
-    Trailer,
     /// Decoding byte vector to UTF8 String failed.
     #[error("")]
     UTF8,
@@ -116,6 +113,8 @@ pub enum ParseError {
     EndOfInput,
     #[error("invalid file header")]
     InvalidFileHeader,
+    #[error("invalid file trailer")]
+    InvalidTrailer,
 }
 
 // impl fmt::Display for PDFError {

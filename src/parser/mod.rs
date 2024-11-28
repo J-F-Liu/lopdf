@@ -1,6 +1,7 @@
 #[cfg(feature = "nom_parser")]
 use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
 use crate::content::*;
+use crate::error;
 use crate::error::XrefError;
 use crate::xref::*;
 use crate::Error;
@@ -466,7 +467,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
         xref.size = trailer
             .get(b"Size")
             .and_then(Object::as_i64)
-            .map_err(|_| Error::Trailer)? as u32;
+            .map_err(|_| error::ParseError::InvalidTrailer)? as u32;
         Ok((xref, trailer))
     });
     alt((
@@ -487,7 +488,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
         }),
     ))(input)
     .map(|(_, o)| o)
-    .unwrap_or(Err(Error::Trailer))
+    .map_err(|_| error::ParseError::InvalidTrailer)?
 }
 
 pub fn xref_start(input: ParserInput) -> Option<i64> {
