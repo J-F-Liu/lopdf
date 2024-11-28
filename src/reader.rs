@@ -344,28 +344,32 @@ impl<'a> Reader<'a> {
         Ok(self.document)
     }
 
+    // TODO: maybe rename + clean up code
     fn set_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
         let length = self.get_stream_length(object_id)?;
         let stream = self
             .document
             .get_object_mut(object_id)
             .and_then(Object::as_stream_mut)?;
-        let start = stream.start_position.ok_or(Error::ObjectNotFound)?;
+        let start = stream
+            .start_position
+            .ok_or(Error::InvalidStream("missing start position".to_string()))?;
 
         if length < 0 {
-            return Err(Error::Syntax("Negative stream length.".to_string()));
+            return Err(Error::InvalidStream("negative stream length.".to_string()));
         }
 
         let end = start + length as usize;
 
         if end > self.buffer.len() {
-            return Err(Error::Syntax("Stream extends after document end.".to_string()));
+            return Err(Error::InvalidStream("stream extends after document end.".to_string()));
         }
 
         stream.set_content(self.buffer[start..end].to_vec());
         Ok(())
     }
 
+    // TODO: simplify
     fn get_stream_length(&self, object_id: ObjectId) -> Result<i64> {
         let object = self.document.get_object(object_id)?;
         let stream = object.as_stream()?;
@@ -388,18 +392,19 @@ impl<'a> Reader<'a> {
             })
     }
 
-    /// Get object offset by object id.
+    /// Get object offset by object ID.
     fn get_offset(&self, id: ObjectId) -> Result<u32> {
-        let entry = self.document.reference_table.get(id.0).ok_or(Error::ObjectNotFound)?;
+        let entry = self.document.reference_table.get(id.0).ok_or(Error::MissingXrefEntry)?;
         match *entry {
-            XrefEntry::Normal { offset, generation } => {
-                if id.1 == generation {
-                    Ok(offset)
-                } else {
-                    Err(Error::ObjectNotFound)
-                }
-            }
-            _ => Err(Error::ObjectNotFound),
+            XrefEntry::Normal { offset, generation } if generation == id.1 => Ok(offset),
+            // {
+            //     if id.1 == generation {
+            //         Ok(offset)
+            //     } else {
+            //         Err(Error::ObjectNotFound)
+            //     }
+            // }
+            _ => Err(Error::MissingXrefEntry),
         }
     }
 

@@ -133,7 +133,7 @@ impl Document {
 
         while let Ok(ref_id) = object.as_reference() {
             id = Some(ref_id);
-            object = self.objects.get(&ref_id).ok_or(Error::ObjectNotFound)?;
+            object = self.objects.get(&ref_id).ok_or(Error::ObjectNotFound(ref_id))?;
 
             nb_deref += 1;
             if nb_deref > Self::DEREF_LIMIT {
@@ -146,7 +146,7 @@ impl Document {
 
     /// Get object by object id, will iteratively dereference a referenced object.
     pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
-        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound(id))?;
         self.dereference(object).map(|(_, object)| object)
     }
 
@@ -159,7 +159,7 @@ impl Document {
 
     /// Get mutable reference to object by object ID, will iteratively dereference a referenced object.
     pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
-        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound(id))?;
         let (ref_id, _obj) = self.dereference(object)?;
 
         Ok(self.objects.get_mut(&ref_id.unwrap_or(id)).unwrap())
@@ -178,7 +178,7 @@ impl Document {
             }
         }
 
-        Err(Error::ObjectNotFound)
+        Err(Error::PageNumberNotFound(0))
     }
 
     /// Get dictionary object by id.
@@ -388,27 +388,20 @@ impl Document {
 
     /// Add content to a page. All existing content will be unchanged.
     pub fn add_page_contents(&mut self, page_id: ObjectId, content: Vec<u8>) -> Result<()> {
-        if let Ok(page) = self.get_dictionary(page_id) {
-            // Prepare new value
-            let mut current_content_list: Vec<Object> = match page.get(b"Contents") {
-                Ok(Object::Reference(ref id)) => {
-                    // Covert reference to array
-                    vec![Object::Reference(*id)]
-                }
-                Ok(Object::Array(ref arr)) => arr.clone(),
-                Err(Error::DictKey(_)) => vec![],
-                _ => vec![],
-            };
-            let content_object_id = self.add_object(Object::Stream(Stream::new(Dictionary::new(), content)));
-            current_content_list.push(Object::Reference(content_object_id));
+        let page = self.get_dictionary(page_id)?;
+        let mut current_content_list: Vec<Object> = match page.get(b"Contents") {
+            Ok(Object::Reference(id)) => {
+                vec![Object::Reference(*id)]
+            }
+            Ok(Object::Array(arr)) => arr.clone(),
+            _ => vec![],
+        };
+        let content_object_id = self.add_object(Object::Stream(Stream::new(Dictionary::new(), content)));
+        current_content_list.push(Object::Reference(content_object_id));
 
-            // Set data
-            let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
-            page_mut.set("Contents", current_content_list);
-            Ok(())
-        } else {
-            Err(Error::ObjectNotFound)
-        }
+        let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
+        page_mut.set("Contents", current_content_list);
+        Ok(())
     }
 
     /// Get content of a page.

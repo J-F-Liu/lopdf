@@ -275,8 +275,8 @@ impl Object {
     }
 
     pub fn as_stream_mut(&mut self) -> Result<&mut Stream> {
-        match *self {
-            Object::Stream(ref mut stream) => Ok(stream),
+        match self {
+            Object::Stream(stream) => Ok(stream),
             _ => Err(Error::ObjectType {
                 expected: "Stream",
                 found: self.enum_variant(),

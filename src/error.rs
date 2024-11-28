@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::encryption;
+use crate::{encryption, ObjectId};
 use std::fmt;
 
 use crate::encodings::cmap::UnicodeCMapError;
@@ -44,6 +44,9 @@ pub enum Error {
     /// Invalid document outline.
     #[error("invalid document outline: {0}")]
     InvalidOutline(String),
+    /// Invalid stream.
+    #[error("invalid stream: {0}")]
+    InvalidStream(String),
     /// IO error
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
@@ -51,6 +54,12 @@ pub enum Error {
     /// PDF document has no outline.
     #[error("PDF document does not have an outline")]
     NoOutline,
+    /// Missing xref entry.
+    #[error("missing xref entry")]
+    MissingXrefEntry,
+    /// The Object ID was not found.
+    #[error("object with ID {} {} not found", .0.0, .0.1)]
+    ObjectNotFound(ObjectId),
 
     /// Invalid object while parsing at offset.
     #[error("")]
@@ -58,9 +67,6 @@ pub enum Error {
     /// Found Object ID does not match Expected Object ID.
     #[error("")]
     ObjectIdMismatch,
-    /// The Object ID was not found.
-    #[error("")]
-    ObjectNotFound,
     /// Offset in file is invalid.
     #[error("")]
     Offset(usize),
