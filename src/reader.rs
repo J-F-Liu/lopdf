@@ -398,13 +398,6 @@ impl<'a> Reader<'a> {
         let entry = self.document.reference_table.get(id.0).ok_or(Error::MissingXrefEntry)?;
         match *entry {
             XrefEntry::Normal { offset, generation } if generation == id.1 => Ok(offset),
-            // {
-            //     if id.1 == generation {
-            //         Ok(offset)
-            //     } else {
-            //         Err(Error::ObjectNotFound)
-            //     }
-            // }
             _ => Err(Error::MissingXrefEntry),
         }
     }

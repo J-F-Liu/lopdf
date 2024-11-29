@@ -14,7 +14,7 @@ pub enum DecryptionError {
     MissingOwnerPassword,
     #[error("missing the permissions field (/P)")]
     MissingPermissions,
-    #[error("")]
+    #[error("missing the file /ID elements")]
     MissingFileID,
 
     #[error("invalid key length")]

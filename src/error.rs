@@ -79,7 +79,7 @@ pub enum Error {
     #[error("decoding text string failed")]
     TextStringDecode,
     /// Error while parsing cross reference table.
-    #[error("")]
+    #[error("failed parsing cross reference table: {0}")]
     Xref(XrefError),
     /// Invalid indirect object while parsing at offset.
     #[error("invalid indirect object at byte offset {offset}")]
