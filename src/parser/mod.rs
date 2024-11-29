@@ -394,7 +394,7 @@ fn _indirect_object<'a>(
     already_seen: &mut HashSet<ObjectId>,
 ) -> crate::Result<(ObjectId, Object)> {
     let (i, (_, object_id)) = terminated(tuple((space, object_id)), pair(tag(b"obj"), space))(input)
-        .map_err(|_| Error::OldParse { offset })?;
+        .map_err(|_| Error::IndirectObject { offset })?;
     if let Some(expected_id) = expected_id {
         if object_id != expected_id {
             return Err(crate::error::Error::ObjectIdMismatch);
@@ -406,7 +406,7 @@ fn _indirect_object<'a>(
         |i: ParserInput<'a>| object(i, reader, already_seen),
         tuple((space, opt(tag(b"endobj")), space)),
     )(i)
-    .map_err(|_| Error::OldParse { offset })?;
+    .map_err(|_| Error::IndirectObject { offset })?;
 
     offset_stream(&mut object, object_offset);
 

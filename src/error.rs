@@ -84,10 +84,10 @@ pub enum Error {
     /// Error while parsing cross reference table.
     #[error("")]
     Xref(XrefError),
+    /// Invalid indirect object while parsing at offset.
+    #[error("invalid indirect object at byte offset {offset}")]
+    IndirectObject { offset: usize },
 
-    /// Invalid object while parsing at offset.
-    #[error("")]
-    OldParse { offset: usize },
     /// Found Object ID does not match Expected Object ID.
     #[error("")]
     ObjectIdMismatch,
