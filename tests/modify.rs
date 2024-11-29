@@ -34,7 +34,7 @@ mod tests_with_parsing {
     fn modify_text() -> Result<bool> {
         let mut doc = Document::load("assets/example.pdf")?;
         doc.version = "1.4".to_string();
-        if let Some(Object::Stream(ref mut stream)) = doc.objects.get_mut(&(4, 0)) {
+        if let Some(Object::Stream(stream)) = doc.objects.get_mut(&(4, 0)) {
             let mut content = stream.decode_content().unwrap();
             content.operations[3].operands[0] = Object::string_literal("Modified text!");
             stream.set_content(content.encode().unwrap());

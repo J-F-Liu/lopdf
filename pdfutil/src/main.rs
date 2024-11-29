@@ -328,9 +328,9 @@ fn main() {
         document.adjust_zero_pages();
 
         //Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
-        if let Some(n) = document.build_outline() {
-            if let Ok(Object::Dictionary(ref mut dict)) = document.get_object_mut(catalog_id) {
-                dict.set("Outlines", Object::Reference(n));
+        if let Some(outline_id) = document.build_outline() {
+            if let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_id) {
+                dict.set("Outlines", Object::Reference(outline_id));
             }
         }
 
@@ -407,7 +407,7 @@ fn main() {
                 }
                 "print_streams" => {
                     for (_, object) in doc.objects.iter() {
-                        if let Object::Stream(ref stream) = *object {
+                        if let Object::Stream(stream) = object {
                             info!("{:?}", stream.dict);
                         }
                     }
