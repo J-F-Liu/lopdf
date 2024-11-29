@@ -260,7 +260,7 @@ impl<'a> Reader<'a> {
 
             prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
         }
-        let xref_entry_count = xref.max_id().checked_add(1).ok_or(Error::Xref(XrefError::Parse))?;
+        let xref_entry_count = xref.max_id().checked_add(1).ok_or(ParseError::InvalidXref)?;
         if xref.size != xref_entry_count {
             warn!(
                 "Size entry of trailer dictionary is {}, correct value is {}.",

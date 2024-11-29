@@ -1,9 +1,7 @@
 use thiserror::Error;
 
-use crate::{encryption, ObjectId};
-use std::fmt;
-
 use crate::encodings::cmap::UnicodeCMapError;
+use crate::{encryption, ObjectId};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -83,6 +81,9 @@ pub enum Error {
     #[cfg(feature = "embed_image")]
     #[error("image error: {0}")]
     Image(#[from] image::ImageError),
+    /// Error while parsing cross reference table.
+    #[error("")]
+    Xref(XrefError),
 
     /// Invalid object while parsing at offset.
     #[error("")]
@@ -99,9 +100,6 @@ pub enum Error {
     /// Decoding byte vector to UTF8 String failed.
     #[error("")]
     UTF8,
-    /// Error while parsing cross reference table.
-    #[error("")]
-    Xref(XrefError),
 }
 
 #[derive(Error, Debug)]
@@ -118,6 +116,8 @@ pub enum ParseError {
     InvalidFileHeader,
     #[error("invalid file trailer")]
     InvalidTrailer,
+    #[error("invalid cross reference table")]
+    InvalidXref,
 }
 
 // impl fmt::Display for PDFError {
@@ -154,30 +154,18 @@ pub enum ParseError {
 
 // impl std::error::Error for PDFError {}
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum XrefError {
-    /// Could not parse cross reference table.
-    Parse,
     /// Could not find start of cross reference table.
+    #[error("invalid start value")]
     Start,
     /// The trailer's "Prev" field was invalid.
+    #[error("invalid start value in Prev field")]
     PrevStart,
     /// The trailer's "XRefStm" field was invalid.
+    #[error("invalid start value of XRefStm")]
     StreamStart,
 }
-
-impl fmt::Display for XrefError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            XrefError::Parse => write!(f, "could not parse xref"),
-            XrefError::Start => write!(f, "invalid start value"),
-            XrefError::PrevStart => write!(f, "invalid start value in Prev field"),
-            XrefError::StreamStart => write!(f, "invalid stream start value"),
-        }
-    }
-}
-
-impl std::error::Error for XrefError {}
 
 impl From<std::string::FromUtf8Error> for Error {
     fn from(_err: std::string::FromUtf8Error) -> Self {

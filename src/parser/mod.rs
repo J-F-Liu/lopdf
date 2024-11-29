@@ -2,7 +2,6 @@
 use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
 use crate::content::*;
 use crate::error;
-use crate::error::XrefError;
 use crate::xref::*;
 use crate::Error;
 use std::collections::HashSet;
@@ -477,7 +476,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
                 .map(|(_, obj)| {
                     let res = match obj {
                         Object::Stream(stream) => decode_xref_stream(stream),
-                        _ => Err(Error::Xref(XrefError::Parse)),
+                        _ => Err(crate::error::ParseError::InvalidXref.into()),
                     };
                     (input, res)
                 })
