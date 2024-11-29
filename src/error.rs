@@ -7,6 +7,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Lopdf does not (yet) implement a needed feature.
+    #[error("missing feature of lopdf: {0}; please open an issue at https://github.com/J-F-Liu/lopdf/ to let the developers know of your usecase")]
+    Unimplemented(&'static str),
+
     /// An Object has the wrong type, e.g. the Object is an Array where a Name would be expected.
     #[error("object has wrong type; expected type {expected} but found type {found}")]
     ObjectType {
@@ -15,9 +19,6 @@ pub enum Error {
     },
     #[error("dictionary has wrong type: ")]
     DictType { expected: &'static str, found: String },
-    /// Lopdf does not (yet) implement a needed feature.
-    #[error("missing feature of lopdf: {0}. Please open an issue at https://github.com/J-F-Liu/lopdf/ to let the developers know of your usecase")]
-    Unimplemented(&'static str),
     /// The encountered character encoding is invalid.
     #[error("invalid character encoding")]
     CharacterEncoding,
@@ -72,7 +73,7 @@ pub enum Error {
     NumericCast(String),
     /// Dereferencing object reached the limit.
     /// This might indicate a reference loop.
-    #[error("")]
+    #[error("dereferencing object reached limit, may indicate a reference cycle")]
     ReferenceLimit,
     /// Decoding text string failed.
     #[error("decoding text string failed")]
@@ -90,13 +91,12 @@ pub enum Error {
     #[cfg(feature = "embed_image")]
     #[error("image error: {0}")]
     Image(#[from] image::ImageError),
-
-    /// Syntax error while parsing the file.
-    #[error("")]
+    /// Syntax error while processing the content stream.
+    #[error("syntax error in content stream: {0}")]
     Syntax(String),
     /// Could not parse ToUnicodeCMap.
-    #[error("")]
-    ToUnicodeCMap(UnicodeCMapError),
+    #[error("failed parsing ToUnicode CMap: {0}")]
+    ToUnicodeCMap(#[from] UnicodeCMapError),
 }
 
 #[derive(Error, Debug)]
@@ -130,10 +130,4 @@ pub enum XrefError {
     /// The trailer's "XRefStm" field was invalid.
     #[error("invalid start value of XRefStm")]
     StreamStart,
-}
-
-impl From<UnicodeCMapError> for Error {
-    fn from(cmap_err: UnicodeCMapError) -> Self {
-        Error::ToUnicodeCMap(cmap_err)
-    }
 }
