@@ -20,7 +20,8 @@ use std::{
 impl Content<Vec<Operation>> {
     /// Decode content operations.
     pub fn decode(data: &[u8]) -> Result<Self> {
-        parser::content(ParserInput::new_extra(data, "content operations")).ok_or(Error::ContentStream)
+        parser::content(ParserInput::new_extra(data, "content operations"))
+            .ok_or(ParseError::InvalidContentStream.into())
     }
 }
 
