@@ -79,6 +79,10 @@ pub enum Error {
     /// Decoding text string failed.
     #[error("decoding text string failed")]
     TextStringDecode,
+    /// Error when handling images.
+    #[cfg(feature = "embed_image")]
+    #[error("image error: {0}")]
+    Image(#[from] image::ImageError),
 
     /// Invalid object while parsing at offset.
     #[error("")]
@@ -98,10 +102,6 @@ pub enum Error {
     /// Error while parsing cross reference table.
     #[error("")]
     Xref(XrefError),
-    /// Error when handling images.
-    #[cfg(feature = "embed_image")]
-    #[error("")]
-    Image(image::ImageError),
 }
 
 #[derive(Error, Debug)]
@@ -194,12 +194,5 @@ impl From<std::str::Utf8Error> for Error {
 impl From<UnicodeCMapError> for Error {
     fn from(cmap_err: UnicodeCMapError) -> Self {
         Error::ToUnicodeCMap(cmap_err)
-    }
-}
-
-#[cfg(feature = "embed_image")]
-impl From<image::ImageError> for Error {
-    fn from(err: image::ImageError) -> Self {
-        Error::Image(err)
     }
 }

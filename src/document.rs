@@ -358,7 +358,7 @@ impl Document {
             if let Ok(mut contents) = page.get(b"Contents") {
                 loop {
                     match contents {
-                        Object::Reference(id) => match self.objects.get(&id) {
+                        Object::Reference(id) => match self.objects.get(id) {
                             None | Some(Object::Stream(_)) => {
                                 streams.push(*id);
                             }
