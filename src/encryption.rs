@@ -2,47 +2,36 @@ use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use md5::{Digest as _, Md5};
-use std::fmt;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum DecryptionError {
+    #[error("the /Encrypt dictionary is missing")]
     MissingEncryptDictionary,
+    #[error("missing encryption revision")]
     MissingRevision,
+    #[error("missing the owner password (/O)")]
     MissingOwnerPassword,
+    #[error("missing the permissions field (/P)")]
     MissingPermissions,
+    #[error("missing the file /ID elements")]
     MissingFileID,
 
+    #[error("invalid key length")]
     InvalidKeyLength,
+    #[error("invalid revision")]
     InvalidRevision,
     // Used generically when the object type violates the spec
+    #[error("unexpected type; document does not comply with the spec")]
     InvalidType,
 
+    #[error("the object is not capable of being decrypted")]
     NotDecryptable,
+    #[error("the supplied password is incorrect")]
     IncorrectPassword,
 
+    #[error("the document uses an encryption scheme that is not implemented in lopdf")]
     UnsupportedEncryption,
-}
-
-impl std::error::Error for DecryptionError {}
-
-impl fmt::Display for DecryptionError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            DecryptionError::MissingEncryptDictionary => write!(f, "the /Encrypt dictionary is missing"),
-            DecryptionError::MissingRevision => write!(f, "missing encryption revision"),
-            DecryptionError::MissingOwnerPassword => write!(f, "missing the owner password (/O)"),
-            DecryptionError::MissingPermissions => write!(f, "missing the permissions field (/P)"),
-            DecryptionError::InvalidKeyLength => write!(f, "unsupported key length"),
-            DecryptionError::InvalidRevision => write!(f, "unsupported revision"),
-            DecryptionError::InvalidType => write!(f, "unexpected type; document does not comply with the spec"),
-            DecryptionError::MissingFileID => write!(f, "missing the file /ID elements"),
-            DecryptionError::NotDecryptable => write!(f, "the object is not capable of being decrypted"),
-            DecryptionError::IncorrectPassword => write!(f, "the supplied password is incorrect"),
-            DecryptionError::UnsupportedEncryption => {
-                write!(f, "the document uses an encryption scheme that is not supported")
-            }
-        }
-    }
 }
 
 const PAD_BYTES: [u8; 32] = [
@@ -55,8 +44,8 @@ type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 const DEFAULT_KEY_LEN: Object = Object::Integer(40);
 const DEFAULT_ALGORITHM: Object = Object::Integer(0);
 
-/// Generates the encryption key for the document and, if `check_password` is
-///  true, verifies that the key is correct.
+/// Generates the encryption key for the document and, if `check_password`
+/// is true, verifies that the key is correct.
 pub fn get_encryption_key<P>(doc: &Document, password: P, check_password: bool) -> Result<Vec<u8>, DecryptionError>
 where
     P: AsRef<[u8]>,

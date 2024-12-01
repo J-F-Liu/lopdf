@@ -133,7 +133,7 @@ impl Document {
 
         while let Ok(ref_id) = object.as_reference() {
             id = Some(ref_id);
-            object = self.objects.get(&ref_id).ok_or(Error::ObjectNotFound)?;
+            object = self.objects.get(&ref_id).ok_or(Error::ObjectNotFound(ref_id))?;
 
             nb_deref += 1;
             if nb_deref > Self::DEREF_LIMIT {
@@ -146,7 +146,7 @@ impl Document {
 
     /// Get object by object id, will iteratively dereference a referenced object.
     pub fn get_object(&self, id: ObjectId) -> Result<&Object> {
-        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound(id))?;
         self.dereference(object).map(|(_, object)| object)
     }
 
@@ -159,31 +159,26 @@ impl Document {
 
     /// Get mutable reference to object by object ID, will iteratively dereference a referenced object.
     pub fn get_object_mut(&mut self, id: ObjectId) -> Result<&mut Object> {
-        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound)?;
+        let object = self.objects.get(&id).ok_or(Error::ObjectNotFound(id))?;
         let (ref_id, _obj) = self.dereference(object)?;
 
         Ok(self.objects.get_mut(&ref_id.unwrap_or(id)).unwrap())
     }
 
-    /// Get page object_id of the specified object object_id
+    /// Get the object ID of the page that contains `id`.
     pub fn get_object_page(&self, id: ObjectId) -> Result<ObjectId> {
         for (_, object_id) in self.get_pages() {
             let page = self.get_object(object_id)?.as_dict()?;
             let annots = page.get(b"Annots")?.as_array()?;
             let mut objects_ids = annots.iter().map(Object::as_reference);
 
-            let contains = objects_ids.any(|object_id| {
-                if let Ok(object_id) = object_id {
-                    return id == object_id;
-                }
-                false
-            });
+            let contains = objects_ids.any(|object_id| Some(id) == object_id.ok());
             if contains {
                 return Ok(object_id);
             }
         }
 
-        Err(Error::ObjectNotFound)
+        Err(Error::PageNumberNotFound(0))
     }
 
     /// Get dictionary object by id.
@@ -201,7 +196,10 @@ impl Document {
         match node.get(key)? {
             Object::Reference(object_id) => self.get_dictionary(*object_id),
             Object::Dictionary(dic) => Ok(dic),
-            _ => Err(Error::Type),
+            obj => Err(Error::ObjectType {
+                expected: "Dictionary",
+                found: obj.enum_variant(),
+            }),
         }
     }
 
@@ -287,7 +285,7 @@ impl Document {
             }
 
             // If a Metadata stream but metadata isn't encrypted, leave it alone
-            if obj.type_name().unwrap_or("") == "Metadata" && !metadata_is_encrypted {
+            if obj.type_name().ok() == Some(b"Metadata") && !metadata_is_encrypted {
                 continue;
             }
 
@@ -355,14 +353,14 @@ impl Document {
         let mut streams = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
             let mut nb_deref = 0;
-            // Since we're looking for object ids, we can't use get_deref
+            // Since we're looking for object IDs, we can't use get_deref
             // so manually walk any references in contents object
             if let Ok(mut contents) = page.get(b"Contents") {
                 loop {
-                    match *contents {
-                        Object::Reference(id) => match self.objects.get(&id) {
+                    match contents {
+                        Object::Reference(id) => match self.objects.get(id) {
                             None | Some(Object::Stream(_)) => {
-                                streams.push(id);
+                                streams.push(*id);
                             }
                             Some(o) => {
                                 nb_deref += 1;
@@ -372,7 +370,7 @@ impl Document {
                                 }
                             }
                         },
-                        Object::Array(ref arr) => {
+                        Object::Array(arr) => {
                             for content in arr {
                                 if let Ok(id) = content.as_reference() {
                                     streams.push(id)
@@ -390,27 +388,20 @@ impl Document {
 
     /// Add content to a page. All existing content will be unchanged.
     pub fn add_page_contents(&mut self, page_id: ObjectId, content: Vec<u8>) -> Result<()> {
-        if let Ok(page) = self.get_dictionary(page_id) {
-            // Prepare new value
-            let mut current_content_list: Vec<Object> = match page.get(b"Contents") {
-                Ok(Object::Reference(ref id)) => {
-                    // Covert reference to array
-                    vec![Object::Reference(*id)]
-                }
-                Ok(Object::Array(ref arr)) => arr.clone(),
-                Err(Error::DictKey) => vec![],
-                _ => vec![],
-            };
-            let content_object_id = self.add_object(Object::Stream(Stream::new(Dictionary::new(), content)));
-            current_content_list.push(Object::Reference(content_object_id));
+        let page = self.get_dictionary(page_id)?;
+        let mut current_content_list: Vec<Object> = match page.get(b"Contents") {
+            Ok(Object::Reference(id)) => {
+                vec![Object::Reference(*id)]
+            }
+            Ok(Object::Array(arr)) => arr.clone(),
+            _ => vec![],
+        };
+        let content_object_id = self.add_object(Object::Stream(Stream::new(Dictionary::new(), content)));
+        current_content_list.push(Object::Reference(content_object_id));
 
-            // Set data
-            let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
-            page_mut.set("Contents", current_content_list);
-            Ok(())
-        } else {
-            Err(Error::ObjectNotFound)
-        }
+        let page_mut = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
+        page_mut.set("Contents", current_content_list);
+        Ok(())
     }
 
     /// Get content of a page.
@@ -439,7 +430,7 @@ impl Document {
             }
             if let Ok(parent_id) = page_node.get(b"Parent").and_then(Object::as_reference) {
                 if already_seen.contains(&parent_id) {
-                    return Err(Error::ReferenceCycle);
+                    return Err(Error::ReferenceCycle(parent_id));
                 }
                 already_seen.insert(parent_id);
                 let parent_dict = doc.get_dictionary(parent_id)?;
@@ -650,12 +641,12 @@ impl Iterator for PageTreeIter<'_> {
                 self.kids = Some(new_kids);
 
                 if let Ok(kid_id) = kid.as_reference() {
-                    if let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::type_name) {
+                    if let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::get_type) {
                         match type_name {
-                            "Page" => {
+                            b"Page" => {
                                 return Some(kid_id);
                             }
-                            "Pages" => {
+                            b"Pages" => {
                                 if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT {
                                     let kids = self.kids.unwrap();
                                     if !kids.is_empty() {
@@ -687,7 +678,7 @@ impl Iterator for PageTreeIter<'_> {
             .chain(self.stack.iter().flat_map(|k| k.iter()))
             .map(|kid| {
                 if let Ok(dict) = kid.as_reference().and_then(|id| self.doc.get_dictionary(id)) {
-                    if let Ok("Pages") = dict.type_name() {
+                    if let Ok(b"Pages") = dict.get_type() {
                         let count = dict.get_deref(b"Count", self.doc).and_then(Object::as_i64).unwrap_or(0);
                         // Don't let page count go backwards in case of an invalid document.
                         max(0, count) as usize

@@ -1,6 +1,7 @@
 use crate::encodings;
 use crate::encodings::cmap::ToUnicodeCMap;
 use crate::encodings::Encoding;
+use crate::error::DecompressError;
 use crate::{Document, Error, Result};
 use indexmap::IndexMap;
 use log::warn;
@@ -143,147 +144,197 @@ impl Object {
     pub fn as_bool(&self) -> Result<bool> {
         match *self {
             Object::Boolean(ref value) => Ok(*value),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Boolean",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_i64(&self) -> Result<i64> {
         match *self {
             Object::Integer(ref value) => Ok(*value),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Integer",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_f32(&self) -> Result<f32> {
-        match *self {
-            Object::Real(ref value) => Ok(*value),
-            _ => Err(Error::Type),
+        match self {
+            Object::Real(value) => Ok(*value),
+            _ => Err(Error::ObjectType {
+                expected: "Real",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     /// Get the object value as a float.
-    /// Unlike as_f64() this will also cast an Integer to a Real.
+    /// Unlike [`Object::as_f32`] this will also cast an Integer to a Real.
     pub fn as_float(&self) -> Result<f32> {
-        match *self {
-            Object::Integer(ref value) => Ok(*value as f32),
-            Object::Real(ref value) => Ok(*value),
-            _ => Err(Error::Type),
+        match self {
+            Object::Integer(value) => Ok(*value as f32),
+            Object::Real(value) => Ok(*value),
+            _ => Err(Error::ObjectType {
+                expected: "Integer or Real",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_name(&self) -> Result<&[u8]> {
         match *self {
             Object::Name(ref name) => Ok(name),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Name",
+                found: self.enum_variant(),
+            }),
         }
-    }
-
-    pub fn as_name_str(&self) -> Result<&str> {
-        Ok(str::from_utf8(self.as_name()?)?)
     }
 
     pub fn as_str(&self) -> Result<&[u8]> {
         match self {
             Object::String(string, _) => Ok(string),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "String",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_str_mut(&mut self) -> Result<&mut Vec<u8>> {
         match self {
             Object::String(string, _) => Ok(string),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "String",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_reference(&self) -> Result<ObjectId> {
         match *self {
             Object::Reference(ref id) => Ok(*id),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Reference",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_array(&self) -> Result<&Vec<Object>> {
         match *self {
             Object::Array(ref arr) => Ok(arr),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Array",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_array_mut(&mut self) -> Result<&mut Vec<Object>> {
         match *self {
             Object::Array(ref mut arr) => Ok(arr),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Array",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_dict(&self) -> Result<&Dictionary> {
         match *self {
             Object::Dictionary(ref dict) => Ok(dict),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Dictionary",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_dict_mut(&mut self) -> Result<&mut Dictionary> {
         match *self {
             Object::Dictionary(ref mut dict) => Ok(dict),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Dictionary",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_stream(&self) -> Result<&Stream> {
         match *self {
             Object::Stream(ref stream) => Ok(stream),
-            _ => Err(Error::Type),
+            _ => Err(Error::ObjectType {
+                expected: "Stream",
+                found: self.enum_variant(),
+            }),
         }
     }
 
     pub fn as_stream_mut(&mut self) -> Result<&mut Stream> {
-        match *self {
-            Object::Stream(ref mut stream) => Ok(stream),
-            _ => Err(Error::Type),
+        match self {
+            Object::Stream(stream) => Ok(stream),
+            _ => Err(Error::ObjectType {
+                expected: "Stream",
+                found: self.enum_variant(),
+            }),
         }
     }
 
-    pub fn type_name(&self) -> Result<&str> {
-        match *self {
-            Object::Dictionary(ref dict) => dict.type_name(),
-            Object::Stream(ref stream) => stream.dict.type_name(),
-            _ => Err(Error::Type),
+    // TODO: maybe remove
+    pub fn type_name(&self) -> Result<&[u8]> {
+        match self {
+            Object::Dictionary(dict) => dict.get_type(),
+            Object::Stream(stream) => stream.dict.get_type(),
+            obj => Err(Error::ObjectType {
+                expected: "Dictionary or Stream",
+                found: obj.enum_variant(),
+            }),
+        }
+    }
+
+    pub fn enum_variant(&self) -> &'static str {
+        match self {
+            Object::Null => "Null",
+            Object::Boolean(_) => "Boolean",
+            Object::Integer(_) => "Integer",
+            Object::Real(_) => "Real",
+            Object::Name(_) => "Name",
+            Object::String(_, _) => "String",
+            Object::Array(_) => "Array",
+            Object::Dictionary(_) => "Dictionary",
+            Object::Stream(_) => "Stream",
+            Object::Reference(_) => "Reference",
         }
     }
 }
 
 impl fmt::Debug for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Object::Null => f.write_str("null"),
-            Object::Boolean(ref value) => {
-                if *value {
-                    f.write_str("true")
-                } else {
-                    f.write_str("false")
-                }
-            }
-            Object::Integer(ref value) => write!(f, "{}", *value),
-            Object::Real(ref value) => write!(f, "{}", *value),
-            Object::Name(ref name) => write!(f, "/{}", String::from_utf8_lossy(name)),
-            Object::String(ref text, StringFormat::Literal) => write!(f, "({})", String::from_utf8_lossy(text)),
-            Object::String(ref text, StringFormat::Hexadecimal) => {
+        match self {
+            Object::Null => write!(f, "Null"),
+            Object::Boolean(value) => write!(f, "{}", value),
+            Object::Integer(value) => write!(f, "{}", value),
+            Object::Real(value) => write!(f, "{}", value),
+            Object::Name(name) => write!(f, "/{}", String::from_utf8_lossy(name)),
+            Object::String(text, StringFormat::Literal) => write!(f, "({})", String::from_utf8_lossy(text)),
+            Object::String(text, StringFormat::Hexadecimal) => {
                 write!(f, "<")?;
                 for b in text {
                     write!(f, "{:02x}", b)?;
                 }
-                write!(f, ">")?;
-                Ok(())
+                write!(f, ">")
             }
-            Object::Array(ref array) => {
+            Object::Array(array) => {
                 let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
                 write!(f, "[{}]", items.join(" "))
             }
-            Object::Dictionary(ref dict) => write!(f, "{:?}", dict),
-            Object::Stream(ref stream) => write!(f, "{:?}stream...endstream", stream.dict),
-            Object::Reference(ref id) => write!(f, "{} {} R", id.0, id.1),
+            Object::Dictionary(dict) => write!(f, "{:?}", dict),
+            Object::Stream(stream) => write!(f, "{:?}stream...endstream", stream.dict),
+            Object::Reference(id) => write!(f, "{} {} R", id.0, id.1),
         }
     }
 }
@@ -298,17 +349,21 @@ impl Dictionary {
     }
 
     pub fn get(&self, key: &[u8]) -> Result<&Object> {
-        self.0.get(key).ok_or(Error::DictKey)
+        self.0
+            .get(key)
+            .ok_or(Error::DictKey(String::from_utf8_lossy(key).to_string()))
     }
 
-    /// Extract object from dictionary, dereferencing the object if it
-    /// is a reference.
+    /// Extract object from dictionary, dereferencing
+    /// the object if it is a reference.
     pub fn get_deref<'a>(&'a self, key: &[u8], doc: &'a Document) -> Result<&'a Object> {
         doc.dereference(self.get(key)?).map(|(_, object)| object)
     }
 
     pub fn get_mut(&mut self, key: &[u8]) -> Result<&mut Object> {
-        self.0.get_mut(key).ok_or(Error::DictKey)
+        self.0
+            .get_mut(key)
+            .ok_or(Error::DictKey(String::from_utf8_lossy(key).to_string()))
     }
 
     pub fn set<K, V>(&mut self, key: K, value: V)
@@ -331,14 +386,14 @@ impl Dictionary {
         self.0.swap_remove(key)
     }
 
-    pub fn type_name(&self) -> Result<&str> {
-        self.get(b"Type")
-            .and_then(Object::as_name_str)
-            .or_else(|_| self.get(b"Linearized").and(Ok("Linearized")))
+    pub fn has_type(&self, type_name: &[u8]) -> bool {
+        self.get(b"Type").and_then(|s| s.as_name()).ok() == Some(type_name)
     }
 
-    pub fn type_is(&self, type_name: &[u8]) -> bool {
-        self.get(b"Type").and_then(Object::as_name).ok() == Some(type_name)
+    pub fn get_type(&self) -> Result<&[u8]> {
+        self.get(b"Type")
+            .and_then(Object::as_name)
+            .or_else(|_| self.get(b"Linearized").and(Ok(b"Linearized")))
     }
 
     pub fn iter(&self) -> indexmap::map::Iter<Vec<u8>, Object> {
@@ -350,8 +405,11 @@ impl Dictionary {
     }
 
     pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
-        if !self.type_is(b"Font") {
-            return Err(Error::DictKey);
+        if !self.has_type(b"Font") {
+            return Err(Error::DictType {
+                expected: "Font",
+                found: String::from_utf8_lossy(self.get_type().unwrap_or(b"None")).to_string(),
+            });
         }
 
         // Note: currently not all encodings are handled, not implemented:
@@ -360,16 +418,16 @@ impl Dictionary {
         // - TrueType cmap tables
         // - DescendantFonts in CID-Keyed fonts
         // - predefined CJK CMAP other than indicated in SimpleEncoding
-        match self.get(b"Encoding").and_then(Object::as_name_str) {
-            Ok("StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
-            Ok("MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
-            Ok("MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
-            Ok("WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
-            Ok("PDFDocEncoding") => {
+        match self.get(b"Encoding").and_then(Object::as_name) {
+            Ok(b"StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            Ok(b"MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
+            Ok(b"MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
+            Ok(b"WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
+            Ok(b"PDFDocEncoding") => {
                 log::warn!("PDFDocEncoding is not a valid character encoding for a font");
                 Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING))
             }
-            Ok("Identity-H") | Ok("Identity-V") => {
+            Ok(b"Identity-H") | Ok(b"Identity-V") => {
                 let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
                 self.get_encoding_from_to_unicode_cmap(stream)
             }
@@ -425,23 +483,19 @@ impl Dictionary {
                     (Object::Dictionary(old_dict), Object::Dictionary(dict)) => {
                         let mut replaced_dict = old_dict.to_owned();
                         replaced_dict.extend(dict);
-
                         new_dict.insert(key.to_owned(), Object::Dictionary(replaced_dict));
                     }
                     (Object::Array(old_array), Object::Array(array)) => {
                         let mut replaced_array = old_array.to_owned();
                         replaced_array.extend(array.to_owned());
-
                         new_dict.insert(key.to_owned(), Object::Array(replaced_array));
                     }
                     (Object::Integer(old_id), Object::Integer(id)) => {
                         let array = vec![Object::Integer(*old_id), Object::Integer(*id)];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::Real(old_id), Object::Real(id)) => {
                         let array = vec![Object::Real(*old_id), Object::Real(*id)];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::String(old_ids, old_format), Object::String(ids, format)) => {
@@ -449,12 +503,10 @@ impl Dictionary {
                             Object::String(old_ids.to_owned(), old_format.to_owned()),
                             Object::String(ids.to_owned(), format.to_owned()),
                         ];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::Reference(old_object_id), Object::Reference(object_id)) => {
                         let array = vec![Object::Reference(*old_object_id), Object::Reference(*object_id)];
-
                         new_dict.insert(key.to_owned(), Object::Array(array));
                     }
                     (Object::Null, _) | (Object::Boolean(_), _) | (Object::Name(_), _) | (Object::Stream(_), _) => {
@@ -574,28 +626,18 @@ impl Stream {
         self
     }
 
-    // Return first filter
-    pub fn filter(&self) -> Result<String> {
-        self.filters()
-            .and_then(|f| f.into_iter().next().ok_or(Error::ObjectNotFound))
-    }
-
-    pub fn filters(&self) -> Result<Vec<String>> {
+    pub fn filters(&self) -> Result<Vec<&[u8]>> {
         let filter = self.dict.get(b"Filter")?;
 
-        if let Ok(name) = filter.as_name_str() {
-            Ok(vec![name.into()])
+        if let Ok(name) = filter.as_name() {
+            Ok(vec![name])
         } else if let Ok(names) = filter.as_array() {
-            // It is an error if a single conversion fails.
-            names
-                .iter()
-                .map(|n| match Object::as_name_str(n) {
-                    Ok(n) => Ok(String::from(n)),
-                    Err(_) => Err(Error::Type),
-                })
-                .collect()
+            names.iter().map(Object::as_name).collect()
         } else {
-            Err(Error::Type)
+            Err(Error::ObjectType {
+                expected: "Name or Array",
+                found: filter.enum_variant(),
+            })
         }
     }
 
@@ -639,20 +681,16 @@ impl Stream {
         let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict).ok();
         let filters = self.filters()?;
 
-        if self.dict.get(b"Subtype").and_then(Object::as_name_str).ok() == Some("Image") {
-            return Err(Error::Type);
-        }
-
         let mut input = self.content.as_slice();
         let mut output = vec![];
 
         // Filters are in decoding order.
         for filter in filters {
-            output = match filter.as_str() {
-                "FlateDecode" => Self::decompress_zlib(input, params)?,
-                "LZWDecode" => Self::decompress_lzw(input, params)?,
-                "ASCII85Decode" => Self::decode_ascii85(input)?,
-                _ => return Err(Error::Type),
+            output = match filter {
+                b"FlateDecode" => Self::decompress_zlib(input, params)?,
+                b"LZWDecode" => Self::decompress_lzw(input, params)?,
+                b"ASCII85Decode" => Self::decode_ascii85(input)?,
+                _ => return Err(Error::Unimplemented("decompression algorithms")),
             };
             input = &output;
         }
@@ -720,8 +758,7 @@ impl Stream {
         for &ch in input_no_eod {
             if ch == b'z' {
                 if count != 0 {
-                    // z character is not allowed in middle of a group
-                    return Err(Error::ContentDecode);
+                    return Err(DecompressError::Ascii85("z character is not allowed in the middle of a group").into());
                 }
                 output.extend_from_slice(&[0, 0, 0, 0]);
                 continue;
@@ -734,7 +771,9 @@ impl Stream {
             if !(b'!'..=b'u').contains(&ch) {
                 break;
             }
-            buffer = buffer.checked_mul(85).ok_or(Error::ContentDecode)?;
+            buffer = buffer
+                .checked_mul(85)
+                .ok_or(DecompressError::Ascii85("multiplication overflow"))?;
             buffer += (ch - b'!') as u32;
             count += 1;
 
@@ -747,7 +786,9 @@ impl Stream {
 
         if count > 0 {
             for _ in count..5 {
-                buffer = buffer.checked_mul(85).ok_or(Error::ContentDecode)?;
+                buffer = buffer
+                    .checked_mul(85)
+                    .ok_or(DecompressError::Ascii85("multiplication overflow"))?;
                 buffer += 84;
             }
 
@@ -791,7 +832,7 @@ impl Stream {
 
 #[cfg(test)]
 mod test {
-    use crate::Error;
+    use crate::{error::DecompressError, Error};
 
     use super::Stream;
 
@@ -813,6 +854,6 @@ mod test {
         let input = b"uuuuu~>";
         let output = Stream::decode_ascii85(input);
         // let expected: Result<Vec<u8>, Error> = Err(Error::ContentDecode);
-        assert!(matches!(output, Err(Error::ContentDecode)));
+        assert!(matches!(output, Err(Error::Decompress(DecompressError::Ascii85(_)))));
     }
 }

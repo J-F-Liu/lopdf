@@ -94,51 +94,53 @@ impl Document {
             errors: Vec::new(),
         };
         let mut named_destinations = IndexMap::new();
-        if let Some(outlines) = self.get_outlines(None, None, &mut named_destinations)? {
-            let mut outline_page_ids = IndexMap::new();
-            setup_outline_page_ids(&outlines, &mut outline_page_ids, 1)?;
-            let page_id_to_page_numbers = self.setup_page_id_to_num();
-            for (title, (page_id, _page_idx, level)) in outline_page_ids {
-                if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
-                    let s;
-                    if title.len() < 2 {
-                        s = String::from_utf8_lossy(&title).to_string();
-                    } else if title[0] == 0xfe && title[1] == 0xff {
-                        if title.len() & 1 != 0 {
-                            toc.errors
-                                .push(format!("Title encoded UTF16_BE {title:?} has invalid length!"));
-                            continue;
-                        }
-                        let t16: Vec<u16> = title
-                            .chunks(2)
-                            .skip(1)
-                            .map(|x| (x[0] as u16) << 8 | x[1] as u16)
-                            .collect();
-                        s = String::from_utf16_lossy(&t16);
-                    } else if title[0] == 0xff && title[1] == 0xfe {
-                        if title.len() & 1 != 0 {
-                            toc.errors
-                                .push(format!("Title encoded UTF16_LE {title:?} has invalid length!"));
-                            continue;
-                        }
-                        let t16: Vec<u16> = title
-                            .chunks(2)
-                            .skip(1)
-                            .map(|x| (x[1] as u16) << 8 | x[0] as u16)
-                            .collect();
-                        s = String::from_utf16_lossy(&t16);
-                    } else {
-                        s = String::from_utf8_lossy(&title).to_string();
+
+        let Some(outlines) = self.get_outlines(None, None, &mut named_destinations)? else {
+            return Err(Error::NoOutline);
+        };
+
+        let mut outline_page_ids = IndexMap::new();
+        setup_outline_page_ids(&outlines, &mut outline_page_ids, 1)?;
+        let page_id_to_page_numbers = self.setup_page_id_to_num();
+        for (title, (page_id, _page_idx, level)) in outline_page_ids {
+            if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
+                let s;
+                if title.len() < 2 {
+                    s = String::from_utf8_lossy(&title).to_string();
+                } else if title[0] == 0xfe && title[1] == 0xff {
+                    if title.len() & 1 != 0 {
+                        toc.errors
+                            .push(format!("Title encoded UTF16_BE {title:?} has invalid length!"));
+                        continue;
                     }
-                    toc.toc.push(TocType {
-                        level,
-                        title: s,
-                        page: *page_num as usize,
-                    });
+                    let t16: Vec<u16> = title
+                        .chunks(2)
+                        .skip(1)
+                        .map(|x| (x[0] as u16) << 8 | x[1] as u16)
+                        .collect();
+                    s = String::from_utf16_lossy(&t16);
+                } else if title[0] == 0xff && title[1] == 0xfe {
+                    if title.len() & 1 != 0 {
+                        toc.errors
+                            .push(format!("Title encoded UTF16_LE {title:?} has invalid length!"));
+                        continue;
+                    }
+                    let t16: Vec<u16> = title
+                        .chunks(2)
+                        .skip(1)
+                        .map(|x| (x[1] as u16) << 8 | x[0] as u16)
+                        .collect();
+                    s = String::from_utf16_lossy(&t16);
+                } else {
+                    s = String::from_utf8_lossy(&title).to_string();
                 }
+                toc.toc.push(TocType {
+                    level,
+                    title: s,
+                    page: *page_num as usize,
+                });
             }
-            return Ok(toc);
         }
-        Err(Error::NoOutlines)
+        Ok(toc)
     }
 }

@@ -34,7 +34,7 @@ impl Document {
         for (&(id, generation), object) in &self.objects {
             if object
                 .type_name()
-                .map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name))
+                .map(|name| [b"ObjStm".as_slice(), b"XRef".as_slice(), b"Linearized".as_slice()].contains(&name))
                 .ok()
                 != Some(true)
             {
@@ -164,7 +164,7 @@ impl IncrementalDocument {
         for (&(id, generation), object) in &self.new_document.objects {
             if object
                 .type_name()
-                .map(|name| ["ObjStm", "XRef", "Linearized"].contains(&name))
+                .map(|name| [b"ObjStm".as_slice(), b"XRef".as_slice(), b"Linearized".as_slice()].contains(&name))
                 .ok()
                 != Some(true)
             {

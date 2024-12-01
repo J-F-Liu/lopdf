@@ -1,7 +1,7 @@
 #[cfg(feature = "nom_parser")]
 use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
 use crate::content::*;
-use crate::error::XrefError;
+use crate::error;
 use crate::xref::*;
 use crate::Error;
 use std::collections::HashSet;
@@ -393,8 +393,8 @@ fn _indirect_object<'a>(
     input: ParserInput<'a>, offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
     already_seen: &mut HashSet<ObjectId>,
 ) -> crate::Result<(ObjectId, Object)> {
-    let (i, (_, object_id)) =
-        terminated(tuple((space, object_id)), pair(tag(b"obj"), space))(input).map_err(|_| Error::Parse { offset })?;
+    let (i, (_, object_id)) = terminated(tuple((space, object_id)), pair(tag(b"obj"), space))(input)
+        .map_err(|_| Error::IndirectObject { offset })?;
     if let Some(expected_id) = expected_id {
         if object_id != expected_id {
             return Err(crate::error::Error::ObjectIdMismatch);
@@ -406,7 +406,7 @@ fn _indirect_object<'a>(
         |i: ParserInput<'a>| object(i, reader, already_seen),
         tuple((space, opt(tag(b"endobj")), space)),
     )(i)
-    .map_err(|_| Error::Parse { offset })?;
+    .map_err(|_| Error::IndirectObject { offset })?;
 
     offset_stream(&mut object, object_offset);
 
@@ -466,7 +466,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
         xref.size = trailer
             .get(b"Size")
             .and_then(Object::as_i64)
-            .map_err(|_| Error::Trailer)? as u32;
+            .map_err(|_| error::ParseError::InvalidTrailer)? as u32;
         Ok((xref, trailer))
     });
     alt((
@@ -476,7 +476,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
                 .map(|(_, obj)| {
                     let res = match obj {
                         Object::Stream(stream) => decode_xref_stream(stream),
-                        _ => Err(Error::Xref(XrefError::Parse)),
+                        _ => Err(crate::error::ParseError::InvalidXref.into()),
                     };
                     (input, res)
                 })
@@ -487,7 +487,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
         }),
     ))(input)
     .map(|(_, o)| o)
-    .unwrap_or(Err(Error::Trailer))
+    .map_err(|_| error::ParseError::InvalidTrailer)?
 }
 
 pub fn xref_start(input: ParserInput) -> Option<i64> {
@@ -563,11 +563,13 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
         b"DeviceCMYK" | b"CMYK" => 4,
         b"Pattern" => {
             log::warn!("Pattern colorspace is not allowed in inline images");
-            return Err(Error::DictKey);
+            return Err(Error::InvalidInlineImage(String::from(
+                "Pattern colorspace is not allowed in inline images",
+            )));
         }
         _ => {
             log::warn!("Colorspace of inline image not recognized / not yet implemented");
-            return Err(Error::DictKey);
+            return Err(Error::Unimplemented("inline image colorspaces"));
         }
     };
 
@@ -576,20 +578,23 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
 
     let (input, content) = match get_abbr(b"F", b"Filter") {
         Err(_) => {
-            // no decompression needed
-            take(length)(input).map_err(|_: nom::Err<()>| Error::ContentDecode)?
+            // no decompression needed as no filter was applied
+            take(length)(input).map_err(|_: nom::Err<()>| crate::error::ParseError::EndOfInput)?
         }
         Ok(Object::Name(_filter)) => {
             log::warn!("Filters for inline images are not yet implemented");
-            return Err(Error::ContentDecode);
+            return Err(Error::Unimplemented("filters for inline images"));
         }
         Ok(Object::Array(_filters)) => {
             log::warn!("Filters for inline images are not yet implemented");
-            return Err(Error::ContentDecode);
+            return Err(Error::Unimplemented("filters for inline images"));
         }
-        Ok(_) => {
+        Ok(obj) => {
             log::warn!("Filter must be either a Name or and Array.");
-            return Err(Error::DictKey);
+            return Err(Error::ObjectType {
+                expected: "Name or Array",
+                found: obj.enum_variant(),
+            });
         }
     };
     Ok((input, Stream::new(stream_dict, content.to_vec())))

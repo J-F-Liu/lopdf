@@ -171,8 +171,8 @@ fn main() {
     for (object_id, object) in documents_objects.into_iter() {
         // We have to ignore "Page" (as are processed later), "Outlines" and "Outline" objects
         // All other objects should be collected and inserted into the main Document
-        match object.type_name().unwrap_or("") {
-            "Catalog" => {
+        match object.type_name().unwrap_or(b"") {
+            b"Catalog" => {
                 // Collect a first "Catalog" object and use it for the future "Pages"
                 catalog_object = Some((
                     if let Some((id, _)) = catalog_object {
@@ -183,7 +183,7 @@ fn main() {
                     object,
                 ));
             }
-            "Pages" => {
+            b"Pages" => {
                 // Collect and update a first "Pages" object and use it for the future "Catalog"
                 // We have also to merge all dictionaries of the old and the new "Pages" object
                 if let Ok(dictionary) = object.as_dict() {
@@ -204,9 +204,9 @@ fn main() {
                     ));
                 }
             }
-            "Page" => {}     // Ignored, processed later and separately
-            "Outlines" => {} // Ignored, not supported yet
-            "Outline" => {}  // Ignored, not supported yet
+            b"Page" => {}     // Ignored, processed later and separately
+            b"Outlines" => {} // Ignored, not supported yet
+            b"Outline" => {}  // Ignored, not supported yet
             _ => {
                 document.objects.insert(object_id, object);
             }

@@ -5,7 +5,7 @@ use crate::{
     content::{Content, Operation},
     document::Document,
     encodings::Encoding,
-    error::XrefError,
+    error::ParseError,
     object::Object::Name,
     parser::ParserInput,
     xref::{Xref, XrefEntry, XrefType},
@@ -20,7 +20,8 @@ use std::{
 impl Content<Vec<Operation>> {
     /// Decode content operations.
     pub fn decode(data: &[u8]) -> Result<Self> {
-        parser::content(ParserInput::new_extra(data, "content operations")).ok_or(Error::ContentDecode)
+        parser::content(ParserInput::new_extra(data, "content operations"))
+            .ok_or(ParseError::InvalidContentStream.into())
     }
 }
 
@@ -264,7 +265,7 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
     let size = dict
         .get(b"Size")
         .and_then(Object::as_i64)
-        .map_err(|_| Error::Xref(XrefError::Parse))?;
+        .map_err(|_| ParseError::InvalidXref)?;
     let mut xref = Xref::new(size as u32, XrefType::CrossReferenceStream);
     {
         let section_indice = dict
@@ -274,14 +275,14 @@ pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
         let field_widths = dict
             .get(b"W")
             .and_then(parse_integer_array)
-            .map_err(|_| Error::Xref(XrefError::Parse))?;
+            .map_err(|_| ParseError::InvalidXref)?;
 
         if field_widths.len() < 3
             || field_widths[0].is_negative()
             || field_widths[1].is_negative()
             || field_widths[2].is_negative()
         {
-            return Err(Error::Xref(XrefError::Parse));
+            return Err(ParseError::InvalidXref.into());
         }
 
         let mut bytes1 = vec![0_u8; field_widths[0] as usize];

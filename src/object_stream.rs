@@ -2,6 +2,7 @@
 use crate::parser::{self, ParserInput};
 use crate::{Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
+use std::num::TryFromIntError;
 use std::str::FromStr;
 
 use log::warn;
@@ -28,10 +29,13 @@ impl ObjectStream {
             .get(b"First")
             .and_then(Object::as_i64)?
             .try_into()
-            .map_err(|_| Error::Offset(0))?;
-        let index_block = stream.content.get(..first_offset).ok_or(Error::Offset(first_offset))?;
+            .map_err(|e: TryFromIntError| Error::NumericCast(e.to_string()))?;
+        let index_block = stream
+            .content
+            .get(..first_offset)
+            .ok_or(Error::InvalidOffset(first_offset))?;
 
-        let numbers_str = std::str::from_utf8(index_block)?;
+        let numbers_str = std::str::from_utf8(index_block).map_err(|e| Error::InvalidObjectStream(e.to_string()))?;
         let numbers: Vec<_> = numbers_str
             .split_whitespace()
             .map(|number| u32::from_str(number).ok())

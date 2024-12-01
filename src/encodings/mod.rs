@@ -15,7 +15,7 @@ pub fn bytes_to_string(encoding: &CodedCharacterSet, bytes: &[u8]) -> String {
         .iter()
         .filter_map(|&byte| encoding[byte as usize])
         .collect::<Vec<u16>>();
-    String::from_utf16_lossy(&code_points)
+    String::from_utf16(&code_points).expect("decoded string should only contain valid UTF16")
 }
 
 pub fn string_to_bytes(encoding: &CodedCharacterSet, text: &str) -> Vec<u8> {
@@ -27,7 +27,7 @@ pub fn string_to_bytes(encoding: &CodedCharacterSet, text: &str) -> Vec<u8> {
 
 pub enum Encoding<'a> {
     OneByteEncoding(&'a CodedCharacterSet),
-    SimpleEncoding(&'a str),
+    SimpleEncoding(&'a [u8]),
     UnicodeMapEncoding(ToUnicodeCMap),
 }
 
@@ -46,7 +46,7 @@ impl<'a> Encoding<'a> {
     pub fn bytes_to_string(&self, bytes: &[u8]) -> Result<String> {
         match self {
             Self::OneByteEncoding(map) => Ok(bytes_to_string(map, bytes)),
-            Self::SimpleEncoding(name) if ["UniGB-UCS2-H", "UniGB−UTF16−H"].contains(name) => {
+            Self::SimpleEncoding(b"UniGB-UCS2-H") | Self::SimpleEncoding(b"UniGB-UTF16-H") => {
                 Ok(UTF_16BE.decode(bytes).0.to_string())
             }
             Self::UnicodeMapEncoding(unicode_map) => {
@@ -81,14 +81,14 @@ impl<'a> Encoding<'a> {
                     .collect();
                 Ok(UTF_16BE.decode(&utf16_str).0.to_string())
             }
-            Self::SimpleEncoding(_) => Err(Error::ContentDecode),
+            Self::SimpleEncoding(_) => Err(Error::CharacterEncoding),
         }
     }
 
     pub fn string_to_bytes(&self, text: &str) -> Vec<u8> {
         match self {
             Self::OneByteEncoding(map) => string_to_bytes(map, text),
-            Self::SimpleEncoding(name) if ["UniGB-UCS2-H", "UniGB-UTF16-H"].contains(name) => encode_utf16_be(text),
+            Self::SimpleEncoding(b"UniGB-UCS2-H") | Self::SimpleEncoding(b"UniGB-UTF16-H") => encode_utf16_be(text),
             Self::UnicodeMapEncoding(_unicode_map) => {
                 // maybe only possible if the unicode map is an identity?
                 unimplemented!()

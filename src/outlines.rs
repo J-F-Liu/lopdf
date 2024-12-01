@@ -17,9 +17,9 @@ impl Document {
                 return self.build_outline_result(node.get(b"Dest")?, node.get(b"Title")?, named_destinations);
             }
         };
-        let command = action.get(b"S")?.as_name_str()?;
-        if command != "GoTo" && command != "GoToR" {
-            return Err(Error::Invalid("Expected GoTo or GoToR".to_string()));
+        let command = action.get(b"S")?.as_name()?;
+        if command != b"GoTo" && command != b"GoToR" {
+            return Err(Error::InvalidOutline("Expected GoTo or GoToR".to_string()));
         }
         let title_obj = node.get(b"Title")?;
         let title_ref = match title_obj.as_reference() {
@@ -112,7 +112,7 @@ impl Document {
             Object::Reference(object_id) => {
                 return self.build_outline_result(self.get_object(*object_id)?, title, named_destinations);
             }
-            _ => return Err(Error::Invalid(format!("Unexpected destination {:?}", dest))),
+            _ => return Err(Error::InvalidOutline(format!("Unexpected destination {:?}", dest))),
         }));
     }
 }

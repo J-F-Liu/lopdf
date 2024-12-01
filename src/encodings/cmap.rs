@@ -4,7 +4,7 @@ use crate::parser::ParserInput;
 
 use log::error;
 use rangemap::RangeInclusiveMap;
-use std::fmt;
+use thiserror::Error;
 
 /// Unicode Cmap is implemented by 4 maps.
 /// Each map contains a mappings from source codes to unicode values for a different length of codes.
@@ -16,21 +16,14 @@ pub struct ToUnicodeCMap {
     bf_ranges: [RangeInclusiveMap<SourceCode, BfRangeTarget>; 4],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum UnicodeCMapError {
+    #[error("could not parse ToUnicode CMap: {0:#?}")]
     Parse(CMapParseError),
+    #[error("invalid code range")]
     InvalidCodeRange,
 }
 
-impl fmt::Display for UnicodeCMapError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use UnicodeCMapError::*;
-        match self {
-            Parse(cmap_parse_error) => write!(f, "Could not parse ToUnicodeCMap: {:#?}!", cmap_parse_error),
-            InvalidCodeRange => write!(f, "Invalid code range given!"),
-        }
-    }
-}
 impl From<CMapParseError> for UnicodeCMapError {
     fn from(err: CMapParseError) -> Self {
         UnicodeCMapError::Parse(err)

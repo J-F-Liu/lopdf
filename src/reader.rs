@@ -19,7 +19,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "async")]
 use tokio::pin;
 
-use crate::error::XrefError;
+use crate::error::{ParseError, XrefError};
 use crate::object_stream::ObjectStream;
 use crate::parser::{self, ParserInput};
 use crate::xref::XrefEntry;
@@ -218,7 +218,8 @@ impl<'a> Reader<'a> {
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
-        let version = parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(Error::Header)?;
+        let version =
+            parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(ParseError::InvalidFileHeader)?;
 
         let xref_start = Self::get_xref_start(self.buffer)?;
         if xref_start > self.buffer.len() {
@@ -231,8 +232,8 @@ impl<'a> Reader<'a> {
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
-        let mut prev_xref_start = trailer.remove(b"Prev").ok_or(Error::DictKey);
-        while let Ok(prev) = prev_xref_start.and_then(|offset| offset.as_i64()) {
+        let mut prev_xref_start = trailer.remove(b"Prev");
+        while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
             if already_seen.contains(&prev) {
                 break;
             }
@@ -257,9 +258,9 @@ impl<'a> Reader<'a> {
                 xref.merge(prev_xref);
             }
 
-            prev_xref_start = prev_trailer.get(b"Prev").cloned();
+            prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
         }
-        let xref_entry_count = xref.max_id().checked_add(1).ok_or(Error::Xref(XrefError::Parse))?;
+        let xref_entry_count = xref.max_id().checked_add(1).ok_or(ParseError::InvalidXref)?;
         if xref.size != xref_entry_count {
             warn!(
                 "Size entry of trailer dictionary is {}, correct value is {}.",
@@ -286,7 +287,7 @@ impl<'a> Reader<'a> {
                     filter_func(object_id, &mut object)?;
                 }
                 if let Ok(ref mut stream) = object.as_stream_mut() {
-                    if stream.dict.type_is(b"ObjStm") {
+                    if stream.dict.has_type(b"ObjStm") {
                         let obj_stream = ObjectStream::new(stream).ok()?;
                         let mut object_streams = object_streams.lock().unwrap();
                         // TODO: Is insert and replace intended behavior?
@@ -343,28 +344,33 @@ impl<'a> Reader<'a> {
         Ok(self.document)
     }
 
+    // TODO: maybe rename + clean up code
     fn set_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
         let length = self.get_stream_length(object_id)?;
         let stream = self
             .document
             .get_object_mut(object_id)
             .and_then(Object::as_stream_mut)?;
-        let start = stream.start_position.ok_or(Error::ObjectNotFound)?;
+        let start = stream
+            .start_position
+            .ok_or(Error::InvalidStream("missing start position".to_string()))?;
 
         if length < 0 {
-            return Err(Error::Syntax("Negative stream length.".to_string()));
+            return Err(Error::InvalidStream("negative stream length.".to_string()));
         }
 
-        let end = start + length as usize;
+        let length = usize::try_from(length).map_err(|e| Error::NumericCast(e.to_string()))?;
+        let end = start + length;
 
         if end > self.buffer.len() {
-            return Err(Error::Syntax("Stream extends after document end.".to_string()));
+            return Err(Error::InvalidStream("stream extends after document end.".to_string()));
         }
 
         stream.set_content(self.buffer[start..end].to_vec());
         Ok(())
     }
 
+    // TODO: simplify
     fn get_stream_length(&self, object_id: ObjectId) -> Result<i64> {
         let object = self.document.get_object(object_id)?;
         let stream = object.as_stream()?;
@@ -387,25 +393,19 @@ impl<'a> Reader<'a> {
             })
     }
 
-    /// Get object offset by object id.
+    /// Get object offset by object ID.
     fn get_offset(&self, id: ObjectId) -> Result<u32> {
-        let entry = self.document.reference_table.get(id.0).ok_or(Error::ObjectNotFound)?;
+        let entry = self.document.reference_table.get(id.0).ok_or(Error::MissingXrefEntry)?;
         match *entry {
-            XrefEntry::Normal { offset, generation } => {
-                if id.1 == generation {
-                    Ok(offset)
-                } else {
-                    Err(Error::ObjectNotFound)
-                }
-            }
-            _ => Err(Error::ObjectNotFound),
+            XrefEntry::Normal { offset, generation } if generation == id.1 => Ok(offset),
+            _ => Err(Error::MissingXrefEntry),
         }
     }
 
     pub fn get_object(&self, id: ObjectId, already_seen: &mut HashSet<ObjectId>) -> Result<Object> {
         if already_seen.contains(&id) {
             warn!("reference cycle detected resolving object {} {}", id.0, id.1);
-            return Err(Error::ReferenceCycle);
+            return Err(Error::ReferenceCycle(id));
         }
         already_seen.insert(id);
         let offset = self.get_offset(id)?;
@@ -418,7 +418,7 @@ impl<'a> Reader<'a> {
         &self, offset: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
     ) -> Result<(ObjectId, Object)> {
         if offset > self.buffer.len() {
-            return Err(Error::Offset(offset));
+            return Err(Error::InvalidOffset(offset));
         }
 
         parser::indirect_object(
