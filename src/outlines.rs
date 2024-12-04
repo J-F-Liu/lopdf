@@ -95,13 +95,13 @@ impl Document {
     fn build_outline_result(
         &self, dest: &Object, title: &Object, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<Option<Outline>> {
-        return Ok(Some(match dest {
-            Object::Array(ref obj_array) => Outline::Destination(Destination::new(
+        let outline = match dest {
+            Object::Array(obj_array) => Outline::Destination(Destination::new(
                 title.to_owned(),
                 obj_array[0].clone(),
                 obj_array[1].clone(),
             )),
-            Object::String(ref key, ref _fmt) => {
+            Object::String(key, _fmt) => {
                 if let Some(destination) = named_destinations.get_mut(key) {
                     destination.set(b"Title", title.to_owned());
                     Outline::Destination(destination.clone())
@@ -113,6 +113,7 @@ impl Document {
                 return self.build_outline_result(self.get_object(*object_id)?, title, named_destinations);
             }
             _ => return Err(Error::InvalidOutline(format!("Unexpected destination {:?}", dest))),
-        }));
+        };
+        Ok(Some(outline))
     }
 }

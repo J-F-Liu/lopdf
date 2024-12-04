@@ -360,26 +360,26 @@ impl Writer {
     }
 
     pub fn write_object(file: &mut dyn Write, object: &Object) -> Result<()> {
-        match *object {
+        match object {
             Null => file.write_all(b"null"),
-            Boolean(ref value) => {
+            Boolean(value) => {
                 if *value {
                     file.write_all(b"true")
                 } else {
                     file.write_all(b"false")
                 }
             }
-            Integer(ref value) => {
+            Integer(value) => {
                 let mut buf = itoa::Buffer::new();
                 file.write_all(buf.format(*value).as_bytes())
             }
-            Real(ref value) => write!(file, "{}", value),
-            Name(ref name) => Writer::write_name(file, name),
-            String(ref text, ref format) => Writer::write_string(file, text, format),
-            Array(ref array) => Writer::write_array(file, array),
-            Object::Dictionary(ref dict) => Writer::write_dictionary(file, dict),
-            Object::Stream(ref stream) => Writer::write_stream(file, stream),
-            Reference(ref id) => write!(file, "{} {} R", id.0, id.1),
+            Real(value) => write!(file, "{}", value),
+            Name(name) => Writer::write_name(file, name),
+            String(text, format) => Writer::write_string(file, text, format),
+            Array(array) => Writer::write_array(file, array),
+            Object::Dictionary(dict) => Writer::write_dictionary(file, dict),
+            Object::Stream(stream) => Writer::write_stream(file, stream),
+            Reference(id) => write!(file, "{} {} R", id.0, id.1),
         }
     }
 

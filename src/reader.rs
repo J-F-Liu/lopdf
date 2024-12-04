@@ -213,7 +213,7 @@ pub struct Reader<'a> {
 /// Maximum allowed embedding of literal strings.
 pub const MAX_BRACKET: usize = 100;
 
-impl<'a> Reader<'a> {
+impl Reader<'_> {
     /// Read whole document.
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         // The document structure can be expressed in PEG as:
@@ -338,14 +338,13 @@ impl<'a> Reader<'a> {
         }
 
         for object_id in zero_length_streams.into_inner().unwrap() {
-            let _ = self.set_stream_content(object_id);
+            let _ = self.read_stream_content(object_id);
         }
 
         Ok(self.document)
     }
 
-    // TODO: maybe rename + clean up code
-    fn set_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
+    fn read_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
         let length = self.get_stream_length(object_id)?;
         let stream = self
             .document
@@ -370,23 +369,17 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
-    // TODO: simplify
     fn get_stream_length(&self, object_id: ObjectId) -> Result<i64> {
         let object = self.document.get_object(object_id)?;
         let stream = object.as_stream()?;
-
         stream
             .dict
             .get(b"Length")
-            .and_then(|value| {
-                if let Ok(id) = value.as_reference() {
-                    return self.document.get_object(id).and_then(Object::as_i64);
-                }
-                value.as_i64()
-            })
+            .and_then(|value| self.document.dereference(value))
+            .and_then(|(_id, obj)| obj.as_i64())
             .map_err(|err| {
                 error!(
-                    "Stream dictionary of '{} {} R' is missing the Length entry",
+                    "stream dictionary of '{} {} R' is missing the Length entry",
                     object_id.0, object_id.1
                 );
                 err

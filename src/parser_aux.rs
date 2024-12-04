@@ -76,16 +76,16 @@ impl Document {
     ) -> Result<Vec<Result<String>>> {
         fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> Result<()> {
             for operand in operands.iter() {
-                match *operand {
-                    Object::String(ref bytes, _) => {
+                match operand {
+                    Object::String(bytes, _) => {
                         text.push_str(&Document::decode_text(encoding, bytes)?);
                     }
-                    Object::Array(ref arr) => {
+                    Object::Array(arr) => {
                         collect_text(text, encoding, arr)?;
                         text.push(' ');
                     }
                     Object::Integer(i) => {
-                        if i < -100 {
+                        if *i < -100 {
                             text.push(' ');
                         }
                     }

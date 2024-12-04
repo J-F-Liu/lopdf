@@ -48,7 +48,7 @@ fn convert_result<O, E>(result: Result<O, E>, input: ParserInput, error_kind: Er
 
 #[inline]
 fn offset_stream(object: &mut Object, offset: usize) {
-    if let Object::Stream(ref mut stream) = object {
+    if let Object::Stream(stream) = object {
         stream.start_position = stream.start_position.and_then(|sp| sp.checked_add(offset));
     }
 }
@@ -172,7 +172,7 @@ enum InnerLiteralString<'a> {
     Nested(Vec<u8>),
 }
 
-impl<'a> InnerLiteralString<'a> {
+impl InnerLiteralString<'_> {
     fn push(&self, output: &mut Vec<u8>) {
         match self {
             InnerLiteralString::Direct(s) | InnerLiteralString::Eol(s) => output.extend_from_slice(s),

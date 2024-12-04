@@ -108,9 +108,7 @@ fn main() {
         let pages = doc.get_pages();
 
         // This is actually better than extend as we use less allocations and cloning then.
-        pages
-            .into_iter()
-            .map(|(_, object_id)| {
+        pages.into_values().map(|object_id| {
                 // We use this as the return object for Bookmarking to deturmine what it points too.
                 // We only want to do this for the first page though.
                 if first_object.is_none() {
@@ -250,9 +248,7 @@ fn main() {
         // Set new "Kids" list (collected from documents pages) for "Pages"
         dictionary.set(
             "Kids",
-            documents_pages
-                .into_iter()
-                .map(|(object_id, _)| Object::Reference(object_id))
+            documents_pages.into_keys().map(|object_id| Object::Reference(object_id))
                 .collect::<Vec<_>>(),
         );
 
@@ -281,9 +277,9 @@ fn main() {
     document.adjust_zero_pages();
 
     //Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
-    if let Some(n) = document.build_outline() {
-        if let Ok(Object::Dictionary(ref mut dict)) = document.get_object_mut(catalog_id) {
-            dict.set("Outlines", Object::Reference(n));
+    if let Some(outline_id) = document.build_outline() {
+        if let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_id) {
+            dict.set("Outlines", Object::Reference(outline_id));
         }
     }
 

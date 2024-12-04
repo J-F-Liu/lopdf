@@ -8,9 +8,9 @@ impl Document {
     /// Change producer of document information dictionary.
     pub fn change_producer(&mut self, producer: &str) {
         if let Ok(info) = self.trailer.get_mut(b"Info") {
-            if let Some(dict) = match *info {
-                Object::Dictionary(ref mut dict) => Some(dict),
-                Object::Reference(ref id) => self.objects.get_mut(id).and_then(|o| o.as_dict_mut().ok()),
+            if let Some(dict) = match info {
+                Object::Dictionary(dict) => Some(dict),
+                Object::Reference(id) => self.objects.get_mut(id).and_then(|o| o.as_dict_mut().ok()),
                 _ => None,
             } {
                 dict.set("Producer", Object::string_literal(producer));
@@ -21,7 +21,7 @@ impl Document {
     /// Compress PDF stream objects.
     pub fn compress(&mut self) {
         for object in self.objects.values_mut() {
-            if let Object::Stream(ref mut stream) = *object {
+            if let Object::Stream(stream) = object {
                 if stream.allows_compression {
                     // Ignore any error and continue to compress other streams.
                     let _ = stream.compress();
@@ -33,7 +33,7 @@ impl Document {
     /// Decompress PDF stream objects.
     pub fn decompress(&mut self) {
         for object in self.objects.values_mut() {
-            if let Object::Stream(ref mut stream) = *object {
+            if let Object::Stream(stream) = object {
                 let _ = stream.decompress();
             }
         }
@@ -81,8 +81,8 @@ impl Document {
 
     /// Delete object by object ID.
     pub fn delete_object(&mut self, id: ObjectId) -> Option<Object> {
-        let action = |object: &mut Object| match *object {
-            Object::Array(ref mut array) => {
+        let action = |object: &mut Object| match object {
+            Object::Array(array) => {
                 if let Some(index) = array.iter().position(|item: &Object| match *item {
                     Object::Reference(ref_id) => ref_id == id,
                     _ => false,
@@ -90,7 +90,7 @@ impl Document {
                     array.remove(index);
                 }
             }
-            Object::Dictionary(ref mut dict) => {
+            Object::Dictionary(dict) => {
                 let keys: Vec<Vec<u8>> = dict
                     .iter()
                     .filter(|&(_, item): &(&Vec<u8>, &Object)| match *item {
@@ -208,7 +208,7 @@ impl Document {
             }
 
             let action = |object: &mut Object| {
-                if let Object::Reference(ref mut id) = *object {
+                if let Object::Reference(id) = object {
                     if replace.contains_key(id) {
                         *id = replace[id];
                     }
@@ -249,7 +249,7 @@ impl Document {
         }
 
         let action = |object: &mut Object| {
-            if let Object::Reference(ref mut id) = *object {
+            if let Object::Reference(id) = object {
                 if replace.contains_key(id) {
                     *id = replace[id];
                 }
@@ -262,7 +262,7 @@ impl Document {
     }
 
     pub fn change_content_stream(&mut self, stream_id: ObjectId, content: Vec<u8>) {
-        if let Some(Object::Stream(ref mut stream)) = self.objects.get_mut(&stream_id) {
+        if let Some(Object::Stream(stream)) = self.objects.get_mut(&stream_id) {
             stream.set_plain_content(content);
             // Ignore any compression error.
             let _ = stream.compress();
@@ -271,16 +271,16 @@ impl Document {
 
     pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) -> Result<()> {
         let contents = self.get_dictionary(page_id).and_then(|page| page.get(b"Contents"))?;
-        match *contents {
-            Object::Reference(id) => self.change_content_stream(id, content),
-            Object::Array(ref arr) => {
+        match contents {
+            Object::Reference(id) => self.change_content_stream(*id, content),
+            Object::Array(arr) => {
                 if arr.len() == 1 {
                     if let Ok(id) = arr[0].as_reference() {
                         self.change_content_stream(id, content)
                     }
                 } else {
                     let new_stream = self.add_object(super::Stream::new(dictionary! {}, content));
-                    if let Ok(Object::Dictionary(ref mut dict)) = self.get_object_mut(page_id) {
+                    if let Ok(Object::Dictionary(dict)) = self.get_object_mut(page_id) {
                         dict.set("Contents", new_stream);
                     }
                 }
@@ -292,7 +292,7 @@ impl Document {
 
     pub fn extract_stream(&self, stream_id: ObjectId, decompress: bool) -> Result<()> {
         let mut file = File::create(format!("{:?}.bin", stream_id))?;
-        if let Ok(Object::Stream(ref stream)) = self.get_object(stream_id) {
+        if let Ok(Object::Stream(stream)) = self.get_object(stream_id) {
             if decompress {
                 if let Ok(data) = stream.decompressed_content() {
                     file.write_all(&data)?;

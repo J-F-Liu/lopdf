@@ -217,13 +217,13 @@ impl Document {
         }
         fn traverse_object<A: Fn(&mut Object)>(object: &mut Object, action: &A, refs: &mut Vec<ObjectId>) {
             action(object);
-            match *object {
-                Object::Array(ref mut array) => traverse_array(array, action, refs),
-                Object::Dictionary(ref mut dict) => traverse_dictionary(dict, action, refs),
-                Object::Stream(ref mut stream) => traverse_dictionary(&mut stream.dict, action, refs),
+            match object {
+                Object::Array(array) => traverse_array(array, action, refs),
+                Object::Dictionary(dict) => traverse_dictionary(dict, action, refs),
+                Object::Stream(stream) => traverse_dictionary(&mut stream.dict, action, refs),
                 Object::Reference(id) => {
-                    if !refs.contains(&id) {
-                        refs.push(id);
+                    if !refs.contains(id) {
+                        refs.push(*id);
                     }
                 }
                 _ => {}
@@ -302,7 +302,7 @@ impl Document {
             // Only strings and streams are encrypted
             match obj {
                 Object::Stream(stream) => stream.set_content(decrypted),
-                Object::String(ref mut content, _) => *content = decrypted,
+                Object::String(content, _) => *content = decrypted,
                 _ => {}
             }
         }
@@ -455,15 +455,15 @@ impl Document {
         ) {
             if let Ok(font) = resources.get(b"Font") {
                 let font_dict = match font {
-                    Object::Reference(ref id) => doc.get_object(*id).and_then(Object::as_dict).ok(),
-                    Object::Dictionary(ref dict) => Some(dict),
+                    Object::Reference(id) => doc.get_object(*id).and_then(Object::as_dict).ok(),
+                    Object::Dictionary(dict) => Some(dict),
                     _ => None,
                 };
                 if let Some(font_dict) = font_dict {
                     for (name, value) in font_dict.iter() {
-                        let font = match *value {
-                            Object::Reference(id) => doc.get_dictionary(id).ok(),
-                            Object::Dictionary(ref dict) => Some(dict),
+                        let font = match value {
+                            Object::Reference(id) => doc.get_dictionary(*id).ok(),
+                            Object::Dictionary(dict) => Some(dict),
                             _ => None,
                         };
                         if !fonts.contains_key(name) {
@@ -494,14 +494,14 @@ impl Document {
         let mut annotations = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
             match page.get(b"Annots") {
-                Ok(Object::Reference(ref id)) => self
+                Ok(Object::Reference(id)) => self
                     .get_object(*id)
                     .and_then(Object::as_array)?
                     .iter()
                     .flat_map(Object::as_reference)
                     .flat_map(|id| self.get_dictionary(id))
                     .for_each(|a| annotations.push(a)),
-                Ok(Object::Array(ref a)) => a
+                Ok(Object::Array(a)) => a
                     .iter()
                     .flat_map(Object::as_reference)
                     .flat_map(|id| self.get_dictionary(id))

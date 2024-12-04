@@ -89,13 +89,13 @@ impl ToUnicodeCMap {
         let bf_ranges_map = &self.bf_ranges[(code_len - 1) as usize];
 
         bf_ranges_map.get_key_value(&code).map(|(range, value)| match value {
-            HexString(ref vec) => {
+            HexString(vec) => {
                 let mut ret_vec = vec.clone();
                 *(ret_vec.last_mut().unwrap()) += (code - range.start()) as u16;
                 ret_vec
             }
             UTF16CodePoint { offset } => vec![u32::wrapping_add(code, *offset) as u16],
-            ArrayOfHexStrings(ref vec_of_strings) => vec_of_strings[(code - range.start()) as usize].clone(),
+            ArrayOfHexStrings(vec_of_strings) => vec_of_strings[(code - range.start()) as usize].clone(),
         })
     }
 

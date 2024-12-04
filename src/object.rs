@@ -142,8 +142,8 @@ impl Object {
     }
 
     pub fn as_bool(&self) -> Result<bool> {
-        match *self {
-            Object::Boolean(ref value) => Ok(*value),
+        match self {
+            Object::Boolean(value) => Ok(*value),
             _ => Err(Error::ObjectType {
                 expected: "Boolean",
                 found: self.enum_variant(),
@@ -152,8 +152,8 @@ impl Object {
     }
 
     pub fn as_i64(&self) -> Result<i64> {
-        match *self {
-            Object::Integer(ref value) => Ok(*value),
+        match self {
+            Object::Integer(value) => Ok(*value),
             _ => Err(Error::ObjectType {
                 expected: "Integer",
                 found: self.enum_variant(),
@@ -185,8 +185,8 @@ impl Object {
     }
 
     pub fn as_name(&self) -> Result<&[u8]> {
-        match *self {
-            Object::Name(ref name) => Ok(name),
+        match self {
+            Object::Name(name) => Ok(name),
             _ => Err(Error::ObjectType {
                 expected: "Name",
                 found: self.enum_variant(),
@@ -215,8 +215,8 @@ impl Object {
     }
 
     pub fn as_reference(&self) -> Result<ObjectId> {
-        match *self {
-            Object::Reference(ref id) => Ok(*id),
+        match self {
+            Object::Reference(id) => Ok(*id),
             _ => Err(Error::ObjectType {
                 expected: "Reference",
                 found: self.enum_variant(),
@@ -225,8 +225,8 @@ impl Object {
     }
 
     pub fn as_array(&self) -> Result<&Vec<Object>> {
-        match *self {
-            Object::Array(ref arr) => Ok(arr),
+        match self {
+            Object::Array(arr) => Ok(arr),
             _ => Err(Error::ObjectType {
                 expected: "Array",
                 found: self.enum_variant(),
@@ -235,8 +235,8 @@ impl Object {
     }
 
     pub fn as_array_mut(&mut self) -> Result<&mut Vec<Object>> {
-        match *self {
-            Object::Array(ref mut arr) => Ok(arr),
+        match self {
+            Object::Array(arr) => Ok(arr),
             _ => Err(Error::ObjectType {
                 expected: "Array",
                 found: self.enum_variant(),
@@ -245,8 +245,8 @@ impl Object {
     }
 
     pub fn as_dict(&self) -> Result<&Dictionary> {
-        match *self {
-            Object::Dictionary(ref dict) => Ok(dict),
+        match self {
+            Object::Dictionary(dict) => Ok(dict),
             _ => Err(Error::ObjectType {
                 expected: "Dictionary",
                 found: self.enum_variant(),
@@ -255,8 +255,8 @@ impl Object {
     }
 
     pub fn as_dict_mut(&mut self) -> Result<&mut Dictionary> {
-        match *self {
-            Object::Dictionary(ref mut dict) => Ok(dict),
+        match self {
+            Object::Dictionary(dict) => Ok(dict),
             _ => Err(Error::ObjectType {
                 expected: "Dictionary",
                 found: self.enum_variant(),
@@ -265,8 +265,8 @@ impl Object {
     }
 
     pub fn as_stream(&self) -> Result<&Stream> {
-        match *self {
-            Object::Stream(ref stream) => Ok(stream),
+        match self {
+            Object::Stream(stream) => Ok(stream),
             _ => Err(Error::ObjectType {
                 expected: "Stream",
                 found: self.enum_variant(),
