@@ -172,7 +172,7 @@ enum InnerLiteralString<'a> {
     Nested(Vec<u8>),
 }
 
-impl<'a> InnerLiteralString<'a> {
+impl InnerLiteralString<'_> {
     fn push(&self, output: &mut Vec<u8>) {
         match self {
             InnerLiteralString::Direct(s) | InnerLiteralString::Eol(s) => output.extend_from_slice(s),

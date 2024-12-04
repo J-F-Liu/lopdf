@@ -31,7 +31,7 @@ pub enum Encoding<'a> {
     UnicodeMapEncoding(ToUnicodeCMap),
 }
 
-impl<'a> std::fmt::Debug for Encoding<'a> {
+impl std::fmt::Debug for Encoding<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             // UnicodeCMap and Bytes encoding ommitted to not bloat debug log
@@ -42,7 +42,7 @@ impl<'a> std::fmt::Debug for Encoding<'a> {
     }
 }
 
-impl<'a> Encoding<'a> {
+impl Encoding<'_> {
     pub fn bytes_to_string(&self, bytes: &[u8]) -> Result<String> {
         match self {
             Self::OneByteEncoding(map) => Ok(bytes_to_string(map, bytes)),

@@ -37,7 +37,7 @@ fn cmap_stream(input: ParserInput) -> NomResult<Vec<CMapSection>> {
     )(input)
 }
 
-fn tuple_discard_result<'a, O, List>(seq: List, input: ParserInput<'a>) -> NomResult<()>
+fn tuple_discard_result<'a, O, List>(seq: List, input: ParserInput<'a>) -> NomResult<'a, ()>
 where
     List: nom::sequence::Tuple<ParserInput<'a>, O, NomError<'a>>,
 {

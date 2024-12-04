@@ -213,7 +213,7 @@ pub struct Reader<'a> {
 /// Maximum allowed embedding of literal strings.
 pub const MAX_BRACKET: usize = 100;
 
-impl<'a> Reader<'a> {
+impl Reader<'_> {
     /// Read whole document.
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         // The document structure can be expressed in PEG as:
