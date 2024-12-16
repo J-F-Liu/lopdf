@@ -65,8 +65,20 @@ impl Document {
                 "S" => "GoTo",
             };
 
+            let title_bytes = if bookmark.title.is_ascii() {
+                bookmark.title.as_bytes().to_vec()
+            } else {
+                // If the title contains non-ASCII characters:
+                // Create a new vector with the UTF-16 Byte Order Mark (BOM) for UTF-16BE.
+                let mut bom = vec![0xFE, 0xFF];
+                let utf16_title = bookmark.title.encode_utf16();
+                // Append the UTF-16BE encoded bytes of the title to the BOM.
+                bom.extend(utf16_title.flat_map(u16::to_be_bytes));
+                bom
+            };
+
             child.set("Parent", parent.0);
-            child.set("Title", Object::string_literal(bookmark.title.clone()));
+            child.set("Title", Object::string_literal(title_bytes));
             child.set("A", info_id);
             child.set("F", Object::Integer(bookmark.format.into()));
             child.set(
