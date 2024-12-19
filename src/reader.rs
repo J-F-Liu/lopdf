@@ -216,6 +216,9 @@ pub const MAX_BRACKET: usize = 100;
 impl Reader<'_> {
     /// Read whole document.
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
+        let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
+        self.buffer = &self.buffer[offset..];
+
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
         let version =
@@ -492,6 +495,15 @@ async fn load_document() {
 #[should_panic(expected = "Xref(Start)")]
 fn load_short_document() {
     let _doc = Document::load_mem(b"%PDF-1.5\n%%EOF\n").unwrap();
+}
+
+#[test]
+fn load_document_with_preceding_bytes() {
+    let mut content = Vec::new();
+    content.extend(b"garbage");
+    content.extend(include_bytes!("../assets/example.pdf"));
+    let doc = Document::load_mem(&content).unwrap();
+    assert_eq!(doc.version, "1.5");
 }
 
 #[test]

@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take, take_until, take_while, take_while1, take_while_m_n};
+use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
 use nom::character::complete::multispace1;
 use nom::character::complete::{digit0, digit1, one_of};
 use nom::character::complete::{space0, space1};
@@ -416,16 +416,7 @@ fn _indirect_object<'a>(
 pub fn header(input: ParserInput) -> Option<String> {
     strip_nom(map_res(
         delimited(
-            tuple((
-                map_res(take_until("%PDF-"), |v: ParserInput| {
-                    if v.len() > 1024 {
-                        return Err("Header prefix too long");
-                    }
-
-                    Ok(v)
-                }),
-                tag(b"%PDF-"),
-            )),
+            tag(b"%PDF-"),
             take_while(|c: u8| !b"\r\n".contains(&c)),
             pair(eol, many0_count(comment)),
         ),
@@ -639,22 +630,6 @@ mod tests {
         assert_eq!(real(test_span(b"0.12")), Some(0.12));
         assert_eq!(real(test_span(b"-.12")), Some(-0.12));
         assert_eq!(real(test_span(b"10.")), Some(10.0));
-    }
-
-    #[test]
-    fn parses_malformed_header_with_prefix() {
-        let stream = b"\x20\x20\x20\x20\x0A\x0A\x20\x20%PDF-1.4\n";
-
-        assert_eq!(header(test_span(stream)), Some("1.4".to_string()));
-
-        // 1025 bytes prefix
-        let stream_with_prefix_too_long = [b' '; 1025]
-            .iter()
-            .copied()
-            .chain(b"%PDF-1.4".iter().copied())
-            .collect::<Vec<u8>>();
-
-        assert_eq!(header(test_span(&stream_with_prefix_too_long)), None)
     }
 
     #[test]
