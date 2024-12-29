@@ -187,3 +187,73 @@ async fn insert_image() {
     doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0)).unwrap();
     doc.save("test_5_image.pdf").unwrap();
 }
+
+#[cfg(feature = "embed_image")]
+#[test]
+fn embed_supported_color_type() -> Result<()> {
+    use content::{Content, Operation};
+    use image::GenericImageView;
+
+    let mut img_paths = std::fs::read_dir("assets/supported_color_type")?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    // sort by file name
+    img_paths.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let mut page_ids = vec![];
+
+    for img_path in img_paths {
+        let img = image::open(&img_path)?;
+        let (width, height) = img.dimensions();
+        let color_type = img.color();
+        println!("Image: {img_path:?}, width: {width}, height: {height}, color type: {color_type:?}");
+
+        let image_stream = xobject::image(img_path)?;
+
+        let img_id = doc.add_object(image_stream);
+        let img_name = format!("X{}", img_id.0);
+
+        let cm_operation = Operation::new(
+            "cm",
+            vec![width.into(), 0.into(), 0.into(), height.into(), 0.into(), 0.into()],
+        );
+
+        let do_operation = Operation::new("Do", vec![Object::Name(img_name.as_bytes().to_vec())]);
+        let content = Content {
+            operations: vec![cm_operation, do_operation],
+        };
+
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode()?));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => content_id,
+            "MediaBox" => vec![0.into(), 0.into(), width.into(), height.into()],
+        });
+
+        doc.add_xobject(page_id, img_name.as_bytes(), img_id)?;
+        // add page to doc
+        page_ids.push(page_id);
+    }
+
+    let pages_dict = dictionary! {
+        "Type" => "Pages",
+        "Count" => page_ids.len() as u32,
+        "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+
+    doc.compress();
+
+    doc.save("supported_color_type.pdf")?;
+    Ok(())
+}
