@@ -48,24 +48,23 @@ pub fn image<P: AsRef<Path>>(path: P) -> Result<Stream> {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
 
-    image_from(buffer, path.as_ref())
+    image_from(buffer)
 }
 
 #[cfg(feature = "embed_image")]
-pub fn image_from(buffer: Vec<u8>, path: &Path) -> Result<Stream> {
-    let (width, height) = image::image_dimensions(path)?;
+pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
+    let ((width, height), color_type) = get_dimensions_and_color_type(&buffer)?;
 
     let format = image::guess_format(&buffer)?;
 
     let is_jpeg = format == ImageFormat::Jpeg;
 
-    let (img, color_type) = if is_jpeg {
-        (None, ColorType::Rgb8) // JPEG do not need to be decoded
+    let img = if is_jpeg {
+        None // JPEG do not need to be decoded
     } else {
         // Other formats need to be decoded
         let img = image::load_from_memory(&buffer)?;
-        let color_type = img.color();
-        (Some(img), color_type)
+        Some(img)
     };
 
     // It looks like Adobe Illustrator uses a predictor offset of 2 bytes rather than 1 byte as
@@ -102,6 +101,20 @@ pub fn image_from(buffer: Vec<u8>, path: &Path) -> Result<Stream> {
         let _ = img_object.compress();
         Ok(img_object)
     }
+}
+
+/// Get the `dimensions` and `color type` without decode, for performance
+#[cfg(feature = "embed_image")]
+fn get_dimensions_and_color_type(buffer: &Vec<u8>) -> Result<((u32, u32), ColorType)> {
+    use image::{ImageDecoder, ImageReader};
+
+    let reader = ImageReader::new(std::io::Cursor::new(buffer));
+    let decoder = reader.with_guessed_format()?.into_decoder()?;
+
+    let dimensions = decoder.dimensions();
+    let color_type = decoder.color_type();
+
+    Ok((dimensions, color_type))
 }
 
 #[cfg(all(feature = "embed_image", not(feature = "async")))]
