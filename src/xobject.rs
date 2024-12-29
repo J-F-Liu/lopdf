@@ -102,7 +102,58 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
         dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
         Ok(Stream::new(dict, buffer))
     } else {
-        let mut img_object = Stream::new(dict, img.unwrap().into_bytes());
+        // Other formats need to be decoded
+        let img = img.unwrap();
+        let content = match img.color() {
+            // can be used directly
+            ColorType::L8 => img.into_bytes(),
+            // need to remove alpha channel
+            ColorType::La8 => img.into_luma8().into_raw(),
+            // can be used directly
+            ColorType::Rgb8 => img.into_bytes(),
+            // need to remove alpha channel
+            ColorType::Rgba8 => img.into_rgb8().into_raw(),
+            // need to convert each 16-bit pixel to big-endian bytes
+            ColorType::L16 => img
+                .into_luma16()
+                .into_raw()
+                .iter()
+                .flat_map(|&pixel| pixel.to_be_bytes()) // convert each 16-bit pixel to big-endian bytes
+                .collect(),
+            // need to remove alpha channel, then convert each 16-bit pixel to big-endian bytes
+            ColorType::La16 => img
+                .into_luma16() // remove alpha channel
+                .into_raw()
+                .iter()
+                .flat_map(|&pixel| pixel.to_be_bytes()) // convert each 16-bit pixel to big-endian bytes
+                .collect(),
+            // need to convert each 16-bit pixel to big-endian bytes
+            ColorType::Rgb16 => img
+                .into_rgb16()
+                .into_raw()
+                .iter()
+                .flat_map(|&pixel| pixel.to_be_bytes()) // convert each 16-bit pixel to big-endian bytes
+                .collect(),
+            // need to remove alpha channel, then convert each 16-bit pixel to big-endian bytes
+            ColorType::Rgba16 => img
+                .into_rgb16() // remove alpha channel
+                .into_raw()
+                .iter()
+                .flat_map(|&pixel| pixel.to_be_bytes()) // convert each 16-bit pixel to big-endian bytes
+                .collect(),
+            // f32 not supported, maybe JPXDecode?
+            ColorType::Rgb32F => return Err(Error::Unimplemented("ColorType::Rgb32F is not supported")),
+            ColorType::Rgba32F => return Err(Error::Unimplemented("ColorType::Rgba32F is not supported")),
+            // The above ColorType is all the types currently supported by the image crate
+            // But ColorType is #[non_exhaustive], there may be new types supported in the future
+            _ => {
+                return Err(Error::Unimplemented(
+                    "The image library supports a new color type, but lopdf has not been updated yet",
+                ))
+            }
+        };
+
+        let mut img_object = Stream::new(dict, content);
         // Ignore any compression error.
         let _ = img_object.compress();
         Ok(img_object)
