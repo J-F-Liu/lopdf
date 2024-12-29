@@ -67,21 +67,27 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
         Some(img)
     };
 
-    // It looks like Adobe Illustrator uses a predictor offset of 2 bytes rather than 1 byte as
-    // the PNG specification suggests. This seems to come from the fact that the PNG specification
-    // doesn't allow 4-bit color images (only 8-bit and 16-bit color). With 1-bit, 2-bit and 4-bit
-    // mono images there isn't the same problem because there's only one component.
-    let bits = color_type.bits_per_pixel() / 3;
-
-    let color_space = match color_type {
-        ColorType::L8 => b"DeviceGray".to_vec(),
-        ColorType::La8 => b"DeviceGray".to_vec(),
-        ColorType::Rgb8 => b"DeviceRGB".to_vec(),
-        ColorType::Rgb16 => b"DeviceRGB".to_vec(),
-        ColorType::La16 => b"DeviceN".to_vec(),
-        ColorType::Rgba8 => b"DeviceN".to_vec(),
-        ColorType::Rgba16 => b"DeviceN".to_vec(),
-        _ => b"Indexed".to_vec(),
+    let (bpc, color_space) = match color_type {
+        // 8-bit per channel types
+        ColorType::L8 => (8, b"DeviceGray".to_vec()),
+        ColorType::La8 => (8, b"DeviceGray".to_vec()),
+        ColorType::Rgb8 => (8, b"DeviceRGB".to_vec()),
+        ColorType::Rgba8 => (8, b"DeviceRGB".to_vec()),
+        // 16-bit per channel types
+        ColorType::L16 => (16, b"DeviceGray".to_vec()),
+        ColorType::La16 => (16, b"DeviceGray".to_vec()),
+        ColorType::Rgb16 => (16, b"DeviceRGB".to_vec()),
+        ColorType::Rgba16 => (16, b"DeviceRGB".to_vec()),
+        // f32 not supported, maybe JPXDecode?
+        ColorType::Rgb32F => return Err(Error::Unimplemented("ColorType::Rgb32F is not supported")),
+        ColorType::Rgba32F => return Err(Error::Unimplemented("ColorType::Rgba32F is not supported")),
+        // The above ColorType is all the types currently supported by the image crate
+        // But ColorType is #[non_exhaustive], there may be new types supported in the future
+        _ => {
+            return Err(Error::Unimplemented(
+                "The image crate supports a new color type, but lopdf has not been updated yet",
+            ))
+        }
     };
 
     let mut dict = Dictionary::new();
@@ -90,7 +96,7 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     dict.set("Width", width);
     dict.set("Height", height);
     dict.set("ColorSpace", Object::Name(color_space));
-    dict.set("BitsPerComponent", bits);
+    dict.set("BitsPerComponent", bpc);
 
     if is_jpeg {
         dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
