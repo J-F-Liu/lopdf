@@ -4,4 +4,6 @@
 *.toml     text diff=toml
 *.pdf      binary
 Cargo.lock text
-
+*.jpg binary
+*.jpeg binary
+*.png binary
