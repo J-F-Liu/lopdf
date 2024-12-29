@@ -55,18 +55,6 @@ pub fn image<P: AsRef<Path>>(path: P) -> Result<Stream> {
 pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     let ((width, height), color_type) = get_dimensions_and_color_type(&buffer)?;
 
-    let format = image::guess_format(&buffer)?;
-
-    let is_jpeg = format == ImageFormat::Jpeg;
-
-    let img = if is_jpeg {
-        None // JPEG do not need to be decoded
-    } else {
-        // Other formats need to be decoded
-        let img = image::load_from_memory(&buffer)?;
-        Some(img)
-    };
-
     let (bpc, color_space) = match color_type {
         // 8-bit per channel types
         ColorType::L8 => (8, b"DeviceGray".to_vec()),
@@ -98,12 +86,14 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     dict.set("ColorSpace", Object::Name(color_space));
     dict.set("BitsPerComponent", bpc);
 
-    if is_jpeg {
+    let format = image::guess_format(&buffer)?;
+    if format == ImageFormat::Jpeg {
+        // JPEG do not need to be decoded
         dict.set("Filter", Object::Name(b"DCTDecode".to_vec()));
         Ok(Stream::new(dict, buffer))
     } else {
         // Other formats need to be decoded
-        let img = img.unwrap();
+        let img = image::load_from_memory(&buffer)?;
         let content = match img.color() {
             // can be used directly
             ColorType::L8 => img.into_bytes(),
