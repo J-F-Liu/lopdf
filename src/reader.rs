@@ -224,10 +224,10 @@ impl Reader<'_> {
         let version =
             parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(ParseError::InvalidFileHeader)?;
 
-        //The binary comment is in line 2 after the pdf version. If at other line number, then will be declared as invalid pdf.
+        //The binary_mark is in line 2 after the pdf version. If at other line number, then will be declared as invalid pdf.
         if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n') {
-            self.document.binary_comment =
-                parser::binary_comment(ParserInput::new_extra(&self.buffer[pos + 1..], "binary_comment"))
+            self.document.binary_mark =
+                parser::binary_mark(ParserInput::new_extra(&self.buffer[pos + 1..], "binary_mark"))
                     .unwrap_or(vec![0, 0, 0, 0]);
         }
 

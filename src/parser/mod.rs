@@ -424,7 +424,7 @@ pub fn header(input: ParserInput) -> Option<String> {
     )(input))
 }
 
-pub fn binary_comment(input: ParserInput) -> Option<Vec<u8>> {
+pub fn binary_mark(input: ParserInput) -> Option<Vec<u8>> {
     strip_nom(map_res(
         delimited(
             tag(b"%"),
