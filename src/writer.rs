@@ -499,7 +499,6 @@ impl Writer {
             file.write_all(binary_comment)?;
             file.write(&[b'\n'])?;
         } else {
-            println!("{:?}", binary_comment);
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Invalid binary mark",
