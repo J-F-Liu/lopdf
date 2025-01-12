@@ -19,7 +19,7 @@ pub struct Document {
     /// The version of the PDF specification to which the file conforms.
     pub version: String,
 
-    /// The binary comment important for PDF A/2,3 tells various software tools to classify
+    /// The binary mark important for PDF A/2,3 tells various software tools to classify
     /// the file as containing 8-bit binary that should be preserved during processing
     pub binary_mark: Vec<u8>,
 
