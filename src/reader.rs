@@ -226,8 +226,8 @@ impl Reader<'_> {
 
         //The binary comment is in line 2 after the pdf version. If at other line number, then will be declared as invalid pdf.
         if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n') {
-            self.document.binary_comment =
-                parser::binary_comment(ParserInput::new_extra(&self.buffer[pos + 1..], "binary_comment"))
+            self.document.binary_mark =
+                parser::binary_mark(ParserInput::new_extra(&self.buffer[pos + 1..], "binary_comment"))
                     .unwrap_or(vec![0, 0, 0, 0]);
         }
 

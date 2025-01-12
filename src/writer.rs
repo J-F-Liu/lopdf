@@ -31,7 +31,7 @@ impl Document {
         let mut xref = Xref::new(self.max_id + 1, self.reference_table.cross_reference_type);
         writeln!(target, "%PDF-{}", self.version)?;
 
-        Writer::write_binary_comment(&mut target, &self.binary_comment)?;
+        Writer::write_binary_mark(&mut target, &self.binary_mark)?;
 
         for (&(id, generation), object) in &self.objects {
             if object
@@ -163,7 +163,7 @@ impl IncrementalDocument {
         }
         writeln!(target, "%PDF-{}", self.new_document.version)?;
 
-        Writer::write_binary_comment(&mut target, &self.new_document.binary_comment)?;
+        Writer::write_binary_mark(&mut target, &self.new_document.binary_mark)?;
 
         for (&(id, generation), object) in &self.new_document.objects {
             if object
@@ -489,14 +489,14 @@ impl Writer {
         Ok(())
     }
 
-    /// Write Binary Comment as follows: %{binary_comment[4]}\n -> %Çì¢ or Hex(%25 c3 87 c3 ac)
+    /// Write Binary mark as follows: %{binary_mark[4]}\n -> %Çì¢ or Hex(%25 c3 87 c3 ac)
     ///
     /// Note: Specified in  ISO 19005-2:2011, ISO 19005-3:2012
     /// headerByte1 > 127 && headerByte2 > 127 && headerByte3 > 127 && headerByte4 > 127
-    fn write_binary_comment(file: &mut dyn Write, binary_comment: &[u8]) -> Result<()> {
-        if binary_comment.iter().all(|&byte| byte >= 128) {
+    fn write_binary_mark(file: &mut dyn Write, binary_mark: &[u8]) -> Result<()> {
+        if binary_mark.iter().all(|&byte| byte >= 128) {
             file.write(&[b'%'])?;
-            file.write_all(binary_comment)?;
+            file.write_all(binary_mark)?;
             file.write(&[b'\n'])?;
         } else {
             return Err(std::io::Error::new(
