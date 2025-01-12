@@ -494,11 +494,18 @@ impl Writer {
     /// Note: Specified in  ISO 19005-2:2011, ISO 19005-3:2012
     /// headerByte1 > 127 && headerByte2 > 127 && headerByte3 > 127 && headerByte4 > 127
     fn write_binary_comment(file: &mut dyn Write, binary_comment: &[u8]) -> Result<()> {
-        if !binary_comment.is_empty() {
+        if binary_comment.iter().all(|&byte| byte >= 128) {
             file.write(&[b'%'])?;
             file.write_all(binary_comment)?;
             file.write(&[b'\n'])?;
+        } else {
+            println!("{:?}", binary_comment);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Invalid binary mark",
+            ));
         }
+
         Ok(())
     }
 }
