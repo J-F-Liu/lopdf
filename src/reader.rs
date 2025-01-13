@@ -228,7 +228,7 @@ impl Reader<'_> {
         if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n') {
             self.document.binary_mark =
                 parser::binary_mark(ParserInput::new_extra(&self.buffer[pos + 1..], "binary_mark"))
-                    .unwrap_or(vec![0, 0, 0, 0]);
+                    .unwrap_or(self.document.binary_mark);
         }
 
         let xref_start = Self::get_xref_start(self.buffer)?;

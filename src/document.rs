@@ -57,7 +57,7 @@ impl Document {
     pub fn new() -> Self {
         Self {
             version: "1.4".to_string(),
-            binary_mark: vec![0, 0, 0, 0],
+            binary_mark: vec![0xBB, 0xAD, 0xC0, 0xDE],
             trailer: Dictionary::new(),
             reference_table: Xref::new(0, XrefType::CrossReferenceStream),
             objects: BTreeMap::new(),
@@ -75,7 +75,7 @@ impl Document {
         new_trailer.set("Prev", Object::Integer(prev.xref_start as i64));
         Self {
             version: "1.4".to_string(),
-            binary_mark: vec![0, 0, 0, 0],
+            binary_mark: vec![0xBB, 0xAD, 0xC0, 0xDE],
             trailer: new_trailer,
             reference_table: Xref::new(0, prev.reference_table.cross_reference_type),
             objects: BTreeMap::new(),
