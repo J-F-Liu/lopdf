@@ -19,6 +19,10 @@ pub struct Document {
     /// The version of the PDF specification to which the file conforms.
     pub version: String,
 
+    /// The binary mark important for PDF A/2,3 tells various software tools to classify
+    /// the file as containing 8-bit binary that should be preserved during processing
+    pub binary_mark: Vec<u8>,
+
     /// The trailer gives the location of the cross-reference table and of certain special objects.
     pub trailer: Dictionary,
 
@@ -53,6 +57,7 @@ impl Document {
     pub fn new() -> Self {
         Self {
             version: "1.4".to_string(),
+            binary_mark: vec![0xBB, 0xAD, 0xC0, 0xDE],
             trailer: Dictionary::new(),
             reference_table: Xref::new(0, XrefType::CrossReferenceStream),
             objects: BTreeMap::new(),
@@ -70,6 +75,7 @@ impl Document {
         new_trailer.set("Prev", Object::Integer(prev.xref_start as i64));
         Self {
             version: "1.4".to_string(),
+            binary_mark: vec![0xBB, 0xAD, 0xC0, 0xDE],
             trailer: new_trailer,
             reference_table: Xref::new(0, prev.reference_table.cross_reference_type),
             objects: BTreeMap::new(),

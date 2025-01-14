@@ -424,6 +424,17 @@ pub fn header(input: ParserInput) -> Option<String> {
     )(input))
 }
 
+pub fn binary_mark(input: ParserInput) -> Option<Vec<u8>> {
+    strip_nom(map_res(
+        delimited(
+            tag(b"%"),
+            take_while(|c: u8| !b"\r\n".contains(&c)),
+            pair(eol, many0_count(comment)),
+        ),
+        |v: ParserInput| Ok::<Vec<u8>, ()>(v.to_vec()),
+    )(input))
+}
+
 /// Decode CrossReferenceTable
 fn xref(input: ParserInput) -> NomResult<Xref> {
     let xref_eol = map(alt((tag(b" \r"), tag(b" \n"), tag(b"\r\n"))), |_| ());

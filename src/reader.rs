@@ -224,6 +224,13 @@ impl Reader<'_> {
         let version =
             parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(ParseError::InvalidFileHeader)?;
 
+        //The binary_mark is in line 2 after the pdf version. If at other line number, then will be declared as invalid pdf.
+        if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n') {
+            self.document.binary_mark =
+                parser::binary_mark(ParserInput::new_extra(&self.buffer[pos + 1..], "binary_mark"))
+                    .unwrap_or(self.document.binary_mark);
+        }
+
         let xref_start = Self::get_xref_start(self.buffer)?;
         if xref_start > self.buffer.len() {
             return Err(Error::Xref(XrefError::Start));
