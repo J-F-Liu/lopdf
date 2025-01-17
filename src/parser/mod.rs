@@ -504,9 +504,15 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
 pub fn xref_start(input: ParserInput) -> Option<i64> {
     strip_nom(delimited(
         pair(tag(b"startxref"), eol),
-        integer,
+        trim_spaces(integer),
         tuple((eol, tag(b"%%EOF"), space)),
     )(input))
+}
+
+fn trim_spaces<'a, O>(
+    p: impl FnMut(ParserInput<'a>) -> NomResult<'a, O>,
+) -> impl FnMut(ParserInput<'a>) -> NomResult<'a, O> {
+    delimited(many0(tag(" ")), p, many0(tag(" ")))
 }
 
 // The following code create parser to parse content stream.
@@ -754,6 +760,18 @@ startxref
         match xref(test_span(input)) {
             Ok((_, re)) => assert_eq!(re.entries.len(), 15),
             Err(err) => panic!("unexpected {:?}", err),
+        }
+    }
+
+    #[test]
+    fn space_in_startxref_number() {
+        let input = b"startxref
+153804 
+%%EOF
+";
+        match xref_start(test_span(input)) {
+            Some(num) => assert_eq!(num, 153804),
+            None => panic!("could not parse number in startxref"),
         }
     }
 
