@@ -1,4 +1,95 @@
 
+<a name="0.35.0"></a>
+## [0.35.0](https://github.com/J-F-Liu/lopdf/compare/v0.34.0...0.35.0) (2025-01-19)
+
+### Add
+
+* Add test for supported color types in PDF image embedding
+* Add function for text chunks extraction. ([#342](https://github.com/J-F-Liu/lopdf/issues/342))
+
+### Added
+
+* added binary comment as attribute and for load and write. Binary Comment is gonna be important for pdf in A/2, A/3 format. ([#370](https://github.com/J-F-Liu/lopdf/issues/370))
+
+### Allow
+
+* Allow parsing off-spec PDF files with prefixes before the header ([#362](https://github.com/J-F-Liu/lopdf/issues/362))
+
+### Also
+
+* Also accept ASCII85 streams without EOD marker ([#354](https://github.com/J-F-Liu/lopdf/issues/354))
+
+### Fix
+
+* Fix clippy warning
+* Fix incorrect image data handling in PDF content stream
+* Fix BitsPerComponent calculation and improper ColorSpace mapping
+* Fix incorrect color type detection for JPEG images
+* Fix mulitplication overflow in ascii85 decode ([#348](https://github.com/J-F-Liu/lopdf/issues/348))
+* Fix out of memory bug ([#347](https://github.com/J-F-Liu/lopdf/issues/347))
+* Fix addition overflow ([#346](https://github.com/J-F-Liu/lopdf/issues/346))
+* Fix lowercase s of Procset and no space target string(J-F-Liu[#323](https://github.com/J-F-Liu/lopdf/issues/323)) ([#324](https://github.com/J-F-Liu/lopdf/issues/324))
+
+### Ignore
+
+* Ignore space after byte index of startxref ([#371](https://github.com/J-F-Liu/lopdf/issues/371))
+
+### Implement
+
+* Implement ToUnicode for variadic len encodings ([#328](https://github.com/J-F-Liu/lopdf/issues/328))
+
+### Improve
+
+* Improve JPEG processing efficiency by avoiding unnecessary decode ([#345](https://github.com/J-F-Liu/lopdf/issues/345))
+* Improve cmap parsing and internal error handling ([#335](https://github.com/J-F-Liu/lopdf/issues/335))
+
+### Inline
+
+* Inline images ([#356](https://github.com/J-F-Liu/lopdf/issues/356))
+
+### Keep
+
+* keep existing values when extending dictionary ([#322](https://github.com/J-F-Liu/lopdf/issues/322))
+
+### Properly
+
+* Properly support document prefixes ([#365](https://github.com/J-F-Liu/lopdf/issues/365))
+
+### Refactor
+
+* Refactor and optimize image processing logic in xobject.rs
+
+### Remove
+
+* remove misleading Object::as_string ([#350](https://github.com/J-F-Liu/lopdf/issues/350))
+
+* Remove superfluous `ref` keyword ([#361](https://github.com/J-F-Liu/lopdf/issues/361))
+* Remove pom parser ([#355](https://github.com/J-F-Liu/lopdf/issues/355))
+* Remove /Prev from trailer ([#333](https://github.com/J-F-Liu/lopdf/issues/333))
+
+### Replace
+
+* Replace debug assert with Result ([#349](https://github.com/J-F-Liu/lopdf/issues/349))
+* Replace unwrap with error handling ([#351](https://github.com/J-F-Liu/lopdf/issues/351))
+
+### Rework
+
+* Rework errors ([#358](https://github.com/J-F-Liu/lopdf/issues/358))
+
+### Specify
+
+* Specify minimum Rust version in Cargo.toml ([#320](https://github.com/J-F-Liu/lopdf/issues/320))
+
+### Support
+
+* Support UTF-16 encoding for bookmark titles with non-ASCII characters ([#364](https://github.com/J-F-Liu/lopdf/issues/364))
+* Support AES encryption and revision 4 ([#343](https://github.com/J-F-Liu/lopdf/issues/343))
+
+### Throw
+
+* Throw error if xref stream cannot be uncompressed ([#339](https://github.com/J-F-Liu/lopdf/issues/339))
+
+
 <a name="v0.34.0"></a>
 ## [v0.34.0](https://github.com/J-F-Liu/lopdf/compare/v0.33.0...v0.34.0) (2024-08-31)
 
