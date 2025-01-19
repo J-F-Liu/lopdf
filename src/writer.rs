@@ -495,9 +495,9 @@ impl Writer {
     /// headerByte1 > 127 && headerByte2 > 127 && headerByte3 > 127 && headerByte4 > 127
     fn write_binary_mark(file: &mut dyn Write, binary_mark: &[u8]) -> Result<()> {
         if binary_mark.iter().all(|&byte| byte >= 128) {
-            file.write(&[b'%'])?;
+            file.write_all(b"%")?;
             file.write_all(binary_mark)?;
-            file.write(&[b'\n'])?;
+            file.write_all(b"\n")?;
         } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
