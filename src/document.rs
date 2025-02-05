@@ -277,18 +277,12 @@ impl Document {
 
         let is_aes = self
             .get_encrypted().ok()
-            .map(|dict| dict.get(b"CF").ok())
-            .flatten()
-            .map(|object| object.as_dict().ok())
-            .flatten()
-            .map(|dict| dict.get(b"StdCF").ok())
-            .flatten()
-            .map(|object| object.as_dict().ok())
-            .flatten()
-            .map(|dict| dict.get(b"CFM").ok())
-            .flatten()
-            .map(|object| object.as_name().ok())
-            .flatten()
+            .and_then(|dict| dict.get(b"CF").ok())
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|dict| dict.get(b"StdCF").ok())
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|dict| dict.get(b"CFM").ok())
+            .and_then(|object| object.as_name().ok())
             .map(|cfm| cfm == b"AESV2")
             .unwrap_or(false);
 
