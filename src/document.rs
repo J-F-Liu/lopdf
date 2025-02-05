@@ -274,16 +274,18 @@ impl Document {
             .unwrap_or(true);
 
         let key = encryption::get_encryption_key(self, &password, true)?;
-        let cfm = self
-            .get_encrypted()?
-            .get(b"CF")?
-            .as_dict()?
-            .get(b"StdCF")?
-            .as_dict()?
-            .get(b"CFM")?
-            .as_name()
-            .unwrap_or_default();
-        let is_aes = cfm == b"AESV2";
+
+        let is_aes = self
+            .get_encrypted().ok()
+            .and_then(|dict| dict.get(b"CF").ok())
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|dict| dict.get(b"StdCF").ok())
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|dict| dict.get(b"CFM").ok())
+            .and_then(|object| object.as_name().ok())
+            .map(|cfm| cfm == b"AESV2")
+            .unwrap_or(false);
+
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
             if id == encryption_obj_id {
