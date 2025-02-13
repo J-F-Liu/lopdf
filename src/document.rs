@@ -297,33 +297,7 @@ impl Document {
                 continue;
             }
 
-            let decrypted = match encryption::decrypt_object(&key, id, &*obj, is_aes) {
-                Ok(content) => content,
-                Err(encryption::DecryptionError::NotDecryptable) => {
-                    continue;
-                }
-                Err(_err) => {
-                    return Err(_err.into());
-                }
-            };
-
-            // Only strings and streams are encrypted
-            match obj {
-                Object::Stream(stream) => stream.set_content(decrypted),
-                Object::String(content, _) => *content = decrypted,
-                _ => {}
-            }
-        }
-
-        if let Ok(info_obj_id) = self.trailer.get(b"Info").and_then(Object::as_reference) {
-            if let Ok(info_dict) = self.get_object_mut(info_obj_id).and_then(Object::as_dict_mut) {
-                for (_, info_obj) in info_dict.iter_mut() {
-                    if let Ok(content) = encryption::decrypt_object(&key, info_obj_id, &*info_obj, is_aes) {
-                        info_obj.as_str_mut()?.clear();
-                        info_obj.as_str_mut()?.extend(content);
-                    };
-                }
-            }
+            encryption::decrypt_object(&key, id, obj, is_aes)?;
         }
 
         self.trailer.remove(b"Encrypt");

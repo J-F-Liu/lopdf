@@ -208,7 +208,7 @@ where
 
 /// Decrypts `obj` and returns the content of the string or stream.
 /// If obj is not an decryptable type, returns the NotDecryptable error.
-pub fn decrypt_object<Key>(key: Key, obj_id: ObjectId, obj: &Object, aes: bool) -> Result<Vec<u8>, DecryptionError>
+pub fn decrypt_object<Key>(key: Key, obj_id: ObjectId, obj: &mut Object, aes: bool) -> Result<(), DecryptionError>
 where
     Key: AsRef<[u8]>,
 {
@@ -231,14 +231,28 @@ where
     let rc4_key = &Md5::digest(builder)[..key_len];
 
     let encrypted = match obj {
+        Object::Array(objects) => {
+            for obj in objects {
+                decrypt_object(key, obj_id, obj, aes)?;
+            }
+
+            return Ok(());
+        }
+        Object::Dictionary(objects) => {
+            for (_, obj) in objects.iter_mut() {
+                decrypt_object(key, obj_id, obj, aes)?;
+            }
+
+            return Ok(());
+        }
         Object::String(content, _) => content,
         Object::Stream(stream) => &stream.content,
         _ => {
-            return Err(DecryptionError::NotDecryptable);
+            return Ok(());
         }
     };
 
-    if aes {
+    let decrypted = if aes {
         let mut iv = [0x00u8; 16];
         for (elem, i) in encrypted.iter().zip(0..16) {
             iv[i] = *elem;
@@ -248,11 +262,19 @@ where
         let pt = Aes128CbcDec::new(rc4_key.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs7>(data)
             .unwrap();
-        Ok(pt.to_vec())
+        pt.to_vec()
     } else {
         // Decrypt using the rc4 algorithm
-        Ok(Rc4::new(rc4_key).decrypt(encrypted))
+        Rc4::new(rc4_key).decrypt(encrypted)
+    };
+
+    match obj {
+        Object::Stream(stream) => stream.set_content(decrypted.clone()),
+        Object::String(content, _) => *content = decrypted.clone(),
+        _ => (),
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
