@@ -1,15 +1,122 @@
 use super::Object;
-#[cfg(feature = "chrono_time")]
-use chrono::prelude::*;
 
-use time::{format_description::FormatItem, OffsetDateTime, Time};
+#[cfg(feature = "chrono")]
+mod chrono_impl {
+    use crate::{datetime::convert_utc_offset, Object};
+    use chrono::prelude::*;
 
-#[cfg(feature = "chrono_time")]
-impl From<DateTime<Local>> for Object {
-    fn from(date: DateTime<Local>) -> Self {
-        let mut timezone_str = date.format("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
-        convert_utc_offset(&mut timezone_str);
-        Object::string_literal(timezone_str)
+    impl From<DateTime<Local>> for Object {
+        fn from(date: DateTime<Local>) -> Self {
+            let mut timezone_str = date.format("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
+            convert_utc_offset(&mut timezone_str);
+            Object::string_literal(timezone_str)
+        }
+    }
+
+    impl From<DateTime<Utc>> for Object {
+        fn from(date: DateTime<Utc>) -> Self {
+            Object::string_literal(date.format("D:%Y%m%d%H%M%SZ").to_string())
+        }
+    }
+
+    impl TryInto<DateTime<Local>> for super::DateTime {
+        type Error = chrono::format::ParseError;
+
+        fn try_into(self) -> Result<DateTime<Local>, Self::Error> {
+            let from_date = |date: NaiveDate| {
+                FixedOffset::east_opt(0)
+                    .unwrap()
+                    .from_utc_datetime(&date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
+            };
+
+            DateTime::parse_from_str(&self.0, "%Y%m%d%H%M%S%#z")
+                .or_else(|_| DateTime::parse_from_str(&self.0, "%Y%m%d%H%M%#z"))
+                .or_else(|_| NaiveDate::parse_from_str(&self.0, "%Y%m%d").map(from_date))
+                .map(|date| date.with_timezone(&Local))
+        }
+    }
+}
+
+#[cfg(feature = "jiff")]
+mod jiff_impl {
+    use crate::{datetime::convert_utc_offset, Object};
+    use jiff::{Timestamp, Zoned};
+
+    impl From<Zoned> for Object {
+        fn from(date: Zoned) -> Self {
+            let mut timezone_str = date.strftime("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
+            convert_utc_offset(&mut timezone_str);
+            Object::string_literal(timezone_str)
+        }
+    }
+
+    impl From<Timestamp> for Object {
+        fn from(date: Timestamp) -> Self {
+            Object::string_literal(date.strftime("D:%Y%m%d%H%M%SZ").to_string())
+        }
+    }
+
+    impl TryInto<Zoned> for super::DateTime {
+        type Error = jiff::Error;
+
+        fn try_into(self) -> Result<Zoned, Self::Error> {
+            use jiff::civil::{Date, DateTime};
+
+            Zoned::strptime("%Y%m%d%H%M%S%#z", &self.0)
+                .or_else(|_| DateTime::strptime("%Y%m%d%H%M%SZ", &self.0).and_then(|dt| dt.in_tz("UTC")))
+                .or_else(|_| Zoned::strptime("%Y%m%d%H%M%#z", &self.0))
+                .or_else(|_| DateTime::strptime("%Y%m%d%H%MZ", &self.0).and_then(|dt| dt.in_tz("UTC")))
+                .or_else(|_| Date::strptime("%Y%m%d", &self.0).and_then(|dt| dt.at(0, 0, 0, 0).in_tz("UTC")))
+        }
+    }
+}
+
+#[cfg(feature = "time")]
+mod time_impl {
+    use crate::Object;
+    use time::{format_description::FormatItem, OffsetDateTime, Time};
+
+    impl From<Time> for Object {
+        fn from(date: Time) -> Self {
+            // can only fail if the TIME_FMT_ENCODE_STR would be invalid
+            Object::string_literal(
+                format!(
+                    "D:{}",
+                    date.format(&FormatItem::Literal("%Y%m%d%H%M%SZ".as_bytes())).unwrap()
+                )
+                .into_bytes(),
+            )
+        }
+    }
+
+    impl From<OffsetDateTime> for Object {
+        fn from(date: OffsetDateTime) -> Self {
+            Object::string_literal({
+                // D:%Y%m%d%H%M%S:%z'
+                let format = time::format_description::parse(
+                    "D:[year][month][day][hour][minute][second][offset_hour sign:mandatory]'[offset_minute]'",
+                )
+                .unwrap();
+                date.format(&format).unwrap()
+            })
+        }
+    }
+
+    /// WARNING: `tm_wday` (weekday), `tm_yday` (day index in year), `tm_isdst`
+    /// (daylight saving time) and `tm_nsec` (nanoseconds of the date from 1970)
+    /// are set to 0 since they aren't available in the PDF time format. They could,
+    /// however, be calculated manually
+    impl TryInto<OffsetDateTime> for super::DateTime {
+        type Error = time::Error;
+
+        fn try_into(self) -> Result<OffsetDateTime, Self::Error> {
+            let format = time::format_description::parse(
+                "[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]",
+            )
+            .unwrap();
+
+            Ok(OffsetDateTime::parse(&self.0, &format)?)
+        }
     }
 }
 
@@ -26,38 +133,8 @@ fn convert_utc_offset(bytes: &mut [u8]) {
     }
 }
 
-#[cfg(feature = "chrono_time")]
-impl From<DateTime<Utc>> for Object {
-    fn from(date: DateTime<Utc>) -> Self {
-        Object::string_literal(date.format("D:%Y%m%d%H%M%SZ").to_string())
-    }
-}
-
-impl From<Time> for Object {
-    fn from(date: Time) -> Self {
-        // can only fail if the TIME_FMT_ENCODE_STR would be invalid
-        Object::string_literal(
-            format!(
-                "D:{}",
-                date.format(&FormatItem::Literal("%Y%m%d%H%M%SZ".as_bytes())).unwrap()
-            )
-            .into_bytes(),
-        )
-    }
-}
-
-impl From<OffsetDateTime> for Object {
-    fn from(date: OffsetDateTime) -> Self {
-        Object::string_literal({
-            // D:%Y%m%d%H%M%S:%z'
-            let format = time::format_description::parse(
-                "D:[year][month][day][hour][minute][second][offset_hour sign:mandatory]'[offset_minute]'",
-            )
-            .unwrap();
-            date.format(&format).unwrap()
-        })
-    }
-}
+#[derive(Clone, Debug)]
+pub struct DateTime(String);
 
 impl Object {
     // Parses the `D`, `:` and `\` out of a `Object::String` to parse the date time
@@ -76,76 +153,106 @@ impl Object {
         }
     }
 
-    #[cfg(feature = "chrono_time")]
-    pub fn as_datetime(&self) -> Option<DateTime<Local>> {
-        let text = self.datetime_string()?;
-        let from_date = |date: NaiveDate| {
-            FixedOffset::east_opt(0)
-                .unwrap()
-                .from_utc_datetime(&date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
-        };
-        DateTime::parse_from_str(&text, "%Y%m%d%H%M%S%#z")
-            .or_else(|_| DateTime::parse_from_str(&text, "%Y%m%d%H%M%#z"))
-            .or_else(|_| NaiveDate::parse_from_str(&text, "%Y%m%d").map(from_date))
-            .map(|date| date.with_timezone(&Local))
-            .ok()
-    }
-
-    /// WARNING: `tm_wday` (weekday), `tm_yday` (day index in year), `tm_isdst`
-    /// (daylight saving time) and `tm_nsec` (nanoseconds of the date from 1970)
-    /// are set to 0 since they aren't available in the PDF time format. They could,
-    /// however, be calculated manually
-    #[cfg(not(feature = "chrono_time"))]
-    pub fn as_datetime(&self) -> Option<OffsetDateTime> {
-        let format = time::format_description::parse(
-            "[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]",
-        )
-        .unwrap();
-        let text = self.datetime_string()?;
-        OffsetDateTime::parse(&text, &format).ok()
+    pub fn as_datetime(&self) -> Option<DateTime> {
+        self.datetime_string().map(DateTime)
     }
 }
 
-#[cfg(feature = "chrono_time")]
+#[cfg(feature = "chrono")]
 #[test]
 fn parse_datetime_local() {
+    use chrono::prelude::*;
+
     let time = Local::now().with_nanosecond(0).unwrap();
     let text: Object = time.into();
-    let time2 = text.as_datetime();
+    let time2: Option<DateTime<Local>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
     assert_eq!(time2, Some(time));
 }
 
-#[cfg(feature = "chrono_time")]
+#[cfg(feature = "chrono")]
 #[test]
 fn parse_datetime_utc() {
+    use chrono::prelude::*;
+
     let time = Utc::now().with_nanosecond(0).unwrap();
     let text: Object = time.into();
-    let time2 = text.as_datetime();
+    let time2: Option<DateTime<Local>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
     assert_eq!(time2, Some(time.with_timezone(&Local)));
 }
 
-#[cfg(feature = "chrono_time")]
+#[cfg(feature = "jiff")]
 #[test]
-fn parse_datetime_seconds_missing() {
+fn parse_zoned() {
+    use jiff::Zoned;
+
+    let time = Zoned::now().with().subsec_nanosecond(0).build().unwrap();
+    let text: Object = time.clone().into();
+    let time2: Option<Zoned> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert_eq!(time2, Some(time));
+}
+
+#[cfg(feature = "jiff")]
+#[test]
+fn parse_timestamp() {
+    use jiff::Zoned;
+
+    let time = Zoned::now().with().subsec_nanosecond(0).build().unwrap();
+    let text: Object = time.timestamp().into();
+    let time2: Option<Zoned> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert_eq!(time2, Some(time));
+}
+
+#[cfg(feature = "chrono")]
+#[test]
+fn parse_datetime_seconds_missing_chrono() {
+    use chrono::prelude::*;
+
     // this is the example from the PDF reference, version 1.7, chapter 3.8.3
     let text = Object::string_literal("D:199812231952-08'00'");
-    assert!(text.as_datetime().is_some());
+    let dt: Option<DateTime<Local>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert!(dt.is_some());
 }
 
-#[cfg(feature = "chrono_time")]
+#[cfg(feature = "chrono")]
 #[test]
-fn parse_datetime_time_missing() {
+fn parse_datetime_time_missing_chrono() {
+    use chrono::prelude::*;
+
     let text = Object::string_literal("D:20040229");
-    assert!(text.as_datetime().is_some());
+    let dt: Option<DateTime<Local>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert!(dt.is_some());
 }
 
-#[cfg(not(feature = "chrono_time"))]
+#[cfg(feature = "jiff")]
+#[test]
+fn parse_datetime_seconds_missing_jiff() {
+    use jiff::Zoned;
+
+    // this is the example from the PDF reference, version 1.7, chapter 3.8.3
+    let text = Object::string_literal("D:199812231952-08'00'");
+    let dt: Option<Zoned> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert!(dt.is_some());
+}
+
+#[cfg(feature = "jiff")]
+#[test]
+fn parse_datetime_time_missing_jiff() {
+    use jiff::Zoned;
+
+    let text = Object::string_literal("D:20040229");
+    let dt: Option<Zoned> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert!(dt.is_some());
+}
+
+#[cfg(feature = "time")]
 #[test]
 fn parse_datetime() {
-    let time = time::OffsetDateTime::now_utc();
+    use time::OffsetDateTime;
+
+    let time = OffsetDateTime::now_utc();
 
     let text: Object = time.into();
-    let time2 = text.as_datetime().unwrap();
+    let time2: OffsetDateTime = text.as_datetime().unwrap().try_into().unwrap();
 
     assert_eq!(time2.date(), time.date());
 

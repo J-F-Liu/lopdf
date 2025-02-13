@@ -28,6 +28,7 @@ flate2 = "1.0"
 image = { version = "0.25", optional = true }
 indexmap = "2.2.3"
 itoa = "1.0"
+jiff = { version = "0.2", optional = true }
 log = "0.4"
 md-5 = "0.10"
 nom = { version = "7.1", optional = true }
@@ -36,7 +37,7 @@ rangemap = "1.5"
 rayon = { version = "1.6", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "2.0.3"
-time = { version = "0.3", features = ["formatting", "parsing"] }
+time = { version = "0.3", features = ["formatting", "parsing"], optional = true }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.1"
 
@@ -49,11 +50,13 @@ tempfile = "3.3"
 
 [features]
 async = ["tokio/rt-multi-thread", "tokio/macros"]
-chrono_time = ["chrono"]
-default = ["chrono_time", "nom_parser", "rayon"]
+chrono = ["dep:chrono"]
+default = ["chrono", "jiff", "nom_parser", "rayon", "time"]
 embed_image = ["image"]
+jiff = ["dep:jiff"]
 nom_parser = ["nom", "nom_locate"]
 serde = ["dep:serde"]
+time = ["dep:time"]
 
 [[example]]
 name = "extract_toc"
