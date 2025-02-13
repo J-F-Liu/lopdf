@@ -602,7 +602,7 @@ impl<'a> PageTreeIter<'a> {
 
     fn kids(doc: &Document, page_tree_id: ObjectId) -> Option<&[Object]> {
         doc.get_dictionary(page_tree_id)
-            .and_then(|page_tree| page_tree.get(b"Kids"))
+            .and_then(|page_tree| page_tree.get_deref(b"Kids", doc))
             .and_then(Object::as_array)
             .map(|k| k.as_slice())
             .ok()
