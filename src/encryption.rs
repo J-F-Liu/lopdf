@@ -212,6 +212,16 @@ pub fn decrypt_object<Key>(key: Key, obj_id: ObjectId, obj: &mut Object, aes: bo
 where
     Key: AsRef<[u8]>,
 {
+    // The cross-reference stream shall not be encrypted and strings appearing in the
+    // cross-reference stream dictionary shall not be encrypted.
+    let is_xref_stream = obj.as_stream()
+        .map(|stream| stream.dict.has_type(b"XRef"))
+        .unwrap_or(false);
+
+    if is_xref_stream {
+        return Ok(());
+    }
+
     let key = key.as_ref();
     let len = if aes { key.len() + 9 } else { key.len() + 5 };
     let mut builder = Vec::<u8>::with_capacity(len);
