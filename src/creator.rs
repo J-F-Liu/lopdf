@@ -115,6 +115,16 @@ pub mod tests {
     use crate::content::*;
     use crate::{Document, Object, Stream};
 
+    #[cfg(not(feature = "time"))]
+    pub fn get_timestamp() -> Object {
+        Object::string_literal("D:19700101000000Z")
+    }
+
+    #[cfg(feature = "time")]
+    pub fn get_timestamp() -> Object {
+        time::OffsetDateTime::now_utc().into()
+    }
+
     /// Create and return a document for testing
     pub fn create_document() -> Document {
         create_document_with_texts(&["Hello World!"])
@@ -125,7 +135,7 @@ pub mod tests {
         let info_id = doc.add_object(dictionary! {
             "Title" => Object::string_literal("Create PDF document example"),
             "Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
-            "CreationDate" => time::OffsetDateTime::now_utc(),
+            "CreationDate" => get_timestamp(),
         });
         let pages_id = doc.new_object_id();
         let font_id = doc.add_object(dictionary! {
