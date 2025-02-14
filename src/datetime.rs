@@ -62,11 +62,31 @@ mod jiff_impl {
         fn try_from(value: super::DateTime) -> Result<Self, Self::Error> {
             use jiff::civil::{Date, DateTime};
 
+            // We attempt to parse different date time formats based on Section 7.9.4 "Dates" in
+            // PDF 32000-1:2008 here.
+            //
+            // "A PLUS SIGN as the value of the O field signifies that the local time is later than
+            // UT, a HYPHEN-MINUS signifies that local time is earlier than UT, and the LATIN
+            // CAPITAL Z signifies that local time is equal to UT. If no UT information is
+            // specified, the relationship of the specified time to UT shall be considered GMT."
+            //
+            // 1. Try parsing the full date and time with the `%#z` specifier to parse the timezone
+            //    as `Zoned` object.
+            // 2. Try parsing the full date and time with the 'Z' suffix as a `DateTime` interpreted
+            //    to be in the UTC timezone.
+            // 3. Try parsing the date and time without the seconds specified with the `%#z`
+            //    specifier to parse the timezone as a `Zoned` object.
+            // 4. Try parsing the date and time without the seconds specified with the 'Z' as a
+            //    `DateTime` interpreted to be in the UTC timezone.
+            // 5. Try parsing the date with no time as a `Date` interpreted to be in the GMT
+            //    timezone.
+            //
+            // In all cases we return a `Zoned` object here to preserve the timezone.
             Zoned::strptime("%Y%m%d%H%M%S%#z", &value.0)
                 .or_else(|_| DateTime::strptime("%Y%m%d%H%M%SZ", &value.0).and_then(|dt| dt.in_tz("UTC")))
                 .or_else(|_| Zoned::strptime("%Y%m%d%H%M%#z", &value.0))
                 .or_else(|_| DateTime::strptime("%Y%m%d%H%MZ", &value.0).and_then(|dt| dt.in_tz("UTC")))
-                .or_else(|_| Date::strptime("%Y%m%d", &value.0).and_then(|dt| dt.at(0, 0, 0, 0).in_tz("UTC")))
+                .or_else(|_| Date::strptime("%Y%m%d", &value.0).and_then(|dt| dt.at(0, 0, 0, 0).in_tz("GMT")))
         }
     }
 }
