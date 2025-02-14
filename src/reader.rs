@@ -284,6 +284,8 @@ impl Reader<'_> {
         self.document.trailer = trailer;
         self.document.reference_table = xref;
 
+        let is_encrypted = self.document.trailer.get(b"Encrypt").is_ok();
+
         let zero_length_streams = Mutex::new(vec![]);
         let object_streams = Mutex::new(vec![]);
 
@@ -296,8 +298,9 @@ impl Reader<'_> {
                 if let Some(filter_func) = filter_func {
                     filter_func(object_id, &mut object)?;
                 }
+
                 if let Ok(ref mut stream) = object.as_stream_mut() {
-                    if stream.dict.has_type(b"ObjStm") {
+                    if stream.dict.has_type(b"ObjStm") && !is_encrypted {
                         let obj_stream = ObjectStream::new(stream).ok()?;
                         let mut object_streams = object_streams.lock().unwrap();
                         // TODO: Is insert and replace intended behavior?
@@ -317,6 +320,7 @@ impl Reader<'_> {
                         zero_length_streams.push(object_id);
                     }
                 }
+
                 Some((object_id, object))
             } else {
                 None
