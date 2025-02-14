@@ -1,6 +1,6 @@
 use super::encodings::Encoding;
 use super::{Bookmark, Dictionary, Object, ObjectId};
-use crate::encryption;
+use crate::{encryption, ObjectStream};
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
 use crate::{Error, Result, Stream};
@@ -298,6 +298,23 @@ impl Document {
             }
 
             encryption::decrypt_object(&key, id, obj, is_aes)?;
+        }
+
+        // Add the objects from the object streams now that they have been decrypted.
+        let mut object_streams = vec![];
+
+        for (_, object) in self.objects.iter_mut() {
+            let Ok(ref mut stream) = object.as_stream_mut() else {
+                continue;
+            };
+
+            if !stream.dict.has_type(b"ObjStm") {
+                let obj_stream = ObjectStream::new(stream).ok().unwrap();
+
+                // TODO: Is insert and replace intended behavior?
+                // See https://github.com/J-F-Liu/lopdf/issues/160 for more info
+                object_streams.extend(obj_stream.objects);
+            }
         }
 
         self.trailer.remove(b"Encrypt");
