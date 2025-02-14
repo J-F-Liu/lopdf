@@ -71,7 +71,7 @@ mod jiff_impl {
             // specified, the relationship of the specified time to UT shall be considered GMT."
             //
             // 1. Try parsing the full date and time with the `%#z` specifier to parse the timezone
-            //    as `Zoned` object.
+            //    as a `Zoned` object.
             // 2. Try parsing the full date and time with the 'Z' suffix as a `DateTime` interpreted
             //    to be in the UTC timezone.
             // 3. Try parsing the date and time without the seconds specified with the `%#z`
