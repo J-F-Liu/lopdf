@@ -19,19 +19,19 @@ mod chrono_impl {
         }
     }
 
-    impl TryInto<DateTime<Local>> for super::DateTime {
+    impl TryFrom<super::DateTime> for DateTime<Local> {
         type Error = chrono::format::ParseError;
 
-        fn try_into(self) -> Result<DateTime<Local>, Self::Error> {
+        fn try_from(value: super::DateTime) -> Result<DateTime<Local>, Self::Error> {
             let from_date = |date: NaiveDate| {
                 FixedOffset::east_opt(0)
                     .unwrap()
                     .from_utc_datetime(&date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
             };
 
-            DateTime::parse_from_str(&self.0, "%Y%m%d%H%M%S%#z")
-                .or_else(|_| DateTime::parse_from_str(&self.0, "%Y%m%d%H%M%#z"))
-                .or_else(|_| NaiveDate::parse_from_str(&self.0, "%Y%m%d").map(from_date))
+            DateTime::parse_from_str(&value.0, "%Y%m%d%H%M%S%#z")
+                .or_else(|_| DateTime::parse_from_str(&value.0, "%Y%m%d%H%M%#z"))
+                .or_else(|_| NaiveDate::parse_from_str(&value.0, "%Y%m%d").map(from_date))
                 .map(|date| date.with_timezone(&Local))
         }
     }
@@ -56,17 +56,17 @@ mod jiff_impl {
         }
     }
 
-    impl TryInto<Zoned> for super::DateTime {
+    impl TryFrom<super::DateTime> for Zoned {
         type Error = jiff::Error;
 
-        fn try_into(self) -> Result<Zoned, Self::Error> {
+        fn try_from(value: super::DateTime) -> Result<Self, Self::Error> {
             use jiff::civil::{Date, DateTime};
 
-            Zoned::strptime("%Y%m%d%H%M%S%#z", &self.0)
-                .or_else(|_| DateTime::strptime("%Y%m%d%H%M%SZ", &self.0).and_then(|dt| dt.in_tz("UTC")))
-                .or_else(|_| Zoned::strptime("%Y%m%d%H%M%#z", &self.0))
-                .or_else(|_| DateTime::strptime("%Y%m%d%H%MZ", &self.0).and_then(|dt| dt.in_tz("UTC")))
-                .or_else(|_| Date::strptime("%Y%m%d", &self.0).and_then(|dt| dt.at(0, 0, 0, 0).in_tz("UTC")))
+            Zoned::strptime("%Y%m%d%H%M%S%#z", &value.0)
+                .or_else(|_| DateTime::strptime("%Y%m%d%H%M%SZ", &value.0).and_then(|dt| dt.in_tz("UTC")))
+                .or_else(|_| Zoned::strptime("%Y%m%d%H%M%#z", &value.0))
+                .or_else(|_| DateTime::strptime("%Y%m%d%H%MZ", &value.0).and_then(|dt| dt.in_tz("UTC")))
+                .or_else(|_| Date::strptime("%Y%m%d", &value.0).and_then(|dt| dt.at(0, 0, 0, 0).in_tz("UTC")))
         }
     }
 }
@@ -106,16 +106,16 @@ mod time_impl {
     /// (daylight saving time) and `tm_nsec` (nanoseconds of the date from 1970)
     /// are set to 0 since they aren't available in the PDF time format. They could,
     /// however, be calculated manually
-    impl TryInto<OffsetDateTime> for super::DateTime {
+    impl TryFrom<super::DateTime> for OffsetDateTime {
         type Error = time::Error;
 
-        fn try_into(self) -> Result<OffsetDateTime, Self::Error> {
+        fn try_from(value: super::DateTime) -> Result<OffsetDateTime, Self::Error> {
             let format = time::format_description::parse(
                 "[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]",
             )
             .unwrap();
 
-            Ok(OffsetDateTime::parse(&self.0, &format)?)
+            Ok(OffsetDateTime::parse(&value.0, &format)?)
         }
     }
 }
