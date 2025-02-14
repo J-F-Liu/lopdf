@@ -19,6 +19,8 @@ pub enum DecryptionError {
 
     #[error("invalid key length")]
     InvalidKeyLength,
+    #[error("invalid ciphertext length")]
+    InvalidCipherTextLength,
     #[error("invalid revision")]
     InvalidRevision,
     // Used generically when the object type violates the spec
@@ -253,18 +255,28 @@ where
     };
 
     let decrypted = if aes {
-        let mut iv = [0x00u8; 16];
-        for (elem, i) in encrypted.iter().zip(0..16) {
-            iv[i] = *elem;
+        // Ensure that the ciphertext length is a multiple of 16 bytes.
+        if encrypted.len() % 16 != 0 {
+            return Err(DecryptionError::InvalidCipherTextLength);
         }
-        // Decrypt using the aes algorithm
-        let data = &mut encrypted[16..].to_vec();
-        let pt = Aes128CbcDec::new(rc4_key.into(), &iv.into())
-            .decrypt_padded_mut::<Pkcs7>(data)
-            .unwrap();
-        pt.to_vec()
+
+        // There is nothing to decrypt if the ciphertext is empty or only contains the IV.
+        if encrypted.is_empty() || encrypted.len() == 16 {
+            vec![]
+        } else {
+            let mut iv = [0x00u8; 16];
+            iv.copy_from_slice(&encrypted[..16]);
+
+            // Use the 128-bit AES-CBC algorithm with PKCS#7 padding to decrypt the ciphertext.
+            let data = &mut encrypted[16..].to_vec();
+
+            Aes128CbcDec::new(rc4_key.into(), &iv.into())
+                .decrypt_padded_mut::<Pkcs7>(data)
+                .unwrap()
+                .to_vec()
+        }
     } else {
-        // Decrypt using the rc4 algorithm
+        // Use the RC4 algorithm to decrypt the ciphertext.
         Rc4::new(rc4_key).decrypt(encrypted)
     };
 
