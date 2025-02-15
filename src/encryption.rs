@@ -46,6 +46,111 @@ type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 const DEFAULT_KEY_LEN: Object = Object::Integer(40);
 const DEFAULT_ALGORITHM: Object = Object::Integer(0);
 
+pub trait CryptFilter: std::fmt::Debug {
+    fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError>;
+    fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError>;
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct IdentityCryptFilter;
+
+impl CryptFilter for IdentityCryptFilter {
+    fn compute_key(&self, key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
+        Ok(key.to_vec())
+    }
+
+    fn decrypt(&self, _key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        Ok(ciphertext.to_vec())
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Rc4CryptFilter;
+
+impl CryptFilter for Rc4CryptFilter {
+    fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
+        let mut builder = Vec::with_capacity(key.len() + 5);
+
+        builder.extend_from_slice(key);
+
+        // For all strings and streams without crypt filter specifier; treating the object number
+        // and generation number as binary integers, extend the original n-byte file encryption key
+        // to n + 5 bytes by appending the low-order 3 bytes of the object number and the low-order
+        // 2 bytes of the generation number in that order, low-order byte first.
+        builder.extend_from_slice(&obj_id.0.to_le_bytes()[..3]);
+        builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
+
+        // Initialise the MD5 hash function and pass the result of the previous step as an input to
+        // this function.
+        //
+        // Use the first (n + 5) bytes, up to a maximum of 16, of the output from the MD5 hash as
+        // the key for the AES symmetric key algorithm.
+        let key_len = std::cmp::min(key.len() + 5, 16);
+        let key = Md5::digest(builder)[..key_len].to_vec();
+
+        Ok(key)
+    }
+
+    fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        Ok(Rc4::new(key).decrypt(ciphertext))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Aes128CryptFilter;
+
+impl CryptFilter for Aes128CryptFilter {
+    fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
+        let mut builder = Vec::with_capacity(key.len() + 9);
+
+        builder.extend_from_slice(key);
+
+        // For all strings and streams without crypt filter specifier; treating the object number
+        // and generation number as binary integers, extend the original n-byte file encryption key
+        // to n + 5 bytes by appending the low-order 3 bytes of the object number and the low-order
+        // 2 bytes of the generation number in that order, low-order byte first.
+        builder.extend_from_slice(&obj_id.0.to_le_bytes()[..3]);
+        builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
+
+        // If using the AES algorithm, extend the file encryption key an additional 4 bytes by
+        // adding the value "sAlT".
+        builder.extend_from_slice(b"sAlT");
+
+        // Initialise the MD5 hash function and pass the result of the previous step as an input to
+        // this function.
+        //
+        // Use the first (n + 5) bytes, up to a maximum of 16, of the output from the MD5 hash as
+        // the key for the AES symmetric key algorithm.
+        let key_len = std::cmp::min(key.len() + 5, 16);
+        let key = Md5::digest(builder)[..key_len].to_vec();
+
+        Ok(key)
+    }
+
+    fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the ciphertext length is a multiple of 16 bytes.
+        if ciphertext.len() % 16 != 0 {
+            return Err(DecryptionError::InvalidCipherTextLength);
+        }
+
+        // There is nothing to decrypt if the ciphertext is empty or only contains the IV.
+        if ciphertext.is_empty() || ciphertext.len() == 16 {
+            return Ok(vec![]);
+        }
+
+        let mut iv = [0x00u8; 16];
+        iv.copy_from_slice(&ciphertext[..16]);
+
+        // Use the 128-bit AES-CBC algorithm with PKCS#7 padding to decrypt the ciphertext.
+        let data = &mut ciphertext[16..].to_vec();
+
+        Ok(Aes128CbcDec::new(key.into(), &iv.into())
+            .decrypt_padded_mut::<Pkcs7>(data)
+            .unwrap()
+            .to_vec())
+    }
+}
+
 /// Generates the encryption key for the document and, if `check_password`
 /// is true, verifies that the key is correct.
 pub fn get_encryption_key<P>(doc: &Document, password: P, check_password: bool) -> Result<Vec<u8>, DecryptionError>
