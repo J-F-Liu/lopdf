@@ -1,14 +1,18 @@
 use super::encodings::Encoding;
 use super::{Bookmark, Dictionary, Object, ObjectId};
-use crate::{encryption, ObjectStream};
+use crate::encryption::{
+    self, Aes128CryptFilter, Aes256CryptFilter, CryptFilter, IdentityCryptFilter,
+    Rc4CryptFilter
+};
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
-use crate::{Error, Result, Stream};
+use crate::{Error, ObjectStream, Result, Stream};
 use log::debug;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::str;
+use std::sync::Arc;
 
 /// A PDF document.
 ///
@@ -258,6 +262,58 @@ impl Document {
     /// Return true is PDF document is encrypted
     pub fn is_encrypted(&self) -> bool {
         self.get_encrypted().is_ok()
+    }
+
+    /// Returns a `BTreeMap` of the crypt filters available in the PDF document if any.
+    pub fn get_crypt_filters(&self) -> BTreeMap<Vec<u8>, Arc<dyn CryptFilter>> {
+        let mut crypt_filters = BTreeMap::new();
+
+        if let Ok(filters) = self
+            .get_encrypted()
+            .and_then(|dict| dict.get(b"CF"))
+            .and_then(|object| object.as_dict()) {
+            for (name, filter) in filters {
+                let Ok(filter) = filter.as_dict() else {
+                    continue;
+                };
+
+                if filter.get(b"Type").is_ok() && !filter.has_type(b"CryptFilter") {
+                    continue;
+                }
+
+                // Get the Crypt Filter Method (CFM) used, if any, by the PDF reader to decrypt data.
+                let cfm = filter.get(b"CFM")
+                    .and_then(|object| object.as_name())
+                    .ok();
+
+                let crypt_filter: Arc<dyn CryptFilter> = match cfm {
+                    // The application shall ask the security handler for the file encryption key
+                    // and shall implicitly decrypt data using the RC4 algorithm.
+                    Some(b"V2") => Arc::new(Rc4CryptFilter),
+                    // The application shall ask the security handler for the file encryption key
+                    // and shall implicitly decrypt data using the AES-128 algorithm in Cipher
+                    // Block Chaining (CBC) mode with a 16-byte block size and an initialization
+                    // vector that shall be randomly generated and placed as the first 16 bytes in
+                    // the stream or string. The key size (Length) shall be 128 bits.
+                    Some(b"AESV2") => Arc::new(Aes128CryptFilter),
+                    // The application shall ask the security handler for the file encryption key
+                    // and shall implicitly decrypt data using the AES-256 algorithm in Cipher
+                    // Block Chaining (CBC) with padding mode with a 16-byte block size and an
+                    // initialization vector that is randomly generated and placed as the first 16
+                    // bytes in the stream or string. The key size (Length) shall be 256 bits.
+                    Some(b"AESV3") => Arc::new(Aes256CryptFilter),
+                    // The application shall not decrypt data but shall direct the input stream to
+                    // the security handler for decryption.
+                    Some(b"Identity") | None => Arc::new(IdentityCryptFilter),
+                    // Unknown crypt filter method.
+                    _ => continue,
+                };
+
+                crypt_filters.insert(name.to_vec(), crypt_filter);
+            }
+        }
+
+        crypt_filters
     }
 
     /// Replaces all encrypted Strings and Streams with their decrypted contents
