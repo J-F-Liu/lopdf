@@ -97,6 +97,9 @@ pub enum Error {
     /// Could not parse ToUnicodeCMap.
     #[error("failed parsing ToUnicode CMap: {0}")]
     ToUnicodeCMap(#[from] UnicodeCMapError),
+    /// Encountered an unsupported security handler.
+    #[error("unsupported security handler")]
+    UnsupportedSecurityHandler(Vec<u8>),
 }
 
 #[derive(Error, Debug)]
