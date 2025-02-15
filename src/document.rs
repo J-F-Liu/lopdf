@@ -1,8 +1,8 @@
 use super::encodings::Encoding;
 use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::encryption::{
-    self, Aes128CryptFilter, Aes256CryptFilter, CryptFilter, IdentityCryptFilter,
-    Rc4CryptFilter
+    self, Aes128CryptFilter, Aes256CryptFilter, CryptFilter, EncryptionState,
+    IdentityCryptFilter, Rc4CryptFilter
 };
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
@@ -331,16 +331,29 @@ impl Document {
 
         let key = encryption::get_encryption_key(self, &password, true)?;
 
-        let is_aes = self
-            .get_encrypted().ok()
-            .and_then(|dict| dict.get(b"CF").ok())
-            .and_then(|object| object.as_dict().ok())
-            .and_then(|dict| dict.get(b"StdCF").ok())
-            .and_then(|object| object.as_dict().ok())
-            .and_then(|dict| dict.get(b"CFM").ok())
-            .and_then(|object| object.as_name().ok())
-            .map(|cfm| cfm == b"AESV2")
-            .unwrap_or(false);
+        let crypt_filters = self.get_crypt_filters();
+
+        let mut state = EncryptionState {
+            key,
+            stream_filter: Arc::new(Rc4CryptFilter),
+            string_filter: Arc::new(Rc4CryptFilter),
+        };
+
+        if let Some(stream_filter) = self.get_encrypted()
+            .and_then(|dict| dict.get(b"StmF"))
+            .and_then(|object| object.as_name())
+            .ok()
+            .and_then(|name| crypt_filters.get(name).cloned()) {
+            state.stream_filter = stream_filter;
+        }
+
+        if let Some(string_filter) = self.get_encrypted()
+            .and_then(|dict| dict.get(b"StrF"))
+            .and_then(|object| object.as_name())
+            .ok()
+            .and_then(|name| crypt_filters.get(name).cloned()) {
+            state.string_filter = string_filter;
+        }
 
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
@@ -353,7 +366,7 @@ impl Document {
                 continue;
             }
 
-            encryption::decrypt_object(&key, id, obj, is_aes)?;
+            encryption::decrypt_object(&state, id, obj)?;
         }
 
         // Add the objects from the object streams now that they have been decrypted.
