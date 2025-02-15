@@ -2,6 +2,7 @@ use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use md5::{Digest as _, Md5};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -46,6 +47,13 @@ type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 const DEFAULT_KEY_LEN: Object = Object::Integer(40);
 const DEFAULT_ALGORITHM: Object = Object::Integer(0);
+
+#[derive(Clone, Debug)]
+pub struct EncryptionState {
+    pub key: Vec<u8>,
+    pub stream_filter: Arc<dyn CryptFilter>,
+    pub string_filter: Arc<dyn CryptFilter>,
+}
 
 pub trait CryptFilter: std::fmt::Debug {
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError>;
@@ -349,10 +357,7 @@ where
 
 /// Decrypts `obj` and returns the content of the string or stream.
 /// If obj is not an decryptable type, returns the NotDecryptable error.
-pub fn decrypt_object<Key>(key: Key, obj_id: ObjectId, obj: &mut Object, aes: bool) -> Result<(), DecryptionError>
-where
-    Key: AsRef<[u8]>,
-{
+pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Object) -> Result<(), DecryptionError> {
     // The cross-reference stream shall not be encrypted and strings appearing in the
     // cross-reference stream dictionary shall not be encrypted.
     let is_xref_stream = obj.as_stream()
@@ -363,75 +368,47 @@ where
         return Ok(());
     }
 
-    let key = key.as_ref();
-    let len = if aes { key.len() + 9 } else { key.len() + 5 };
-    let mut builder = Vec::<u8>::with_capacity(len);
-    builder.extend_from_slice(key.as_ref());
-
-    // Extend the key with the lower 3 bytes of the object number
-    builder.extend_from_slice(&obj_id.0.to_le_bytes()[..3]);
-    // and the lower 2 bytes of the generation number
-    builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
-
-    if aes {
-        builder.append(&mut vec![0x73, 0x41, 0x6C, 0x54]);
-    }
-
-    // Now construct the rc4 key
-    let key_len = std::cmp::min(key.len() + 5, 16);
-    let rc4_key = &Md5::digest(builder)[..key_len];
-
-    let encrypted = match obj {
+    // Retrieve the ciphertext and the crypt filter to use to decrypt the ciphertext from the given
+    // object.
+    let (crypt_filter, ciphertext) = match obj {
+        // Encryption applies to all strings and streams in the document's PDF file, i.e., we have to
+        // recursively process array and dictionary objects to decrypt any string and stream objects
+        // stored inside of those.
         Object::Array(objects) => {
             for obj in objects {
-                decrypt_object(key, obj_id, obj, aes)?;
+                decrypt_object(state, obj_id, obj)?;
             }
 
             return Ok(());
         }
         Object::Dictionary(objects) => {
             for (_, obj) in objects.iter_mut() {
-                decrypt_object(key, obj_id, obj, aes)?;
+                decrypt_object(state, obj_id, obj)?;
             }
 
             return Ok(());
         }
-        Object::String(content, _) => content,
-        Object::Stream(stream) => &stream.content,
+        // Encryption applies to all strings and streams in the document's PDF file. We return the
+        // crypt filter and the content here.
+        Object::String(content, _) => (&state.string_filter, &*content),
+        Object::Stream(stream) => (&state.stream_filter, &stream.content),
+        // Encryption is not applied to other object types such as integers and boolean values.
         _ => {
             return Ok(());
         }
     };
 
-    let decrypted = if aes {
-        // Ensure that the ciphertext length is a multiple of 16 bytes.
-        if encrypted.len() % 16 != 0 {
-            return Err(DecryptionError::InvalidCipherTextLength);
-        }
+    // Compute the key from the original file encryption key and the object identifier to use for
+    // the corresponding object.
+    let key = crypt_filter.compute_key(&state.key, obj_id)?;
 
-        // There is nothing to decrypt if the ciphertext is empty or only contains the IV.
-        if encrypted.is_empty() || encrypted.len() == 16 {
-            vec![]
-        } else {
-            let mut iv = [0x00u8; 16];
-            iv.copy_from_slice(&encrypted[..16]);
+    // Decrypt the ciphertext.
+    let plaintext = crypt_filter.decrypt(&key, ciphertext)?;
 
-            // Use the 128-bit AES-CBC algorithm with PKCS#7 padding to decrypt the ciphertext.
-            let data = &mut encrypted[16..].to_vec();
-
-            Aes128CbcDec::new(rc4_key.into(), &iv.into())
-                .decrypt_padded_mut::<Pkcs7>(data)
-                .unwrap()
-                .to_vec()
-        }
-    } else {
-        // Use the RC4 algorithm to decrypt the ciphertext.
-        Rc4::new(rc4_key).decrypt(encrypted)
-    };
-
+    // Store the plaintext in the object.
     match obj {
-        Object::Stream(stream) => stream.set_content(decrypted.clone()),
-        Object::String(content, _) => *content = decrypted.clone(),
+        Object::Stream(stream) => stream.set_content(plaintext),
+        Object::String(content, _) => *content = plaintext,
         _ => (),
     }
 
