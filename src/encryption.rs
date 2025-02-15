@@ -2,6 +2,7 @@ use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use md5::{Digest as _, Md5};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -50,6 +51,7 @@ const DEFAULT_ALGORITHM: Object = Object::Integer(0);
 
 #[derive(Clone, Debug)]
 pub struct EncryptionState {
+    pub crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
     pub key: Vec<u8>,
     pub stream_filter: Arc<dyn CryptFilter>,
     pub string_filter: Arc<dyn CryptFilter>,
@@ -368,9 +370,24 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         return Ok(());
     }
 
+    // A stream filter type, the Crypt filter can be specified for any stream in the document to
+    // override the default filter for streams. The stream's DecodeParms entry shall contain a
+    // Crypt filter decode parameters dictionary whose Name entry specifies the particular crypt
+    // filter that shell be used (if missing, Identity is used).
+    let override_crypt_filter = obj.as_stream().ok()
+        .filter(|stream| stream.filters().map(|filters| filters.contains(&&b"Crypt"[..])).unwrap_or(false))
+        .and_then(|stream| stream.dict.get(b"DecodeParms").ok())
+        .and_then(|object| object.as_dict().ok())
+        .map(|dict| dict.get(b"Name")
+            .and_then(|object| object.as_name())
+            .ok()
+            .and_then(|name| state.crypt_filters.get(name).cloned())
+            .unwrap_or(Arc::new(IdentityCryptFilter))
+        );
+
     // Retrieve the ciphertext and the crypt filter to use to decrypt the ciphertext from the given
     // object.
-    let (crypt_filter, ciphertext) = match obj {
+    let (mut crypt_filter, ciphertext) = match obj {
         // Encryption applies to all strings and streams in the document's PDF file, i.e., we have to
         // recursively process array and dictionary objects to decrypt any string and stream objects
         // stored inside of those.
@@ -390,13 +407,19 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         }
         // Encryption applies to all strings and streams in the document's PDF file. We return the
         // crypt filter and the content here.
-        Object::String(content, _) => (&state.string_filter, &*content),
-        Object::Stream(stream) => (&state.stream_filter, &stream.content),
+        Object::String(content, _) => (state.string_filter.clone(), &*content),
+        Object::Stream(stream) => (state.stream_filter.clone(), &stream.content),
         // Encryption is not applied to other object types such as integers and boolean values.
         _ => {
             return Ok(());
         }
     };
+
+    // If the stream object specifies its own crypt filter, override the default one with the one
+    // from this stream object.
+    if let Some(filter) = override_crypt_filter {
+        crypt_filter = filter;
+    }
 
     // Compute the key from the original file encryption key and the object identifier to use for
     // the corresponding object.

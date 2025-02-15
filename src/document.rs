@@ -334,6 +334,7 @@ impl Document {
         let crypt_filters = self.get_crypt_filters();
 
         let mut state = EncryptionState {
+            crypt_filters,
             key,
             stream_filter: Arc::new(Rc4CryptFilter),
             string_filter: Arc::new(Rc4CryptFilter),
@@ -343,7 +344,7 @@ impl Document {
             .and_then(|dict| dict.get(b"StmF"))
             .and_then(|object| object.as_name())
             .ok()
-            .and_then(|name| crypt_filters.get(name).cloned()) {
+            .and_then(|name| state.crypt_filters.get(name).cloned()) {
             state.stream_filter = stream_filter;
         }
 
@@ -351,7 +352,7 @@ impl Document {
             .and_then(|dict| dict.get(b"StrF"))
             .and_then(|object| object.as_name())
             .ok()
-            .and_then(|name| crypt_filters.get(name).cloned()) {
+            .and_then(|name| state.crypt_filters.get(name).cloned()) {
             state.string_filter = string_filter;
         }
 
