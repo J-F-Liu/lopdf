@@ -309,12 +309,19 @@ impl Document {
             };
 
             if !stream.dict.has_type(b"ObjStm") {
-                let obj_stream = ObjectStream::new(stream).ok().unwrap();
-
-                // TODO: Is insert and replace intended behavior?
-                // See https://github.com/J-F-Liu/lopdf/issues/160 for more info
-                object_streams.extend(obj_stream.objects);
+                continue;
             }
+
+            let obj_stream = ObjectStream::new(stream).ok().unwrap();
+
+            // TODO: Is insert and replace intended behavior?
+            // See https://github.com/J-F-Liu/lopdf/issues/160 for more info
+            object_streams.extend(obj_stream.objects);
+        }
+
+        // Only add entries, but never replace entries
+        for (id, entry) in object_streams {
+            self.objects.entry(id).or_insert(entry);
         }
 
         self.trailer.remove(b"Encrypt");
