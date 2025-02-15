@@ -42,6 +42,7 @@ const PAD_BYTES: [u8; 32] = [
 ];
 
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
+type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 const DEFAULT_KEY_LEN: Object = Object::Integer(40);
 const DEFAULT_ALGORITHM: Object = Object::Integer(0);
@@ -145,6 +146,39 @@ impl CryptFilter for Aes128CryptFilter {
         let data = &mut ciphertext[16..].to_vec();
 
         Ok(Aes128CbcDec::new(key.into(), &iv.into())
+            .decrypt_padded_mut::<Pkcs7>(data)
+            .unwrap()
+            .to_vec())
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Aes256CryptFilter;
+
+impl CryptFilter for Aes256CryptFilter {
+    fn compute_key(&self, key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
+        // Use the 32-byte file encryption key for the AES-256 symmetric key algorithm.
+        Ok(key.to_vec())
+    }
+
+    fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the ciphertext length is a multiple of 16 bytes.
+        if ciphertext.len() % 16 != 0 {
+            return Err(DecryptionError::InvalidCipherTextLength);
+        }
+
+        // There is nothing to decrypt if the ciphertext is empty or only contains the IV.
+        if ciphertext.is_empty() || ciphertext.len() == 16 {
+            return Ok(vec![]);
+        }
+
+        let mut iv = [0x00u8; 16];
+        iv.copy_from_slice(&ciphertext[..16]);
+
+        // Use the 256-bit AES-CBC algorithm with PKCS#7 padding to decrypt the ciphertext.
+        let data = &mut ciphertext[16..].to_vec();
+
+        Ok(Aes256CbcDec::new(key.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs7>(data)
             .unwrap()
             .to_vec())
