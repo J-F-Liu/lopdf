@@ -116,7 +116,7 @@ impl Document {
                     let t16: Vec<u16> = title
                         .chunks(2)
                         .skip(1)
-                        .map(|x| (x[0] as u16) << 8 | x[1] as u16)
+                        .map(|x| ((x[0] as u16) << 8) | x[1] as u16)
                         .collect();
                     s = String::from_utf16_lossy(&t16);
                 } else if title[0] == 0xff && title[1] == 0xfe {
@@ -128,7 +128,7 @@ impl Document {
                     let t16: Vec<u16> = title
                         .chunks(2)
                         .skip(1)
-                        .map(|x| (x[1] as u16) << 8 | x[0] as u16)
+                        .map(|x| ((x[1] as u16) << 8) | x[0] as u16)
                         .collect();
                     s = String::from_utf16_lossy(&t16);
                 } else {
