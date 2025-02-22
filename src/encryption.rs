@@ -1,3 +1,4 @@
+use crate::encodings;
 use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
 use aes::cipher::{
@@ -335,6 +336,22 @@ impl CryptFilter for Aes256CryptFilter {
             .unwrap()
             .to_vec())
     }
+}
+
+/// Sanitize the password (revision 4 and earlier).
+///
+/// This implements the first step of Algorithm 2 as described in ISO 32000-2:2020 (PDF 2.0).
+///
+/// This algorithm is deprecated in PDF 2.0.
+fn sanitize_password_r4(
+    password: &str,
+) -> Result<Vec<u8>, DecryptionError> {
+    // The password string is generated from host system codepage characters (or system scripts) by
+    // first converting the string to PDFDocEncoding. If the input is Unicode, first convert to a
+    // codepage encoding, and then to PDFDocEncoding for backward compatibility.
+    let password = encodings::string_to_bytes(&encodings::PDF_DOC_ENCODING, password);
+
+    Ok(password)
 }
 
 /// Compute a file encryption key in order to encrypt a document (revision 4 and earlier).
