@@ -400,7 +400,24 @@ impl Document {
     }
 
     /// Replaces all encrypted Strings and Streams with their decrypted contents
-    pub fn decrypt<P: AsRef<[u8]>>(&mut self, password: P) -> Result<()> {
+    pub fn decrypt(
+        &mut self,
+        password: &str,
+    ) -> Result<()> {
+        let algorithm = PasswordAlgorithm::try_from(&*self)?;
+        let password = algorithm.sanitize_password(password)?;
+        self.decrypt_raw(&password)
+    }
+
+    /// Replaces all encrypted Strings and Streams with their decrypted contents with the password
+    /// provided directly as bytes without sanitization
+    pub fn decrypt_raw<P>(
+        &mut self,
+        password: P,
+    ) -> Result<()>
+    where
+        P: AsRef<[u8]>,
+    {
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
