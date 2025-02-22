@@ -1,6 +1,6 @@
 use crate::encodings;
 use crate::rc4::Rc4;
-use crate::{Document, Object, ObjectId};
+use crate::{Document, Error, Object, ObjectId};
 use aes::cipher::{
     block_padding::{PadType, RawPadding, UnpadError},
     BlockDecryptMut, BlockEncryptMut, KeyIvInit,
@@ -45,6 +45,8 @@ pub enum DecryptionError {
 
     #[error("the document uses an encryption scheme that is not implemented in lopdf")]
     UnsupportedEncryption,
+    #[error("the encryption revision is not implemented in lopdf")]
+    UnsupportedRevision,
 }
 
 // If the password string is less than 32 bytes long, pad it by appending the required number of
@@ -359,7 +361,7 @@ fn sanitize_password_r4(
 /// This implements Algorithm 2 as described in ISO 32000-2:2020 (PDF 2.0).
 ///
 /// This algorithm is deprecated in PDF 2.0.
-pub fn compute_file_encryption_key_r4<P>(
+fn compute_file_encryption_key_r4<P>(
     doc: &Document,
     password: P,
     length: Option<usize>,
@@ -476,7 +478,7 @@ where
 /// This implements Algorithm 3 as described in ISO 32000-2:2020 (PDF 2.0).
 ///
 /// This algorithm is deprecated in PDF 2.0.
-pub fn compute_hashed_owner_password_r4<O, U>(
+fn compute_hashed_owner_password_r4<O, U>(
     owner_password: Option<O>,
     user_password: U,
     length: Option<usize>,
@@ -585,7 +587,7 @@ where
 /// This implements Algorithm 4 as described in ISO 32000-2:2020 (PDF 2.0).
 ///
 /// This algorithm is deprecated in PDF 2.0.
-pub fn compute_hashed_user_password_r2<U>(
+fn compute_hashed_user_password_r2<U>(
     doc: &Document,
     user_password: U,
     length: Option<usize>,
@@ -610,7 +612,7 @@ where
 /// This implements Algorithm 5 as described in ISO 32000-2:2020 (PDF 2.0).
 ///
 /// This algorithm is deprecated in PDF 2.0.
-pub fn compute_hashed_user_password_r3_r4<U>(
+fn compute_hashed_user_password_r3_r4<U>(
     doc: &Document,
     user_password: U,
     length: Option<usize>,
@@ -678,7 +680,7 @@ where
 /// This implements Algorithm 6 as described in ISO 32000-2:2020 (PDF 2.0).
 ///
 /// This algorithm is deprecated in PDF 2.0.
-pub fn authenticate_user_password_r4<U>(
+fn authenticate_user_password_r4<U>(
     doc: &Document,
     user_password: U,
     length: Option<usize>,
@@ -726,7 +728,7 @@ where
 /// This implements Algorithm 7 as described in ISO 32000-2:2020 (PDF 2.0).
 ///
 /// This algorithm is deprecated in PDF 2.0.
-pub fn authenticate_owner_password_r4<O>(
+fn authenticate_owner_password_r4<O>(
     doc: &Document,
     owner_password: O,
     length: Option<usize>,
@@ -822,6 +824,136 @@ where
     // password using Algorithm 5. If it is correct, the password supplied is the correct owner
     // password.
     authenticate_user_password_r4(doc, &result, length, revision)
+}
+
+#[derive(Clone, Debug)]
+pub struct PasswordAlgorithm {
+    pub length: Option<usize>,
+    pub revision: i64,
+}
+
+impl TryFrom<&Document> for PasswordAlgorithm {
+    type Error = Error;
+
+    fn try_from(value: &Document) -> Result<Self, Self::Error> {
+        // Get the encrypted dictionary.
+        let encrypted = value
+            .get_encrypted()
+            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
+
+        // Get the Length field if any. Make sure that if it is present that it is a 64-bit integer and
+        // that it can be converted to an unsigned size.
+        let length = if encrypted.get(b"Length").is_ok() {
+            Some(encrypted
+                .get(b"Length")?
+                .as_i64()?
+                .try_into()?)
+        } else {
+            None
+        };
+
+        // Get the R field.
+        let revision = encrypted
+            .get(b"R")
+            .map_err(|_| DecryptionError::MissingRevision)?
+            .as_i64()
+            .map_err(|_| DecryptionError::InvalidType)?;
+
+        Ok(Self {
+            length,
+            revision,
+        })
+    }
+}
+
+impl PasswordAlgorithm {
+    /// Sanitize the password.
+    pub fn sanitize_password(
+        &self,
+        password: &str,
+    ) -> Result<Vec<u8>, DecryptionError> {
+        match self.revision {
+            2..=4 => sanitize_password_r4(password),
+            _ => Err(DecryptionError::UnsupportedRevision),
+        }
+    }
+
+    /// Compute the file encryption key used to encrypt/decrypt the document.
+    pub fn compute_file_encryption_key<P>(
+        &self,
+        doc: &Document,
+        password: P,
+    ) -> Result<Vec<u8>, DecryptionError>
+    where
+        P: AsRef<[u8]>,
+    {
+        match self.revision {
+            2..=4 => compute_file_encryption_key_r4(doc, password, self.length, self.revision),
+            _ => Err(DecryptionError::UnsupportedRevision),
+        }
+    }
+
+    /// Compute the encryption dictionary's O-entry value.
+    pub fn compute_hashed_owner_password<O, U>(
+        &self,
+        owner_password: Option<O>,
+        user_password: U,
+    ) -> Result<Vec<u8>, DecryptionError>
+    where
+        O: AsRef<[u8]>,
+        U: AsRef<[u8]>,
+    {
+        match self.revision {
+            2..=4 => compute_hashed_owner_password_r4(owner_password, user_password, self.length, self.revision),
+            _ => Err(DecryptionError::UnsupportedRevision),
+        }
+    }
+
+    /// Compute the encryption dictionary's U-entry value.
+    pub fn compute_hashed_user_password<U>(
+        &self,
+        doc: &Document,
+        user_password: U,
+    ) -> Result<Vec<u8>, DecryptionError>
+    where
+        U: AsRef<[u8]>,
+    {
+        match self.revision {
+            2 => compute_hashed_user_password_r2(doc, user_password, self.length, self.revision),
+            3..=4 => compute_hashed_user_password_r3_r4(doc, user_password, self.length, self.revision),
+            _ => Err(DecryptionError::UnsupportedRevision),
+        }
+    }
+
+    /// Authenticate the owner password.
+    pub fn authenticate_user_password<U>(
+        &self,
+        doc: &Document,
+        user_password: U,
+    ) -> Result<(), DecryptionError>
+    where
+        U: AsRef<[u8]>,
+    {
+        match self.revision {
+            2..=4 => authenticate_user_password_r4(doc, user_password, self.length, self.revision),
+            _ => Err(DecryptionError::UnsupportedRevision),
+        }
+    }
+
+    /// Authenticate the owner password.
+    pub fn authenticate_owner_password<O>(
+        &self,
+        doc: &Document,
+        owner_password: O,
+    ) -> Result<(), DecryptionError>
+    where
+        O: AsRef<[u8]>,
+    {
+        match self.revision {
+            2..=4 => authenticate_owner_password_r4(doc, owner_password, self.length, self.revision),
+            _ => Err(DecryptionError::UnsupportedRevision),
+        }
+    }
 }
 
 /// Generates the encryption key for the document and, if `check_password`
