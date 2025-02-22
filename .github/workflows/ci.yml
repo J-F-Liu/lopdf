@@ -18,7 +18,6 @@ jobs:
                     - nightly
                     - "feat: no default features"
                     - "feat: all features"
-                    - "feat: nom only"
 
                 include:
                     - name: beta
@@ -29,8 +28,6 @@ jobs:
 
                     - name: "feat: all features"
                       features: "--all-features"
-                    - name: "feat: nom only"
-                      features: "--no-default-features --features nom_parser"
 
         steps:
             - uses: actions/checkout@v2
