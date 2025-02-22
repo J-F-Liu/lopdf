@@ -442,7 +442,8 @@ impl Document {
             .and_then(|o| o.as_bool())
             .unwrap_or(true);
 
-        let key = encryption::get_encryption_key(self, &password, true)?;
+        let algorithm = PasswordAlgorithm::try_from(&*self)?;
+        let key = algorithm.compute_file_encryption_key(self, &password)?;
 
         let crypt_filters = self.get_crypt_filters();
 
