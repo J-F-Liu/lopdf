@@ -272,6 +272,10 @@ impl Document {
     where
         P: AsRef<[u8]>
     {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         let password = password.as_ref();
         let algorithm = PasswordAlgorithm::try_from(self)?;
         algorithm.authenticate_owner_password(self, password)?;
@@ -287,6 +291,10 @@ impl Document {
     where
         P: AsRef<[u8]>,
     {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         let password = password.as_ref();
         let algorithm = PasswordAlgorithm::try_from(self)?;
         algorithm.authenticate_user_password(self, password)?;
@@ -302,6 +310,10 @@ impl Document {
     where
         P: AsRef<[u8]>
     {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         let password = password.as_ref();
         let algorithm = PasswordAlgorithm::try_from(self)?;
         algorithm.authenticate_owner_password(self, password)
@@ -315,6 +327,10 @@ impl Document {
         &self,
         password: &str,
     ) -> Result<()> {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         let algorithm = PasswordAlgorithm::try_from(self)?;
         let password = algorithm.sanitize_password(password)?;
         algorithm.authenticate_owner_password(self, &password)?;
@@ -327,6 +343,10 @@ impl Document {
         &self,
         password: &str,
     ) -> Result<()> {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         let algorithm = PasswordAlgorithm::try_from(self)?;
         let password = algorithm.sanitize_password(password)?;
         algorithm.authenticate_user_password(self, &password)?;
@@ -339,6 +359,10 @@ impl Document {
         &self,
         password: &str,
     ) -> Result<()> {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         let algorithm = PasswordAlgorithm::try_from(self)?;
         let password = algorithm.sanitize_password(password)?;
         algorithm.authenticate_owner_password(self, &password)
@@ -404,6 +428,10 @@ impl Document {
         &mut self,
         password: &str,
     ) -> Result<()> {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         let algorithm = PasswordAlgorithm::try_from(&*self)?;
         let password = algorithm.sanitize_password(password)?;
         self.decrypt_raw(&password)
@@ -418,6 +446,10 @@ impl Document {
     where
         P: AsRef<[u8]>,
     {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
