@@ -1,6 +1,9 @@
 use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
-use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+use aes::cipher::{
+    block_padding::{PadType, RawPadding, UnpadError},
+    BlockDecryptMut, KeyIvInit,
+};
 use md5::{Digest as _, Md5};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -48,6 +51,56 @@ type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 const DEFAULT_KEY_LEN: Object = Object::Integer(40);
 const DEFAULT_ALGORITHM: Object = Object::Integer(0);
+
+/// Pad block with bytes with value equal to the number of bytes added.
+///
+/// PKCS#5 is described in [RFC 2898](https://tools.ietf.org/html/rfc2898).
+#[derive(Clone, Copy, Debug)]
+pub struct Pkcs5;
+
+impl Pkcs5 {
+    #[inline]
+    fn unpad(block: &[u8], strict: bool) -> Result<&[u8], UnpadError> {
+        // TODO: use bounds to check it at compile time
+        if block.len() > 16 {
+            panic!("block size is too big for PKCS#5");
+        }
+        let bs = block.len();
+        let n = block[bs - 1];
+        if n == 0 || n as usize > bs {
+            return Err(UnpadError);
+        }
+        let s = bs - n as usize;
+        if strict && block[s..bs - 1].iter().any(|&v| v != n) {
+            return Err(UnpadError);
+        }
+        Ok(&block[..s])
+    }
+}
+
+impl RawPadding for Pkcs5 {
+    const TYPE: PadType = PadType::Reversible;
+
+    #[inline]
+    fn raw_pad(block: &mut [u8], pos: usize) {
+        // TODO: use bounds to check it at compile time for Padding<B>
+        if block.len() > 16 {
+            panic!("block size is too big for PKCS#5");
+        }
+        if pos >= block.len() {
+            panic!("`pos` is bigger or equal to block size");
+        }
+        let n = (block.len() - pos) as u8;
+        for b in &mut block[pos..] {
+            *b = n;
+        }
+    }
+
+    #[inline]
+    fn raw_unpad(block: &[u8]) -> Result<&[u8], UnpadError> {
+        Pkcs5::unpad(block, true)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct EncryptionState {
@@ -152,11 +205,16 @@ impl CryptFilter for Aes128CryptFilter {
         let mut iv = [0x00u8; 16];
         iv.copy_from_slice(&ciphertext[..16]);
 
-        // Use the 128-bit AES-CBC algorithm with PKCS#7 padding to decrypt the ciphertext.
+        // Use the 128-bit AES-CBC algorithm with PKCS#5 padding to decrypt the ciphertext.
+        //
+        // Strings and streams encrypted with AES shall use a padding scheme that is described in
+        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
+        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
+        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
         let data = &mut ciphertext[16..].to_vec();
 
         Ok(Aes128CbcDec::new(key.into(), &iv.into())
-            .decrypt_padded_mut::<Pkcs7>(data)
+            .decrypt_padded_mut::<Pkcs5>(data)
             .unwrap()
             .to_vec())
     }
@@ -186,10 +244,15 @@ impl CryptFilter for Aes256CryptFilter {
         iv.copy_from_slice(&ciphertext[..16]);
 
         // Use the 256-bit AES-CBC algorithm with PKCS#7 padding to decrypt the ciphertext.
+        //
+        // Strings and streams encrypted with AES shall use a padding scheme that is described in
+        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
+        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
+        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
         let data = &mut ciphertext[16..].to_vec();
 
         Ok(Aes256CbcDec::new(key.into(), &iv.into())
-            .decrypt_padded_mut::<Pkcs7>(data)
+            .decrypt_padded_mut::<Pkcs5>(data)
             .unwrap()
             .to_vec())
     }
