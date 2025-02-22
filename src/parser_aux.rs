@@ -1,4 +1,3 @@
-#![cfg(feature = "nom_parser")]
 use log::warn;
 
 use crate::{

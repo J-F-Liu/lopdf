@@ -31,8 +31,8 @@ itoa = "1.0"
 jiff = { version = "0.2", optional = true }
 log = "0.4"
 md-5 = "0.10"
-nom = { version = "7.1", optional = true }
-nom_locate = { version = "4.2.0", optional = true }
+nom = "7.1"
+nom_locate = "4.2.0"
 rand = { version = "0.9" }
 rangemap = "1.5"
 rayon = { version = "1.6", optional = true }
@@ -52,10 +52,9 @@ tempfile = "3.3"
 [features]
 async = ["tokio/rt-multi-thread", "tokio/macros"]
 chrono = ["dep:chrono"]
-default = ["chrono", "jiff", "nom_parser", "rayon", "time"]
+default = ["chrono", "jiff", "rayon", "time"]
 embed_image = ["image"]
 jiff = ["dep:jiff"]
-nom_parser = ["nom", "nom_locate"]
 serde = ["dep:serde"]
 time = ["dep:time"]
 

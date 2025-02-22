@@ -43,6 +43,5 @@ pub use error::{Error, Result};
 pub use incremental_document::IncrementalDocument;
 pub use object_stream::ObjectStream;
 pub use outlines::Outline;
-#[cfg(feature = "nom_parser")]
 pub use reader::Reader;
 pub use toc::Toc;

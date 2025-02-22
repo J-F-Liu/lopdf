@@ -1,4 +1,3 @@
-#[cfg(feature = "nom_parser")]
 use crate::parser::{self, ParserInput};
 use crate::{Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
