@@ -2,9 +2,10 @@ use crate::rc4::Rc4;
 use crate::{Document, Object, ObjectId};
 use aes::cipher::{
     block_padding::{PadType, RawPadding, UnpadError},
-    BlockDecryptMut, KeyIvInit,
+    BlockDecryptMut, BlockEncryptMut, KeyIvInit,
 };
 use md5::{Digest as _, Md5};
+use rand::Rng as _;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -45,6 +46,9 @@ const PAD_BYTES: [u8; 32] = [
     0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00,
     0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ];
+
+type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
+type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
@@ -112,6 +116,7 @@ pub struct EncryptionState {
 
 pub trait CryptFilter: std::fmt::Debug {
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError>;
+    fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError>;
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError>;
 }
 
@@ -121,6 +126,10 @@ pub struct IdentityCryptFilter;
 impl CryptFilter for IdentityCryptFilter {
     fn compute_key(&self, key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
         Ok(key.to_vec())
+    }
+
+    fn encrypt(&self, _key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        Ok(plaintext.to_vec())
     }
 
     fn decrypt(&self, _key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
@@ -153,6 +162,10 @@ impl CryptFilter for Rc4CryptFilter {
         let key = Md5::digest(builder)[..key_len].to_vec();
 
         Ok(key)
+    }
+
+    fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        Ok(Rc4::new(key).encrypt(plaintext))
     }
 
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
@@ -191,6 +204,36 @@ impl CryptFilter for Aes128CryptFilter {
         Ok(key)
     }
 
+    fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // The ciphertext needs to be a multiple of 16 bytes to include the padding.
+        let ciphertext_len = (plaintext.len() + 15) / 16 * 16;
+
+        // Allocate sufficient bytes for the initialization vector, the ciphertext and the padding
+        // combined.
+        let mut ciphertext = Vec::with_capacity(16 + ciphertext_len);
+
+        // Generate random numbers to populate the initialization vector.
+        let mut rng = rand::rng();
+        let mut iv = [0u8; 16];
+        rng.fill(&mut iv);
+
+        // Combine the IV and the plaintext.
+        ciphertext.extend_from_slice(&iv);
+        ciphertext.extend_from_slice(plaintext);
+
+        // Use the 128-bit AES-CBC algorithm with PKCS#5 padding to encrypt the plaintext.
+        //
+        // Strings and streams encrypted with AES shall use a padding scheme that is described in
+        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
+        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
+        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
+        Aes128CbcEnc::new(key.into(), &iv.into())
+            .encrypt_padded_mut::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
+            .unwrap();
+
+        Ok(ciphertext)
+    }
+
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
         // Ensure that the ciphertext length is a multiple of 16 bytes.
         if ciphertext.len() % 16 != 0 {
@@ -227,6 +270,36 @@ impl CryptFilter for Aes256CryptFilter {
     fn compute_key(&self, key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
         // Use the 32-byte file encryption key for the AES-256 symmetric key algorithm.
         Ok(key.to_vec())
+    }
+
+    fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // The ciphertext needs to be a multiple of 16 bytes to include the padding.
+        let ciphertext_len = (plaintext.len() + 15) / 16 * 16;
+
+        // Allocate sufficient bytes for the initialization vector, the ciphertext and the padding
+        // combined.
+        let mut ciphertext = Vec::with_capacity(16 + ciphertext_len);
+
+        // Generate random numbers to populate the initialization vector.
+        let mut rng = rand::rng();
+        let mut iv = [0u8; 16];
+        rng.fill(&mut iv);
+
+        // Combine the IV and the plaintext.
+        ciphertext.extend_from_slice(&iv);
+        ciphertext.extend_from_slice(plaintext);
+
+        // Use the 256-bit AES-CBC algorithm with PKCS#5 padding to encrypt the plaintext.
+        //
+        // Strings and streams encrypted with AES shall use a padding scheme that is described in
+        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
+        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
+        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
+        Aes256CbcEnc::new(key.into(), &iv.into())
+            .encrypt_padded_mut::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
+            .unwrap();
+
+        Ok(ciphertext)
     }
 
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
