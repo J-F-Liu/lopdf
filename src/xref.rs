@@ -137,5 +137,4 @@ impl XrefSection {
     }
 }
 
-#[cfg(feature = "nom_parser")]
 pub use crate::parser_aux::decode_xref_stream;

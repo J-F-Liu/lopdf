@@ -1,4 +1,3 @@
-#[cfg(feature = "nom_parser")]
 use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
 use crate::content::*;
 use crate::error;
