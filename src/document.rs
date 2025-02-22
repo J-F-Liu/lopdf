@@ -1,8 +1,8 @@
 use super::encodings::Encoding;
 use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::encryption::{
-    self, Aes128CryptFilter, Aes256CryptFilter, CryptFilter, EncryptionState,
-    IdentityCryptFilter, Rc4CryptFilter
+    self, Aes128CryptFilter, Aes256CryptFilter, CryptFilter, EncryptionState, IdentityCryptFilter,
+    PasswordAlgorithm, Rc4CryptFilter
 };
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
@@ -262,6 +262,89 @@ impl Document {
     /// Return true is PDF document is encrypted
     pub fn is_encrypted(&self) -> bool {
         self.get_encrypted().is_ok()
+    }
+
+    /// Authenticate the provided owner password directly as bytes without sanitization
+    pub fn authenticate_raw_owner_password<P>(
+        &self,
+        password: P,
+    ) -> Result<()>
+    where
+        P: AsRef<[u8]>
+    {
+        let password = password.as_ref();
+        let algorithm = PasswordAlgorithm::try_from(self)?;
+        algorithm.authenticate_owner_password(self, password)?;
+
+        Ok(())
+    }
+
+    /// Authenticate the provided user password directly as bytes without sanitization
+    pub fn authenticate_raw_user_password<P>(
+        &self,
+        password: P,
+    ) -> Result<()>
+    where
+        P: AsRef<[u8]>,
+    {
+        let password = password.as_ref();
+        let algorithm = PasswordAlgorithm::try_from(self)?;
+        algorithm.authenticate_user_password(self, password)?;
+
+        Ok(())
+    }
+
+    /// Authenticate the provided owner/user password as bytes without sanitization
+    pub fn authenticate_raw_password<P>(
+        &self,
+        password: P,
+    ) -> Result<()>
+    where
+        P: AsRef<[u8]>
+    {
+        let password = password.as_ref();
+        let algorithm = PasswordAlgorithm::try_from(self)?;
+        algorithm.authenticate_owner_password(self, password)
+            .or(algorithm.authenticate_user_password(self, password))?;
+
+        Ok(())
+    }
+
+    /// Authenticate the provided owner password
+    pub fn authenticate_owner_password(
+        &self,
+        password: &str,
+    ) -> Result<()> {
+        let algorithm = PasswordAlgorithm::try_from(self)?;
+        let password = algorithm.sanitize_password(password)?;
+        algorithm.authenticate_owner_password(self, &password)?;
+
+        Ok(())
+    }
+
+    /// Authenticate the provided user password
+    pub fn authenticate_user_password(
+        &self,
+        password: &str,
+    ) -> Result<()> {
+        let algorithm = PasswordAlgorithm::try_from(self)?;
+        let password = algorithm.sanitize_password(password)?;
+        algorithm.authenticate_user_password(self, &password)?;
+
+        Ok(())
+    }
+
+    /// Authenticate the provided owner/user password
+    pub fn authenticate_password(
+        &self,
+        password: &str,
+    ) -> Result<()> {
+        let algorithm = PasswordAlgorithm::try_from(self)?;
+        let password = algorithm.sanitize_password(password)?;
+        algorithm.authenticate_owner_password(self, &password)
+            .or(algorithm.authenticate_user_password(self, &password))?;
+
+        Ok(())
     }
 
     /// Returns a `BTreeMap` of the crypt filters available in the PDF document if any.
