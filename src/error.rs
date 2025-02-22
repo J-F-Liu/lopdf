@@ -56,6 +56,9 @@ pub enum Error {
     /// PDF document has no outline.
     #[error("PDF document does not have an outline")]
     NoOutline,
+    /// PDF document is not encrypted.
+    #[error("PDF document is not encrypted")]
+    NotEncrypted,
     /// Missing xref entry.
     #[error("missing xref entry")]
     MissingXrefEntry,
