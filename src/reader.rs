@@ -354,7 +354,13 @@ impl Reader<'_> {
             let _ = self.read_stream_content(object_id);
         }
 
-        Ok(self.document)
+        let mut document = self.document;
+
+        if document.authenticate_password("").is_ok() {
+            document.decrypt("")?;
+        }
+
+        Ok(document)
     }
 
     fn read_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
