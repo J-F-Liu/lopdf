@@ -72,7 +72,6 @@ required-features = ["default"]
 
 [[example]]
 name = "rotate"
-required-features = ["nom_parser"]
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }
