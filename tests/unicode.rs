@@ -1,5 +1,3 @@
-#![cfg(feature = "nom_parser")]
-
 use lopdf::content::{Content, Operation};
 use lopdf::{dictionary, Document, Object, Stream, StringFormat};
 

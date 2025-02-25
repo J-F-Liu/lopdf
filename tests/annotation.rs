@@ -1,6 +1,3 @@
-// Only run test when parser is enabled
-#![cfg(feature = "nom_parser")]
-
 use lopdf::Result;
 
 mod utils;
