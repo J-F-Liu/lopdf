@@ -767,6 +767,106 @@ impl PasswordAlgorithm {
         self.authenticate_user_password_r4(doc, &result)
     }
 
+    /// Authenticate the user password (revision 6 and later).
+    ///
+    /// This implements Algorithm 11 as described in ISO 32000-2:2020 (PDF 2.0).
+    fn authenticate_user_password_r6<U>(
+        &self,
+        doc: &Document,
+        user_password: U,
+    ) -> Result<(), DecryptionError>
+    where
+        U: AsRef<[u8]>,
+    {
+        let mut user_password = user_password.as_ref();
+
+        let encrypted = doc
+            .get_encrypted()
+            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
+
+        let user_value = encrypted
+            .get(b"U")
+            .map_err(|_| DecryptionError::MissingUserPassword)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?;
+
+        let hashed_user_password = &user_value[0..][..32];
+        let user_validation_salt = &user_value[32..][..8];
+
+        // Truncate the UTF-8 representation to 127 bytes if it is longer than 127 bytes.
+        if user_password.len() > 127 {
+            user_password = &user_password[..127];
+        }
+
+        // Test the password against the user key by computing a hash using algorithm 2.B with an
+        // input string consisting of the UTF-8 password concatenated with the 8 bytes of user
+        // validation salt. If the 32-byte result matches the first 32-bytes of the U string, this
+        // is the user password.
+        let mut input = Vec::with_capacity(user_password.len() + user_validation_salt.len());
+
+        input.extend_from_slice(user_password);
+        input.extend_from_slice(user_validation_salt);
+
+        if self.compute_hash(&input, None)? != hashed_user_password {
+            return Err(DecryptionError::IncorrectPassword);
+        }
+
+        Ok(())
+    }
+
+    /// Authenticate the owner password (revision 6 and later).
+    ///
+    /// This implements Algorithm 12 as described in ISO 32000-2:2020 (PDF 2.0).
+    fn authenticate_owner_password_r6<O>(
+        &self,
+        doc: &Document,
+        owner_password: O,
+    ) -> Result<(), DecryptionError>
+    where
+        O: AsRef<[u8]>,
+    {
+        let mut owner_password = owner_password.as_ref();
+
+        let encrypted = doc
+            .get_encrypted()
+            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
+
+        let owner_value = encrypted
+            .get(b"O")
+            .map_err(|_| DecryptionError::MissingUserPassword)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?;
+
+        let hashed_owner_password = &owner_value[0..][..32];
+        let owner_validation_salt = &owner_value[32..][..8];
+
+        let user_value = encrypted
+            .get(b"U")
+            .map_err(|_| DecryptionError::MissingUserPassword)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?;
+
+        // Truncate the UTF-8 representation to 127 bytes if it is longer than 127 bytes.
+        if owner_password.len() > 127 {
+            owner_password = &owner_password[..127];
+        }
+
+        // Test the password against the owner key by computing a hash using algorithm 2.B with an
+        // input string consisting of the UTF-8 password concatenated with the 8 bytes of owner
+        // validation salt and the 48 byte U string. If the 32-byte result matches the first
+        // 32-bytes of the O string, this is the owner password.
+        let mut input = Vec::with_capacity(owner_password.len() + owner_validation_salt.len());
+
+        input.extend_from_slice(owner_password);
+        input.extend_from_slice(owner_validation_salt);
+
+        if self.compute_hash(&input, Some(user_value))? != hashed_owner_password {
+            return Err(DecryptionError::IncorrectPassword);
+        }
+
+        Ok(())
+    }
+
     /// Sanitize the password.
     pub fn sanitize_password(
         &self,
@@ -837,6 +937,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_user_password_r4(doc, user_password),
+            6 => self.authenticate_user_password_r6(doc, user_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -852,6 +953,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_owner_password_r4(doc, owner_password),
+            6 => self.authenticate_owner_password_r6(doc, owner_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
