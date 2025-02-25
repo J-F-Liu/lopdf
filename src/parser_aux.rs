@@ -353,12 +353,12 @@ fn parse_integer_array(array: &Object) -> Result<Vec<i64>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::creator::tests::{create_document, create_document_with_texts, save_document};
-
     #[cfg(not(feature = "async"))]
     #[test]
     fn load_and_save() {
+        use crate::Document;
+        use crate::creator::tests::{create_document, save_document};
+
         // test load_from() and save_to()
         use std::fs::File;
         use std::io::Cursor;
@@ -382,6 +382,8 @@ mod tests {
 
     #[test]
     fn extract_text_chunks() {
+        use crate::creator::tests::create_document_with_texts;
+
         let text1 = "Hello world!";
         let text2 = "Ferris is the best!";
         let doc = create_document_with_texts(&[text1, text2]);
@@ -398,6 +400,8 @@ mod tests {
 
     #[test]
     fn extract_text_concatenates_text_from_multiple_pages() {
+        use crate::creator::tests::create_document_with_texts;
+
         let text1 = "Hello world!";
         let text2 = "Ferris is the best!";
         let doc = create_document_with_texts(&[text1, text2]);
