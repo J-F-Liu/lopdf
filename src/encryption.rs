@@ -47,6 +47,9 @@ pub enum DecryptionError {
     UnsupportedEncryption,
     #[error("the encryption revision is not implemented in lopdf")]
     UnsupportedRevision,
+
+    #[error(transparent)]
+    StringPrep(#[from] stringprep::Error),
 }
 
 #[derive(Clone, Debug)]

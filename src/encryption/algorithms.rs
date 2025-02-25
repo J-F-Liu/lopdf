@@ -193,6 +193,19 @@ impl PasswordAlgorithm {
         Ok(hash[..n].to_vec())
     }
 
+    /// Sanitize the password (revision 6 and later).
+    ///
+    /// This implements the first step of Algorithm 2.A as described in ISO 32000-2:2020 (PDF 2.0).
+    fn sanitize_password_r6(
+        &self,
+        password: &str,
+    ) -> Result<Vec<u8>, DecryptionError> {
+        // The UTF-8 password string shall be generated from Unicode input by processing the input
+        // with the SASLprep (Internet RFC 4013) profile of stringprep (Internet RFC 3454) using
+        // the Normalize and BiDi options, and then coverting to a UTF-8 representation.
+        Ok(stringprep::saslprep(password)?.as_bytes().to_vec())
+    }
+
     /// Compute a file encryption key in order to encrypt/decrypt a document (revision 6 and
     /// later).
     ///
@@ -874,6 +887,7 @@ impl PasswordAlgorithm {
     ) -> Result<Vec<u8>, DecryptionError> {
         match self.revision {
             2..=4 => self.sanitize_password_r4(password),
+            6 => self.sanitize_password_r6(password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
