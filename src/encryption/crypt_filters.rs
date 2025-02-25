@@ -40,16 +40,16 @@ pub struct Rc4CryptFilter;
 
 impl CryptFilter for Rc4CryptFilter {
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
-        let mut builder = Vec::with_capacity(key.len() + 5);
+        let mut hasher = Md5::new();
 
-        builder.extend_from_slice(key);
+        hasher.update(key);
 
         // For all strings and streams without crypt filter specifier; treating the object number
         // and generation number as binary integers, extend the original n-byte file encryption key
         // to n + 5 bytes by appending the low-order 3 bytes of the object number and the low-order
         // 2 bytes of the generation number in that order, low-order byte first.
-        builder.extend_from_slice(&obj_id.0.to_le_bytes()[..3]);
-        builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
+        hasher.update(&obj_id.0.to_le_bytes()[..3]);
+        hasher.update(&obj_id.1.to_le_bytes()[..2]);
 
         // Initialise the MD5 hash function and pass the result of the previous step as an input to
         // this function.
@@ -57,7 +57,7 @@ impl CryptFilter for Rc4CryptFilter {
         // Use the first (n + 5) bytes, up to a maximum of 16, of the output from the MD5 hash as
         // the key for the AES symmetric key algorithm.
         let key_len = std::cmp::min(key.len() + 5, 16);
-        let key = Md5::digest(builder)[..key_len].to_vec();
+        let key = hasher.finalize()[..key_len].to_vec();
 
         Ok(key)
     }
