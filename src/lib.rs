@@ -23,7 +23,6 @@ mod encodings;
 mod error;
 mod outlines;
 mod processor;
-mod rc4;
 mod toc;
 mod writer;
 

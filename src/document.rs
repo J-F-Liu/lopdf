@@ -1,9 +1,7 @@
 use super::encodings::Encoding;
 use super::{Bookmark, Dictionary, Object, ObjectId};
-use crate::encryption::{
-    self, Aes128CryptFilter, Aes256CryptFilter, CryptFilter, EncryptionState, IdentityCryptFilter,
-    PasswordAlgorithm, Rc4CryptFilter
-};
+use crate::encryption::crypt_filters::*;
+use crate::encryption::{self, EncryptionState, PasswordAlgorithm};
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
 use crate::{Error, ObjectStream, Result, Stream};
