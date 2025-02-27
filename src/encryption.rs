@@ -58,6 +58,10 @@ pub struct EncryptionState {
     pub file_encryption_key: Vec<u8>,
     pub stream_filter: Vec<u8>,
     pub string_filter: Vec<u8>,
+    pub owner_value: Vec<u8>,
+    pub owner_encrypted: Vec<u8>,
+    pub user_value: Vec<u8>,
+    pub user_encrypted: Vec<u8>,
 }
 
 impl EncryptionState {
@@ -88,6 +92,36 @@ impl EncryptionState {
         let algorithm = PasswordAlgorithm::try_from(document)?;
         let file_encryption_key = algorithm.compute_file_encryption_key(document, password)?;
 
+        // Get the owner value and owner encrypted blobs.
+        let owner_value = document.get_encrypted()
+            .and_then(|dict| dict.get(b"O"))
+            .map_err(|_| DecryptionError::MissingOwnerPassword)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?
+            .to_vec();
+
+        let owner_encrypted = document.get_encrypted()
+            .and_then(|dict| dict.get(b"OE"))
+            .and_then(Object::as_str)
+            .map(|s| s.to_vec())
+            .ok()
+            .unwrap_or(vec![]);
+
+        // Get the user value and user encrypted blobs.
+        let user_value = document.get_encrypted()
+            .and_then(|dict| dict.get(b"U"))
+            .map_err(|_| DecryptionError::MissingUserPassword)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?
+            .to_vec();
+
+        let user_encrypted = document.get_encrypted()
+            .and_then(|dict| dict.get(b"UE"))
+            .and_then(Object::as_str)
+            .map(|s| s.to_vec())
+            .ok()
+            .unwrap_or(vec![]);
+
         let crypt_filters = document.get_crypt_filters();
 
         let mut state = Self {
@@ -95,6 +129,10 @@ impl EncryptionState {
             file_encryption_key,
             stream_filter: vec![],
             string_filter: vec![],
+            owner_value,
+            owner_encrypted,
+            user_value,
+            user_encrypted,
         };
 
         if let Some(stream_filter) = document.get_encrypted()
