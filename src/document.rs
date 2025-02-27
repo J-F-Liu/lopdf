@@ -473,13 +473,13 @@ impl Document {
             .unwrap_or(true);
 
         let algorithm = PasswordAlgorithm::try_from(&*self)?;
-        let key = algorithm.compute_file_encryption_key(self, &password)?;
+        let file_encryption_key = algorithm.compute_file_encryption_key(self, &password)?;
 
         let crypt_filters = self.get_crypt_filters();
 
         let mut state = EncryptionState {
             crypt_filters,
-            key,
+            file_encryption_key,
             stream_filter: Arc::new(Rc4CryptFilter),
             string_filter: Arc::new(Rc4CryptFilter),
         };

@@ -55,7 +55,7 @@ pub enum DecryptionError {
 #[derive(Clone, Debug)]
 pub struct EncryptionState {
     pub crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
-    pub key: Vec<u8>,
+    pub file_encryption_key: Vec<u8>,
     pub stream_filter: Arc<dyn CryptFilter>,
     pub string_filter: Arc<dyn CryptFilter>,
 }
@@ -125,7 +125,7 @@ pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
 
     // Compute the key from the original file encryption key and the object identifier to use for
     // the corresponding object.
-    let key = crypt_filter.compute_key(&state.key, obj_id)?;
+    let key = crypt_filter.compute_key(&state.file_encryption_key, obj_id)?;
 
     // Encrypt the plaintext.
     let ciphertext = crypt_filter.encrypt(&key, plaintext)?;
@@ -205,7 +205,7 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
 
     // Compute the key from the original file encryption key and the object identifier to use for
     // the corresponding object.
-    let key = crypt_filter.compute_key(&state.key, obj_id)?;
+    let key = crypt_filter.compute_key(&state.file_encryption_key, obj_id)?;
 
     // Decrypt the ciphertext.
     let plaintext = crypt_filter.decrypt(&key, ciphertext)?;
