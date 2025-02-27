@@ -382,7 +382,7 @@ impl PasswordAlgorithm {
             //   concatenation of the input password, K, and the 48-byte user key.
             // * Otherwise, K0 is the concatenation of the input password and K.
             //
-            // Next, set k1 to 64 repetitions of K0.
+            // Next, set K1 to 64 repetitions of K0.
             k1.clear();
 
             for _ in 0..64 {
@@ -397,6 +397,9 @@ impl PasswordAlgorithm {
             // Encrypt K1 with the AES-128 (CBC, no padding) algorithm, using the first 16 bytes of
             // K as the key, and the second 16 bytes of K as the initialization vector. The result
             // of this encryption is E.
+            //
+            // The 64 repetitions of K0 ensure that K1 is a multiple of 64 bytes, thus a multiple
+            // of 16 bytes, i.e., it does not require padding.
             let key = &k[0..][..16];
             let iv = &k[16..][..16];
 
