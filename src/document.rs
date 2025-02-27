@@ -480,24 +480,22 @@ impl Document {
         let mut state = EncryptionState {
             crypt_filters,
             file_encryption_key,
-            stream_filter: Arc::new(Rc4CryptFilter),
-            string_filter: Arc::new(Rc4CryptFilter),
+            stream_filter: vec![],
+            string_filter: vec![],
         };
 
         if let Some(stream_filter) = self.get_encrypted()
             .and_then(|dict| dict.get(b"StmF"))
             .and_then(|object| object.as_name())
-            .ok()
-            .and_then(|name| state.crypt_filters.get(name).cloned()) {
-            state.stream_filter = stream_filter;
+            .ok() {
+            state.stream_filter = stream_filter.to_vec();
         }
 
         if let Some(string_filter) = self.get_encrypted()
             .and_then(|dict| dict.get(b"StrF"))
             .and_then(|object| object.as_name())
-            .ok()
-            .and_then(|name| state.crypt_filters.get(name).cloned()) {
-            state.string_filter = string_filter;
+            .ok() {
+            state.string_filter = string_filter.to_vec();
         }
 
         for (&id, obj) in self.objects.iter_mut() {

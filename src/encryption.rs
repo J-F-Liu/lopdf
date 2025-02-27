@@ -56,8 +56,18 @@ pub enum DecryptionError {
 pub struct EncryptionState {
     pub crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
     pub file_encryption_key: Vec<u8>,
-    pub stream_filter: Arc<dyn CryptFilter>,
-    pub string_filter: Arc<dyn CryptFilter>,
+    pub stream_filter: Vec<u8>,
+    pub string_filter: Vec<u8>,
+}
+
+impl EncryptionState {
+    pub fn get_stream_filter(&self) -> Arc<dyn CryptFilter> {
+        self.crypt_filters.get(&self.stream_filter).cloned().unwrap_or(Arc::new(Rc4CryptFilter))
+    }
+
+    pub fn get_string_filter(&self) -> Arc<dyn CryptFilter> {
+        self.crypt_filters.get(&self.string_filter).cloned().unwrap_or(Arc::new(Rc4CryptFilter))
+    }
 }
 
 /// Encrypts `obj`.
@@ -109,8 +119,8 @@ pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         }
         // Encryption applies to all strings and streams in the document's PDF file. We return the
         // crypt filter and the content here.
-        Object::String(content, _) => (state.string_filter.clone(), &*content),
-        Object::Stream(stream) => (state.stream_filter.clone(), &stream.content),
+        Object::String(content, _) => (state.get_string_filter(), &*content),
+        Object::Stream(stream) => (state.get_stream_filter(), &stream.content),
         // Encryption is not applied to other object types such as integers and boolean values.
         _ => {
             return Ok(());
@@ -189,8 +199,8 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         }
         // Encryption applies to all strings and streams in the document's PDF file. We return the
         // crypt filter and the content here.
-        Object::String(content, _) => (state.string_filter.clone(), &*content),
-        Object::Stream(stream) => (state.stream_filter.clone(), &stream.content),
+        Object::String(content, _) => (state.get_string_filter(), &*content),
+        Object::Stream(stream) => (state.get_stream_filter(), &stream.content),
         // Encryption is not applied to other object types such as integers and boolean values.
         _ => {
             return Ok(());
