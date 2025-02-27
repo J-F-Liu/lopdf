@@ -3,7 +3,7 @@ pub mod crypt_filters;
 mod pkcs5;
 mod rc4;
 
-use crate::{Object, ObjectId};
+use crate::{Document, Error, Object, ObjectId};
 use crypt_filters::*;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -58,6 +58,61 @@ pub struct EncryptionState {
     pub file_encryption_key: Vec<u8>,
     pub stream_filter: Vec<u8>,
     pub string_filter: Vec<u8>,
+}
+
+impl EncryptionState {
+    pub fn decode<P>(
+        document: &Document,
+        password: P,
+    ) -> Result<Self, Error>
+    where
+        P: AsRef<[u8]>,
+    {
+        if !document.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
+        // The name of the preferred security handler for this document. It shall be the name of
+        // the security handler that was used to encrypt the document.
+        //
+        // Standard shall be the name of the built-in password-based security handler.
+        let filter = document.get_encrypted()
+            .and_then(|dict| dict.get(b"Filter"))
+            .and_then(|object| object.as_name())
+            .map_err(|_| Error::DictKey("Filter".to_string()))?;
+
+        if filter != b"Standard" {
+            return Err(Error::UnsupportedSecurityHandler(filter.to_vec()));
+        }
+
+        let algorithm = PasswordAlgorithm::try_from(document)?;
+        let file_encryption_key = algorithm.compute_file_encryption_key(document, password)?;
+
+        let crypt_filters = document.get_crypt_filters();
+
+        let mut state = Self {
+            crypt_filters,
+            file_encryption_key,
+            stream_filter: vec![],
+            string_filter: vec![],
+        };
+
+        if let Some(stream_filter) = document.get_encrypted()
+            .and_then(|dict| dict.get(b"StmF"))
+            .and_then(|object| object.as_name())
+            .ok() {
+            state.stream_filter = stream_filter.to_vec();
+        }
+
+        if let Some(string_filter) = document.get_encrypted()
+            .and_then(|dict| dict.get(b"StrF"))
+            .and_then(|object| object.as_name())
+            .ok() {
+            state.string_filter = string_filter.to_vec();
+        }
+
+        Ok(state)
+    }
 }
 
 impl EncryptionState {

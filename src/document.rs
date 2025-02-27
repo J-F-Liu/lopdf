@@ -451,19 +451,6 @@ impl Document {
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
-        // The name of the preferred security handler for this document. It shall be the name of
-        // the security handler that was used to encrypt the document.
-        //
-        // Standard shall be the name of the built-in password-based security handler.
-        let filter = self.get_encrypted()
-            .and_then(|dict| dict.get(b"Filter"))
-            .and_then(|object| object.as_name())
-            .map_err(|_| Error::DictKey("Filter".to_string()))?;
-
-        if filter != b"Standard" {
-            return Err(Error::UnsupportedSecurityHandler(filter.to_vec()));
-        }
-
         // Since PDF 1.5, metadata may or may not be encrypted; defaults to true
         let metadata_is_encrypted = self
             .get_object(encryption_obj_id)?
@@ -472,31 +459,7 @@ impl Document {
             .and_then(|o| o.as_bool())
             .unwrap_or(true);
 
-        let algorithm = PasswordAlgorithm::try_from(&*self)?;
-        let file_encryption_key = algorithm.compute_file_encryption_key(self, &password)?;
-
-        let crypt_filters = self.get_crypt_filters();
-
-        let mut state = EncryptionState {
-            crypt_filters,
-            file_encryption_key,
-            stream_filter: vec![],
-            string_filter: vec![],
-        };
-
-        if let Some(stream_filter) = self.get_encrypted()
-            .and_then(|dict| dict.get(b"StmF"))
-            .and_then(|object| object.as_name())
-            .ok() {
-            state.stream_filter = stream_filter.to_vec();
-        }
-
-        if let Some(string_filter) = self.get_encrypted()
-            .and_then(|dict| dict.get(b"StrF"))
-            .and_then(|object| object.as_name())
-            .ok() {
-            state.string_filter = string_filter.to_vec();
-        }
+        let state = EncryptionState::decode(&*self, password)?;
 
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
