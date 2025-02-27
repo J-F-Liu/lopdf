@@ -8,6 +8,7 @@ use super::DecryptionError;
 use super::rc4::Rc4;
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
+type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
@@ -778,6 +779,142 @@ impl PasswordAlgorithm {
         // password using Algorithm 5. If it is correct, the password supplied is the correct owner
         // password.
         self.authenticate_user_password_r4(doc, &result)
+    }
+
+    /// Compute the encryption dictionary's U-entry value (revision 6).
+    ///
+    /// This implements Algorithm 8 as described in ISO 32000-2:2020 (PDF 2.0).
+    fn compute_hashed_user_password_r6<K, U>(
+        &self,
+        file_encryption_key: K,
+        user_password: U,
+    ) -> Result<(Vec<u8>, Vec<u8>), DecryptionError>
+    where
+        K: AsRef<[u8]>,
+        U: AsRef<[u8]>,
+    {
+        let file_encryption_key = file_encryption_key.as_ref();
+        let user_password = user_password.as_ref();
+
+        // Generate 16 random bytes of data using a strong random number generator. The first 8
+        // bytes are the user validation salt. The second 8 bytes are the user key salt. Compute
+        // the 32-byte hash using algorithm 2.B with an input string consisting of the UTF-8
+        // password concatenated with the user validation salt. The 48-byte string consisting of
+        // the 32-byte hash followed by the user validation salt followed by the user key salt is
+        // stored as the U key.
+        let mut user_value = [0u8; 48];
+        let mut rng = rand::rng();
+
+        rng.fill(&mut user_value[32..]);
+
+        let user_validation_salt = &user_value[32..][..8];
+
+        let mut input = Vec::with_capacity(user_password.len() + user_validation_salt.len());
+
+        input.extend_from_slice(user_password);
+        input.extend_from_slice(user_validation_salt);
+
+        let hashed_user_password = self.compute_hash(&input, None)?;
+        user_value[..32].copy_from_slice(&hashed_user_password);
+
+        // Compute the 32-byte hash using algorithm 2.B with an input string consisting of the
+        // UTF-8 password concatenated with the user key salt.
+        let user_key_salt = &user_value[40..][..8];
+
+        input.clear();
+
+        input.extend_from_slice(user_password);
+        input.extend_from_slice(user_key_salt);
+
+        let hash = self.compute_hash(&input, None)?;
+
+        // Using this hash as the key, encrypt the file encryption key using AES-256 in CBC mode
+        // with no padding and initialization vector of zero. The resulting 32-byte string is
+        // stored as the UE key.
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&hash);
+
+        let iv = [0u8; 16];
+
+        let mut user_encrypted = file_encryption_key.to_vec();
+
+        for block in user_encrypted.chunks_exact_mut(16) {
+            Aes256CbcEnc::new(&key.into(), &iv.into())
+                    .encrypt_block_mut(block.into());
+        }
+
+        Ok((user_value.to_vec(), user_encrypted))
+    }
+
+    /// Compute the encryption dictionary's O-entry value (revision 6).
+    ///
+    /// This implements Algorithm 9 as described in ISO 32000-2:2020 (PDF 2.0).
+    fn compute_hashed_owner_password_r6<K, O, U>(
+        &self,
+        file_encryption_key: K,
+        owner_password: O,
+        user_value: U,
+    ) -> Result<(Vec<u8>, Vec<u8>), DecryptionError>
+    where
+        K: AsRef<[u8]>,
+        O: AsRef<[u8]>,
+        U: AsRef<[u8]>,
+    {
+        let file_encryption_key = file_encryption_key.as_ref();
+        let owner_password = owner_password.as_ref();
+        let user_value = user_value.as_ref();
+
+        // Generate 16 random bytes of data using a strong random number generator. The first 8
+        // bytes are the owner validation salt. The second 8 bytes are the owner key salt. Compute
+        // the 32-byte hash using algorithm 2.B with an input string consisting of the UTF-8
+        // password concatenated with the owner validation salt and then concatenated with the
+        // 48-byte U string as generated in Algorithm 8. The 48-byte string consisting of the
+        // 32-byte hash followed by the owner validation salt followed by the owner key salt is
+        // stored as the O key.
+        let mut owner_value = [0u8; 48];
+        let mut rng = rand::rng();
+
+        rng.fill(&mut owner_value[32..]);
+
+        let owner_validation_salt = &owner_value[32..][..8];
+
+        let mut input = Vec::with_capacity(owner_password.len() + owner_validation_salt.len());
+
+        input.extend_from_slice(owner_password);
+        input.extend_from_slice(owner_validation_salt);
+
+        let hashed_owner_password = self.compute_hash(&input, Some(user_value))?;
+        owner_value[..32].copy_from_slice(&hashed_owner_password);
+
+        // Compute the 32-byte hash using algorithm 2.B with an input string consisting of the
+        // UTF-8 password concatenated with the owner key salt.
+        let owner_key_salt = &owner_value[40..][..8];
+
+        input.clear();
+
+        input.extend_from_slice(owner_password);
+        input.extend_from_slice(owner_key_salt);
+
+        let hash = self.compute_hash(&input, Some(user_value))?;
+
+        // Using this hash as the key, encrypt the file encryption key using AES-256 in CBC mode
+        // with no padding and initialization vector of zero. The resulting 32-byte string is
+        // stored as the OE key.
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&hash);
+
+        let iv = [0u8; 16];
+
+        let mut owner_encrypted = file_encryption_key.to_vec();
+
+        rng.fill(&mut owner_encrypted[..]);
+
+        for block in owner_encrypted.chunks_exact_mut(16) {
+            Aes256CbcEnc::new(&key.into(), &iv.into())
+                    .encrypt_block_mut(block.into());
+        }
+
+        Ok((owner_value.to_vec(), owner_encrypted))
     }
 
     /// Authenticate the user password (revision 6 and later).
