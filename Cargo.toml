@@ -24,6 +24,7 @@ chrono = { version = "0.4", optional = true, default-features = false, features 
     "std",
     "clock",
 ] }
+ecb = "0.1.2"
 encoding_rs = "0.8.32"
 flate2 = "1.0"
 image = { version = "0.25", optional = true }

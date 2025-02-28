@@ -33,6 +33,8 @@ pub enum DecryptionError {
     InvalidKeyLength,
     #[error("invalid ciphertext length")]
     InvalidCipherTextLength,
+    #[error("invalid permission length")]
+    InvalidPermissionLength,
     #[error("invalid revision")]
     InvalidRevision,
     // Used generically when the object type violates the spec

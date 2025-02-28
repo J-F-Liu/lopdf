@@ -1,6 +1,7 @@
 use aes::cipher::{BlockDecryptMut as _, BlockEncryptMut as _, KeyIvInit as _};
 use crate::encodings;
 use crate::{Document, Error, Object};
+use crate::encryption::Permissions;
 use md5::{Digest as _, Md5};
 use rand::Rng as _;
 use sha2::{Sha256, Sha384, Sha512};
@@ -9,8 +10,10 @@ use super::rc4::Rc4;
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
+type Aes256EbcEnc = ecb::Encryptor<aes::Aes256>;
 
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
+type Aes256EbcDec = ecb::Decryptor<aes::Aes256>;
 
 // If the password string is less than 32 bytes long, pad it by appending the required number of
 // additional bytes from the beginning of the following padding string.
@@ -21,6 +24,7 @@ const PAD_BYTES: [u8; 32] = [
 
 #[derive(Clone, Debug)]
 pub struct PasswordAlgorithm {
+    pub encrypt_metadata: bool,
     pub length: Option<usize>,
     pub revision: i64,
 }
@@ -33,6 +37,13 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         let encrypted = value
             .get_encrypted()
             .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
+
+        // Get the EncryptMetadata field.
+        let encrypt_metadata = encrypted
+            .get(b"EncryptMetadata")
+            .unwrap_or(&Object::Boolean(true))
+            .as_bool()
+            .map_err(|_| DecryptionError::InvalidType)?;
 
         // Get the Length field if any. Make sure that if it is present that it is a 64-bit integer and
         // that it can be converted to an unsigned size.
@@ -53,6 +64,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .map_err(|_| DecryptionError::InvalidType)?;
 
         Ok(Self {
+            encrypt_metadata,
             length,
             revision,
         })
@@ -96,12 +108,6 @@ impl PasswordAlgorithm {
         let encrypted = doc
             .get_encrypted()
             .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
-
-        let encrypt_metadata = encrypted
-            .get(b"EncryptMetadata")
-            .unwrap_or(&Object::Boolean(true))
-            .as_bool()
-            .map_err(|_| DecryptionError::InvalidType)?;
 
         // Pad or truncate the resulting password string to exactly 32 bytes. If the password string is
         // more than 32 bytes long, use only its first 32 bytes; if it is less than 32 bytes long, pad
@@ -159,7 +165,7 @@ impl PasswordAlgorithm {
 
         // (Security handlers of revision 4 or greater) If document metadata is not being encrypted,
         // pass 4 bytes with the value 0xFFFFFFFF to the MD5 hash function.
-        if self.revision >= 4 && !encrypt_metadata {
+        if self.revision >= 4 && !self.encrypt_metadata {
             hasher.update(b"\xff\xff\xff\xff");
         }
 
@@ -334,6 +340,15 @@ impl PasswordAlgorithm {
                 Aes256CbcDec::new(&key.into(), &iv.into())
                     .decrypt_block_mut(block.into());
             }
+
+            // Decrypt the 16-byte Perms string using AES-256 in EBC mode with an initialization
+            // vector of zero and the file encryption key as the key. Verify that bytes 9-11 of the
+            // result are the characters "a", "d", "b". Bytes 0-3 of the decrypted Perms entry,
+            // treated as a little-endian integer, are the user permissions. They shall match the
+            // value in the P key.
+            //
+            // i.e., use algorithm 13 to validate the permissions.
+            self.validate_permissions(doc, &user_encrypted)?;
 
             return Ok(user_encrypted);
         }
@@ -920,6 +935,48 @@ impl PasswordAlgorithm {
         Ok((owner_value.to_vec(), owner_encrypted))
     }
 
+    /// Compute the encryption dictionary's Perms (permissions) value (revision 6 and later).
+    ///
+    /// This implements Algorithm 10 as described in ISO 32000-2:2020 (PDF 2.0).
+    fn compute_permissions<K>(
+        &self,
+        file_encryption_key: K,
+        permissions: Permissions,
+    ) -> Result<Vec<u8>, DecryptionError>
+    where
+        K: AsRef<[u8]>,
+    {
+        let file_encryption_key = file_encryption_key.as_ref();
+        let mut bytes = [0u8; 16];
+
+        // Record the 8 bytes of permission in the bytes 0-7 of the block, low order byte first.
+        bytes[..8].copy_from_slice(&u64::to_le_bytes(permissions.p_value()));
+
+        // Set byte 8 to ASCII character "T" or "F" according to the EncryptMetadata boolean.
+        bytes[8] = if self.encrypt_metadata { b'T' } else { b'F' };
+
+        // Set bytes 9-11 to the ASCII characters "a", "d", "b".
+        bytes[9..][..3].copy_from_slice(b"adb");
+
+        // Set bytes 12-15 to 4 bytes of random data, which will be ignored.
+        let mut rng = rand::rng();
+        rng.fill(&mut bytes[12..][..4]);
+
+        // Encrypt the 16-byte block using AES-256 in ECB mode with an initialization vector of
+        // zero, using the file encryption key as the key.
+        let mut key = [0u8; 32];
+        key.copy_from_slice(file_encryption_key);
+
+        let iv = [0u8; 16];
+
+        Aes256CbcEnc::new(&key.into(), &iv.into())
+            .encrypt_block_mut(&mut bytes.into());
+
+        // The result (16 bytes) is stored as the Perms string, and checked for validity when the
+        // file is opened.
+        Ok(bytes.to_vec())
+    }
+
     /// Authenticate the user password (revision 6 and later).
     ///
     /// This implements Algorithm 11 as described in ISO 32000-2:2020 (PDF 2.0).
@@ -1014,6 +1071,72 @@ impl PasswordAlgorithm {
         input.extend_from_slice(owner_validation_salt);
 
         if self.compute_hash(&input, Some(user_value))? != hashed_owner_password {
+            return Err(DecryptionError::IncorrectPassword);
+        }
+
+        Ok(())
+    }
+
+    /// Validate the permissions (revision 6 and later).
+    ///
+    /// This implements Algorithm 13 as described in ISO 32000-2:2020 (PDF 2.0).
+    fn validate_permissions<K>(
+        &self,
+        document: &Document,
+        file_encryption_key: K,
+    ) -> Result<(), DecryptionError>
+    where
+        K: AsRef<[u8]>,
+    {
+        let file_encryption_key = file_encryption_key.as_ref();
+
+        // Get the permission value.
+        let permission_value = document.get_encrypted()
+            .and_then(|dict| dict.get(b"P"))
+            .map_err(|_| DecryptionError::MissingPermissions)?
+            .as_i64()
+            .map_err(|_| DecryptionError::InvalidType)?
+            as u64;
+
+       // Get the encrypted permissions.
+        let permission_encrypted = document.get_encrypted()
+            .and_then(|dict| dict.get(b"Perms"))
+            .map_err(|_| DecryptionError::MissingPermissions)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?;
+
+        // Ensure that the Perms field is 16 bytes.
+        if permission_encrypted.len() != 16 {
+            return Err(DecryptionError::InvalidPermissionLength);
+        }
+
+        // Decrypt the 16 byte Perms string using AES-256 in ECB mode with an initialization vector
+        // of zero and the file encryption key as the key.
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(permission_encrypted);
+
+        let mut key = [0u8; 32];
+        key.copy_from_slice(file_encryption_key);
+
+        let iv = [0u8; 16];
+
+        Aes256CbcDec::new(&key.into(), &iv.into())
+            .decrypt_block_mut(&mut bytes.into());
+
+        // Verify that bytes 9-11 of the result are the characters "a", "d", "b".
+        if &bytes[9..][..3] != b"adb" {
+            return Err(DecryptionError::IncorrectPassword);
+        }
+
+        // Bytes 0-3 of the decrypted Perms entry, treated as a little-endian integer, are the
+        // user permissions. They should match the value in the P key.
+        if bytes[..3] != u64::to_le_bytes(permission_value)[..3] {
+            return Err(DecryptionError::IncorrectPassword);
+        }
+
+        // Byte 8 should match the ASCII character "T" or "F" according to the boolean value of the
+        // EncryptMetadata key.
+        if bytes[8] != if self.encrypt_metadata { b'T' } else { b'F' } {
             return Err(DecryptionError::IncorrectPassword);
         }
 
