@@ -451,24 +451,11 @@ impl Document {
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
-        // Since PDF 1.5, metadata may or may not be encrypted; defaults to true
-        let metadata_is_encrypted = self
-            .get_object(encryption_obj_id)?
-            .as_dict()?
-            .get(b"EncryptMetadata")
-            .and_then(|o| o.as_bool())
-            .unwrap_or(true);
-
         let state = EncryptionState::decode(&*self, password)?;
 
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
             if id == encryption_obj_id {
-                continue;
-            }
-
-            // If a Metadata stream but metadata isn't encrypted, leave it alone
-            if obj.type_name().ok() == Some(b"Metadata") && !metadata_is_encrypted {
                 continue;
             }
 

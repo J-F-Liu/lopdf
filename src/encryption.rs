@@ -319,6 +319,11 @@ pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         return Ok(());
     }
 
+    // The Metadata stream shall only be encrypted if EncryptMetadata is set to true.
+    if obj.type_name().ok() == Some(b"Metadata") && !state.encrypt_metadata {
+        return Ok(());
+    }
+
     // A stream filter type, the Crypt filter can be specified for any stream in the document to
     // override the default filter for streams. The stream's DecodeParms entry shall contain a
     // Crypt filter decode parameters dictionary whose Name entry specifies the particular crypt
@@ -396,6 +401,11 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         .unwrap_or(false);
 
     if is_xref_stream {
+        return Ok(());
+    }
+
+    // The Metadata stream shall only be encrypted if EncryptMetadata is set to true.
+    if obj.type_name().ok() == Some(b"Metadata") && !state.encrypt_metadata {
         return Ok(());
     }
 
