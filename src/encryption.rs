@@ -168,7 +168,7 @@ impl EncryptionState {
             .and_then(Object::as_str)
             .map(|s| s.to_vec())
             .ok()
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         // Get the user value and user encrypted blobs.
         let user_value = document.get_encrypted()
@@ -183,7 +183,7 @@ impl EncryptionState {
             .and_then(Object::as_str)
             .map(|s| s.to_vec())
             .ok()
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         // Get the permission value.
         let permission_value = document.get_encrypted()
@@ -209,17 +209,15 @@ impl EncryptionState {
             permissions,
         };
 
-        if let Some(stream_filter) = document.get_encrypted()
+        if let Ok(stream_filter) = document.get_encrypted()
             .and_then(|dict| dict.get(b"StmF"))
-            .and_then(|object| object.as_name())
-            .ok() {
+            .and_then(|object| object.as_name()) {
             state.stream_filter = stream_filter.to_vec();
         }
 
-        if let Some(string_filter) = document.get_encrypted()
+        if let Ok(string_filter) = document.get_encrypted()
             .and_then(|dict| dict.get(b"StrF"))
-            .and_then(|object| object.as_name())
-            .ok() {
+            .and_then(|object| object.as_name()) {
             state.string_filter = string_filter.to_vec();
         }
 
