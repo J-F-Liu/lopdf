@@ -4,7 +4,7 @@ mod pkcs5;
 mod rc4;
 
 use bitflags::bitflags;
-use crate::{Document, Error, Object, ObjectId};
+use crate::{Dictionary, Document, Error, Object, ObjectId};
 use crypt_filters::*;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -16,6 +16,8 @@ pub use algorithms::PasswordAlgorithm;
 pub enum DecryptionError {
     #[error("the /Encrypt dictionary is missing")]
     MissingEncryptDictionary,
+    #[error("missing encryption version")]
+    MissingVersion,
     #[error("missing encryption revision")]
     MissingRevision,
     #[error("missing the owner password (/O)")]
@@ -118,6 +120,10 @@ impl Permissions {
 
 #[derive(Clone, Debug)]
 pub struct EncryptionState {
+    pub version: i64,
+    pub revision: i64,
+    pub key_length: Option<usize>,
+    pub encrypt_metadata: bool,
     pub crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
     pub file_encryption_key: Vec<u8>,
     pub stream_filter: Vec<u8>,
@@ -127,6 +133,7 @@ pub struct EncryptionState {
     pub user_value: Vec<u8>,
     pub user_encrypted: Vec<u8>,
     pub permissions: Permissions,
+    pub permission_encrypted: Vec<u8>,
 }
 
 impl EncryptionState {
@@ -153,6 +160,13 @@ impl EncryptionState {
         if filter != b"Standard" {
             return Err(Error::UnsupportedSecurityHandler(filter.to_vec()));
         }
+
+        // Get the V field.
+        let version = document.get_encrypted()
+            .and_then(|dict| dict.get(b"V"))
+            .map_err(|_| DecryptionError::MissingVersion)?
+            .as_i64()
+            .map_err(|_| DecryptionError::InvalidType)?;
 
         let algorithm = PasswordAlgorithm::try_from(document)?;
         let file_encryption_key = algorithm.compute_file_encryption_key(document, password)?;
@@ -187,7 +201,7 @@ impl EncryptionState {
             .ok()
             .unwrap_or_default();
 
-        // Get the permission value.
+        // Get the permission value and permission encrypted blobs.
         let permission_value = document.get_encrypted()
             .and_then(|dict| dict.get(b"P"))
             .map_err(|_| DecryptionError::MissingPermissions)?
@@ -197,9 +211,20 @@ impl EncryptionState {
 
         let permissions = Permissions::from_bits_truncate(permission_value);
 
+        let permission_encrypted = document.get_encrypted()
+            .and_then(|dict| dict.get(b"Perms"))
+            .and_then(Object::as_str)
+            .map(|s| s.to_vec())
+            .ok()
+            .unwrap_or_default();
+
         let crypt_filters = document.get_crypt_filters();
 
         let mut state = Self {
+            version,
+            revision: algorithm.revision,
+            key_length: algorithm.length,
+            encrypt_metadata: algorithm.encrypt_metadata,
             crypt_filters,
             file_encryption_key,
             stream_filter: vec![],
@@ -209,6 +234,7 @@ impl EncryptionState {
             user_value,
             user_encrypted,
             permissions,
+            permission_encrypted,
         };
 
         if let Ok(stream_filter) = document.get_encrypted()
@@ -224,6 +250,50 @@ impl EncryptionState {
         }
 
         Ok(state)
+    }
+
+    pub fn encode(&self) -> Result<Dictionary, DecryptionError> {
+        let mut encrypted = Dictionary::new();
+
+        encrypted.set(b"Filter", Object::Name(b"Standard".to_vec()));
+
+        encrypted.set(b"V", Object::Integer(self.version));
+        encrypted.set(b"R", Object::Integer(self.revision));
+
+        if let Some(key_length) = self.key_length {
+            encrypted.set(b"Length", Object::Integer(key_length as i64));
+        }
+
+        encrypted.set(b"EncryptMetadata", Object::Boolean(self.encrypt_metadata));
+
+        encrypted.set(b"O", Object::Name(self.owner_value.clone()));
+        encrypted.set(b"U", Object::Name(self.user_value.clone()));
+        encrypted.set(b"P", Object::Integer(self.permissions.p_value() as i64));
+
+        if self.revision >= 4 {
+            let mut filters = Dictionary::new();
+
+            for (name, crypt_filter) in &self.crypt_filters {
+                let mut filter = Dictionary::new();
+
+                filter.set(b"Type", Object::Name(b"CryptFilter".to_vec()));
+                filter.set(b"CFM", Object::Name(crypt_filter.method().to_vec()));
+
+                filters.set(name.to_vec(), Object::Dictionary(filter));
+            }
+
+            encrypted.set(b"CF", Object::Dictionary(filters));
+            encrypted.set(b"StmF", Object::Name(self.stream_filter.clone()));
+            encrypted.set(b"StrF", Object::Name(self.string_filter.clone()));
+        }
+
+        if self.revision >= 6 {
+            encrypted.set(b"OE", Object::Name(self.owner_encrypted.clone()));
+            encrypted.set(b"UE", Object::Name(self.user_encrypted.clone()));
+            encrypted.set(b"Perms", Object::Name(self.permission_encrypted.clone()));
+        }
+
+        Ok(encrypted)
     }
 }
 
