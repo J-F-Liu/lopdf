@@ -421,6 +421,27 @@ impl Document {
         crypt_filters
     }
 
+    /// Replaces all encrypted Strings and Streams with their encrypted contents
+    pub fn encrypt(
+        &mut self,
+        state: &EncryptionState,
+    ) -> Result<()> {
+        if self.is_encrypted() {
+            return Err(Error::AlreadyEncrypted);
+        }
+
+        let encrypted = state.encode()?;
+
+        for (&id, obj) in self.objects.iter_mut() {
+            encryption::encrypt_object(state, id, obj)?;
+        }
+
+        self.trailer.set(b"Encrypt", encrypted);
+
+        Ok(())
+    }
+
+
     /// Replaces all encrypted Strings and Streams with their decrypted contents
     pub fn decrypt(
         &mut self,
