@@ -13,6 +13,7 @@ type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
 pub trait CryptFilter: std::fmt::Debug {
+    fn method(&self) -> &[u8];
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError>;
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError>;
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError>;
@@ -22,6 +23,10 @@ pub trait CryptFilter: std::fmt::Debug {
 pub struct IdentityCryptFilter;
 
 impl CryptFilter for IdentityCryptFilter {
+    fn method(&self) -> &[u8] {
+        b"Identity"
+    }
+
     fn compute_key(&self, key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
         Ok(key.to_vec())
     }
@@ -39,6 +44,10 @@ impl CryptFilter for IdentityCryptFilter {
 pub struct Rc4CryptFilter;
 
 impl CryptFilter for Rc4CryptFilter {
+    fn method(&self) -> &[u8] {
+        b"V2"
+    }
+
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
         let mut hasher = Md5::new();
 
@@ -75,6 +84,10 @@ impl CryptFilter for Rc4CryptFilter {
 pub struct Aes128CryptFilter;
 
 impl CryptFilter for Aes128CryptFilter {
+    fn method(&self) -> &[u8] {
+        b"AESV2"
+    }
+
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
         let mut builder = Vec::with_capacity(key.len() + 9);
 
@@ -165,6 +178,10 @@ impl CryptFilter for Aes128CryptFilter {
 pub struct Aes256CryptFilter;
 
 impl CryptFilter for Aes256CryptFilter {
+    fn method(&self) -> &[u8] {
+        b"AESV3"
+    }
+
     fn compute_key(&self, key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
         // Use the 32-byte file encryption key for the AES-256 symmetric key algorithm.
         Ok(key.to_vec())

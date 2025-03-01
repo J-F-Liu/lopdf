@@ -421,6 +421,27 @@ impl Document {
         crypt_filters
     }
 
+    /// Replaces all encrypted Strings and Streams with their encrypted contents
+    pub fn encrypt(
+        &mut self,
+        state: &EncryptionState,
+    ) -> Result<()> {
+        if self.is_encrypted() {
+            return Err(Error::AlreadyEncrypted);
+        }
+
+        let encrypted = state.encode()?;
+
+        for (&id, obj) in self.objects.iter_mut() {
+            encryption::encrypt_object(state, id, obj)?;
+        }
+
+        self.trailer.set(b"Encrypt", encrypted);
+
+        Ok(())
+    }
+
+
     /// Replaces all encrypted Strings and Streams with their decrypted contents
     pub fn decrypt(
         &mut self,
@@ -451,63 +472,11 @@ impl Document {
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
-        // The name of the preferred security handler for this document. It shall be the name of
-        // the security handler that was used to encrypt the document.
-        //
-        // Standard shall be the name of the built-in password-based security handler.
-        let filter = self.get_encrypted()
-            .and_then(|dict| dict.get(b"Filter"))
-            .and_then(|object| object.as_name())
-            .map_err(|_| Error::DictKey("Filter".to_string()))?;
-
-        if filter != b"Standard" {
-            return Err(Error::UnsupportedSecurityHandler(filter.to_vec()));
-        }
-
-        // Since PDF 1.5, metadata may or may not be encrypted; defaults to true
-        let metadata_is_encrypted = self
-            .get_object(encryption_obj_id)?
-            .as_dict()?
-            .get(b"EncryptMetadata")
-            .and_then(|o| o.as_bool())
-            .unwrap_or(true);
-
-        let algorithm = PasswordAlgorithm::try_from(&*self)?;
-        let key = algorithm.compute_file_encryption_key(self, &password)?;
-
-        let crypt_filters = self.get_crypt_filters();
-
-        let mut state = EncryptionState {
-            crypt_filters,
-            key,
-            stream_filter: Arc::new(Rc4CryptFilter),
-            string_filter: Arc::new(Rc4CryptFilter),
-        };
-
-        if let Some(stream_filter) = self.get_encrypted()
-            .and_then(|dict| dict.get(b"StmF"))
-            .and_then(|object| object.as_name())
-            .ok()
-            .and_then(|name| state.crypt_filters.get(name).cloned()) {
-            state.stream_filter = stream_filter;
-        }
-
-        if let Some(string_filter) = self.get_encrypted()
-            .and_then(|dict| dict.get(b"StrF"))
-            .and_then(|object| object.as_name())
-            .ok()
-            .and_then(|name| state.crypt_filters.get(name).cloned()) {
-            state.string_filter = string_filter;
-        }
+        let state = EncryptionState::decode(&*self, password)?;
 
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
             if id == encryption_obj_id {
-                continue;
-            }
-
-            // If a Metadata stream but metadata isn't encrypted, leave it alone
-            if obj.type_name().ok() == Some(b"Metadata") && !metadata_is_encrypted {
                 continue;
             }
 

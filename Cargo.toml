@@ -18,11 +18,13 @@ rust-version = "1.74"
 
 [dependencies]
 aes = "0.8.4"
+bitflags = "2.8.0"
 cbc = "0.1.2"
 chrono = { version = "0.4", optional = true, default-features = false, features = [
     "std",
     "clock",
 ] }
+ecb = "0.1.2"
 encoding_rs = "0.8.32"
 flate2 = "1.0"
 image = { version = "0.25", optional = true }

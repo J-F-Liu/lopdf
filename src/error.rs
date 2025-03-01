@@ -19,6 +19,9 @@ pub enum Error {
     },
     #[error("dictionary has wrong type: ")]
     DictType { expected: &'static str, found: String },
+    /// PDF document is already encrypted.
+    #[error("PDF document is already encrypted")]
+    AlreadyEncrypted,
     /// The encountered character encoding is invalid.
     #[error("invalid character encoding")]
     CharacterEncoding,
