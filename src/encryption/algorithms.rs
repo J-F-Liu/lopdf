@@ -26,6 +26,7 @@ const PAD_BYTES: [u8; 32] = [
 pub struct PasswordAlgorithm {
     pub encrypt_metadata: bool,
     pub length: Option<usize>,
+    pub version: i64,
     pub revision: i64,
 }
 
@@ -47,7 +48,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
 
         // Get the Length field if any. Make sure that if it is present that it is a 64-bit integer and
         // that it can be converted to an unsigned size.
-        let length = if encrypted.get(b"Length").is_ok() {
+        let length: Option<usize> = if encrypted.get(b"Length").is_ok() {
             Some(encrypted
                 .get(b"Length")?
                 .as_i64()?
@@ -55,6 +56,25 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         } else {
             None
         };
+
+        // Get the V field.
+        let version = encrypted
+            .get(b"V")
+            .map_err(|_| DecryptionError::MissingVersion)?
+            .as_i64()
+            .map_err(|_| DecryptionError::InvalidType)?;
+
+        // The length of the file encryption key shall only be present if V is 2 or 3.
+        if length.is_some() && version != 2 && version != 3 {
+            return Err(DecryptionError::InvalidKeyLength)?;
+        }
+
+        // The length of the file encryption key shall be a multiple of 8, in the range 40 to 128.
+        if let Some(length) = length {
+            if length % 8 != 0 || !(40..128).contains(&length) {
+                return Err(DecryptionError::InvalidKeyLength)?;
+            }
+        }
 
         // Get the R field.
         let revision = encrypted
@@ -66,6 +86,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         Ok(Self {
             encrypt_metadata,
             length,
+            version,
             revision,
         })
     }

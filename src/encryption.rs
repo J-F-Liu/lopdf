@@ -163,13 +163,6 @@ impl EncryptionState {
             return Err(Error::UnsupportedSecurityHandler(filter.to_vec()));
         }
 
-        // Get the V field.
-        let version = document.get_encrypted()
-            .and_then(|dict| dict.get(b"V"))
-            .map_err(|_| DecryptionError::MissingVersion)?
-            .as_i64()
-            .map_err(|_| DecryptionError::InvalidType)?;
-
         let algorithm = PasswordAlgorithm::try_from(document)?;
         let file_encryption_key = algorithm.compute_file_encryption_key(document, password)?;
 
@@ -223,7 +216,7 @@ impl EncryptionState {
         let crypt_filters = document.get_crypt_filters();
 
         let mut state = Self {
-            version,
+            version: algorithm.version,
             revision: algorithm.revision,
             key_length: algorithm.length,
             encrypt_metadata: algorithm.encrypt_metadata,
