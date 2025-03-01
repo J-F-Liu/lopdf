@@ -1,4 +1,4 @@
-use aes::cipher::{BlockDecryptMut as _, BlockEncryptMut as _, KeyIvInit as _};
+use aes::cipher::{BlockDecryptMut as _, BlockEncryptMut as _, KeyInit as _, KeyIvInit as _};
 use crate::encodings;
 use crate::{Document, Error, Object};
 use crate::encryption::Permissions;
@@ -1021,9 +1021,7 @@ impl PasswordAlgorithm {
         let mut key = [0u8; 32];
         key.copy_from_slice(file_encryption_key);
 
-        let iv = [0u8; 16];
-
-        Aes256CbcEnc::new(&key.into(), &iv.into())
+        Aes256EbcEnc::new(&key.into())
             .encrypt_block_mut(&mut bytes.into());
 
         // The result (16 bytes) is stored as the Perms string, and checked for validity when the
@@ -1172,9 +1170,7 @@ impl PasswordAlgorithm {
         let mut key = [0u8; 32];
         key.copy_from_slice(file_encryption_key);
 
-        let iv = [0u8; 16];
-
-        Aes256CbcDec::new(&key.into(), &iv.into())
+        Aes256EbcDec::new(&key.into())
             .decrypt_block_mut(&mut bytes.into());
 
         // Verify that bytes 9-11 of the result are the characters "a", "d", "b".
