@@ -64,6 +64,35 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .as_i64()
             .map_err(|_| DecryptionError::InvalidType)?;
 
+        // A code specifying the algorithm to be used in encrypting and decrypting the document.
+        match version {
+            // (Deprecated in PDF 2.0) An algorithm that is undocumented. This value shall not be
+            // used.
+            0 => return Err(DecryptionError::InvalidVersion)?,
+            // (PDF 1.4; deprecated in PDF 2.0) Indicates the use of encryption of data using the
+            // RC4 or AES algorithms with a file encryption key length of 40 bits.
+            1 => (),
+            // (PDF 1.4; deprecated in PDF 2.0) Indicates the use of encryption of data using the
+            // RC4 or AES algorithms but permitting file encryption key lengths greater or 40 bits.
+            2 => (),
+            // (PDF 1.4; deprecated in PDF 2.0) An unpublished algorithm that permits encryption
+            // key lengths ranging from 40 to 128 bits. This value shall not appear in a conforming
+            // PDF file.
+            3 => return Err(DecryptionError::InvalidVersion)?,
+            // (PDF 1.5; deprecated in PDF 2.0) The security handler defines the use of encryption
+            // and decrpyption in the document, using the rules specified by the CF, StmF and StrF
+            // entries using encryption of data using the RC4 or AES algorithms (deprecated in PDF
+            // 2.0) with a file encryption key length of 128 bits.
+            4 => (),
+            // (PDF 2.0) The security handler defines the use of encryption and decryption in the
+            // document, using the rules specified by the CF, StmF, StrF and EFF entries using
+            // encryption of data using the AES algorithms with a file encryption key length of 256
+            // bits.
+            5 => (),
+            // Unknown codes.
+            _ => return Err(DecryptionError::UnsupportedVersion)?,
+        }
+
         // The length of the file encryption key shall only be present if V is 2 or 3.
         if length.is_some() && version != 2 && version != 3 {
             return Err(DecryptionError::InvalidKeyLength)?;

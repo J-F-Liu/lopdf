@@ -39,6 +39,8 @@ pub enum DecryptionError {
     InvalidCipherTextLength,
     #[error("invalid permission length")]
     InvalidPermissionLength,
+    #[error("invalid version")]
+    InvalidVersion,
     #[error("invalid revision")]
     InvalidRevision,
     // Used generically when the object type violates the spec
@@ -52,6 +54,8 @@ pub enum DecryptionError {
 
     #[error("the document uses an encryption scheme that is not implemented in lopdf")]
     UnsupportedEncryption,
+    #[error("the encryption version is not implemented in lopdf")]
+    UnsupportedVersion,
     #[error("the encryption revision is not implemented in lopdf")]
     UnsupportedRevision,
 
