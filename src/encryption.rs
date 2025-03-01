@@ -125,6 +125,54 @@ impl Permissions {
 }
 
 #[derive(Clone, Debug)]
+pub enum EncryptionVersion<'a> {
+    /// (PDF 1.4; deprecated in PDF 2.0) Indicates the use of encryption of data using the RC4 or
+    /// AES algorithms with a file encryption key length of 40 bits.
+    V1 {
+        document: &'a Document,
+        owner_password: &'a [u8],
+        user_password: &'a [u8],
+        permissions: Permissions,
+    },
+    /// (PDF 1.4; deprecated in PDF 2.0) Indicates the use of encryption of data using the RC4 or
+    /// AES algorithms but permitting file encryption key lengths greater or 40 bits.
+    V2 {
+        document: &'a Document,
+        owner_password: &'a [u8],
+        user_password: &'a [u8],
+        key_length: usize,
+        permissions: Permissions,
+    },
+    /// (PDF 1.5; deprecated in PDF 2.0) The security handler defines the use of encryption and
+    /// decryption in the document, using the rules specified by the CF, StmF and StrF entries
+    /// using encryption of data using the RC4 or AES algorithms (deprecated in PDF  2.0) with a
+    /// file encryption key length of 128 bits.
+    V4 {
+        document: &'a Document,
+        encrypt_metadata: bool,
+        crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
+        stream_filter: Vec<u8>,
+        string_filter: Vec<u8>,
+        owner_password: &'a [u8],
+        user_password: &'a [u8],
+        permissions: Permissions,
+    },
+    /// (PDF 2.0) The security handler defines the use of encryption and decryption in the
+    /// document, using the rules specified by the CF, StmF, StrF and EFF entries using encryption
+    /// of data using the AES algorithms with a file encryption key length of 256 bits.
+    V5 {
+        encrypt_metadata: bool,
+        crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
+        file_encryption_key: &'a [u8],
+        stream_filter: Vec<u8>,
+        string_filter: Vec<u8>,
+        owner_password: &'a [u8],
+        user_password: &'a [u8],
+        permissions: Permissions,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub struct EncryptionState {
     pub version: i64,
     pub revision: i64,
@@ -140,6 +188,194 @@ pub struct EncryptionState {
     pub user_encrypted: Vec<u8>,
     pub permissions: Permissions,
     pub permission_encrypted: Vec<u8>,
+}
+
+impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
+    type Error = Error;
+
+    fn try_from(version: EncryptionVersion) -> Result<EncryptionState, Self::Error> {
+        match version {
+            EncryptionVersion::V1 {
+                document,
+                owner_password,
+                user_password,
+                permissions,
+            } => {
+                let algorithm = PasswordAlgorithm {
+                    encrypt_metadata: true,
+                    length: None,
+                    version: 1,
+                    revision: 2,
+                };
+
+                let user_value = algorithm.compute_hashed_user_password_r2(
+                    document,
+                    user_password,
+                )?;
+
+                let owner_value = algorithm.compute_hashed_owner_password_r4(
+                    Some(owner_password),
+                    user_password,
+                )?;
+
+                Ok(Self {
+                    version: algorithm.version,
+                    revision: algorithm.revision,
+                    key_length: algorithm.length,
+                    encrypt_metadata: algorithm.encrypt_metadata,
+                    crypt_filters: BTreeMap::new(),
+                    file_encryption_key: vec![],
+                    stream_filter: vec![],
+                    string_filter: vec![],
+                    owner_value,
+                    owner_encrypted: vec![],
+                    user_value,
+                    user_encrypted: vec![],
+                    permissions,
+                    permission_encrypted: vec![],
+                })
+            }
+            EncryptionVersion::V2 {
+                document,
+                owner_password,
+                user_password,
+                key_length,
+                permissions,
+            } => {
+                let algorithm = PasswordAlgorithm {
+                    encrypt_metadata: true,
+                    length: Some(key_length),
+                    version: 2,
+                    revision: 3,
+                };
+
+                let user_value = algorithm.compute_hashed_user_password_r3_r4(
+                    document,
+                    user_password,
+                )?;
+
+                let owner_value = algorithm.compute_hashed_owner_password_r4(
+                    Some(owner_password),
+                    user_password,
+                )?;
+
+                Ok(Self {
+                    version: algorithm.version,
+                    revision: algorithm.revision,
+                    key_length: algorithm.length,
+                    encrypt_metadata: algorithm.encrypt_metadata,
+                    crypt_filters: BTreeMap::new(),
+                    file_encryption_key: vec![],
+                    stream_filter: vec![],
+                    string_filter: vec![],
+                    owner_value,
+                    owner_encrypted: vec![],
+                    user_value,
+                    user_encrypted: vec![],
+                    permissions,
+                    permission_encrypted: vec![],
+                })
+            }
+            EncryptionVersion::V4 {
+                document,
+                encrypt_metadata,
+                crypt_filters,
+                stream_filter,
+                string_filter,
+                owner_password,
+                user_password,
+                permissions,
+            } => {
+                let algorithm = PasswordAlgorithm {
+                    encrypt_metadata,
+                    length: None,
+                    version: 4,
+                    revision: 4,
+                };
+
+                let user_value = algorithm.compute_hashed_user_password_r3_r4(
+                    document,
+                    user_password,
+                )?;
+
+                let owner_value = algorithm.compute_hashed_owner_password_r4(
+                    Some(owner_password),
+                    user_password,
+                )?;
+
+                Ok(Self {
+                    version: algorithm.version,
+                    revision: algorithm.revision,
+                    key_length: algorithm.length,
+                    encrypt_metadata: algorithm.encrypt_metadata,
+                    crypt_filters,
+                    file_encryption_key: vec![],
+                    stream_filter,
+                    string_filter,
+                    owner_value,
+                    owner_encrypted: vec![],
+                    user_value,
+                    user_encrypted: vec![],
+                    permissions,
+                    permission_encrypted: vec![],
+                })
+            }
+            EncryptionVersion::V5 {
+                encrypt_metadata,
+                crypt_filters,
+                file_encryption_key,
+                stream_filter,
+                string_filter,
+                owner_password,
+                user_password,
+                permissions,
+            } => {
+                if file_encryption_key.len() != 32 {
+                    return Err(DecryptionError::InvalidKeyLength)?;
+                }
+
+                let algorithm = PasswordAlgorithm {
+                    encrypt_metadata,
+                    length: None,
+                    version: 5,
+                    revision: 6,
+                };
+
+                let (user_value, user_encrypted) = algorithm.compute_hashed_user_password_r6(
+                    file_encryption_key,
+                    user_password,
+                )?;
+
+                let (owner_value, owner_encrypted) = algorithm.compute_hashed_owner_password_r6(
+                    file_encryption_key,
+                    owner_password,
+                    &user_value,
+                )?;
+
+                let permission_encrypted = algorithm.compute_permissions(
+                    file_encryption_key,
+                    permissions,
+                )?;
+
+                Ok(Self {
+                    version: algorithm.version,
+                    revision: algorithm.revision,
+                    key_length: algorithm.length,
+                    encrypt_metadata: algorithm.encrypt_metadata,
+                    crypt_filters,
+                    file_encryption_key: file_encryption_key.to_vec(),
+                    stream_filter,
+                    string_filter,
+                    owner_value,
+                    owner_encrypted,
+                    user_value,
+                    user_encrypted,
+                    permissions,
+                    permission_encrypted,
+                })
+            }
+        }
+    }
 }
 
 impl EncryptionState {

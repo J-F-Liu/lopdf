@@ -80,7 +80,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             // PDF file.
             3 => return Err(DecryptionError::InvalidVersion)?,
             // (PDF 1.5; deprecated in PDF 2.0) The security handler defines the use of encryption
-            // and decrpyption in the document, using the rules specified by the CF, StmF and StrF
+            // and decryption in the document, using the rules specified by the CF, StmF and StrF
             // entries using encryption of data using the RC4 or AES algorithms (deprecated in PDF
             // 2.0) with a file encryption key length of 128 bits.
             4 => (),
@@ -506,7 +506,7 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 3 as described in ISO 32000-2:2020 (PDF 2.0).
     ///
     /// This algorithm is deprecated in PDF 2.0.
-    fn compute_hashed_owner_password_r4<O, U>(
+    pub(crate) fn compute_hashed_owner_password_r4<O, U>(
         &self,
         owner_password: Option<O>,
         user_password: U,
@@ -614,7 +614,7 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 4 as described in ISO 32000-2:2020 (PDF 2.0).
     ///
     /// This algorithm is deprecated in PDF 2.0.
-    fn compute_hashed_user_password_r2<U>(
+    pub(crate) fn compute_hashed_user_password_r2<U>(
         &self,
         doc: &Document,
         user_password: U,
@@ -638,7 +638,7 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 5 as described in ISO 32000-2:2020 (PDF 2.0).
     ///
     /// This algorithm is deprecated in PDF 2.0.
-    fn compute_hashed_user_password_r3_r4<U>(
+    pub(crate) fn compute_hashed_user_password_r3_r4<U>(
         &self,
         doc: &Document,
         user_password: U,
@@ -856,7 +856,7 @@ impl PasswordAlgorithm {
     /// Compute the encryption dictionary's U-entry value (revision 6).
     ///
     /// This implements Algorithm 8 as described in ISO 32000-2:2020 (PDF 2.0).
-    fn compute_hashed_user_password_r6<K, U>(
+    pub(crate) fn compute_hashed_user_password_r6<K, U>(
         &self,
         file_encryption_key: K,
         user_password: U,
@@ -921,7 +921,7 @@ impl PasswordAlgorithm {
     /// Compute the encryption dictionary's O-entry value (revision 6).
     ///
     /// This implements Algorithm 9 as described in ISO 32000-2:2020 (PDF 2.0).
-    fn compute_hashed_owner_password_r6<K, O, U>(
+    pub(crate) fn compute_hashed_owner_password_r6<K, O, U>(
         &self,
         file_encryption_key: K,
         owner_password: O,
@@ -992,7 +992,7 @@ impl PasswordAlgorithm {
     /// Compute the encryption dictionary's Perms (permissions) value (revision 6 and later).
     ///
     /// This implements Algorithm 10 as described in ISO 32000-2:2020 (PDF 2.0).
-    fn compute_permissions<K>(
+    pub(crate) fn compute_permissions<K>(
         &self,
         file_encryption_key: K,
         permissions: Permissions,
@@ -1221,38 +1221,6 @@ impl PasswordAlgorithm {
         match self.revision {
             2..=4 => self.compute_file_encryption_key_r4(doc, password),
             6 => self.compute_file_encryption_key_r6(doc, password),
-            _ => Err(DecryptionError::UnsupportedRevision),
-        }
-    }
-
-    /// Compute the encryption dictionary's O-entry value.
-    pub fn compute_hashed_owner_password<O, U>(
-        &self,
-        owner_password: Option<O>,
-        user_password: U,
-    ) -> Result<Vec<u8>, DecryptionError>
-    where
-        O: AsRef<[u8]>,
-        U: AsRef<[u8]>,
-    {
-        match self.revision {
-            2..=4 => self.compute_hashed_owner_password_r4(owner_password, user_password),
-            _ => Err(DecryptionError::UnsupportedRevision),
-        }
-    }
-
-    /// Compute the encryption dictionary's U-entry value.
-    pub fn compute_hashed_user_password<U>(
-        &self,
-        doc: &Document,
-        user_password: U,
-    ) -> Result<Vec<u8>, DecryptionError>
-    where
-        U: AsRef<[u8]>,
-    {
-        match self.revision {
-            2 => self.compute_hashed_user_password_r2(doc, user_password),
-            3..=4 => self.compute_hashed_user_password_r3_r4(doc, user_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
