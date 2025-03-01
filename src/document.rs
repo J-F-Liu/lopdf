@@ -52,6 +52,10 @@ pub struct Document {
     /// It is used to support incremental updates in PDFs.
     /// Default value is `0`.
     pub xref_start: usize,
+
+    /// The encryption state stores the parameters that were used to decrypt this document if the
+    /// document has been decrypted.
+    pub encryption_state: Option<EncryptionState>,
 }
 
 impl Document {
@@ -68,6 +72,7 @@ impl Document {
             bookmarks: Vec::new(),
             bookmark_table: HashMap::new(),
             xref_start: 0,
+            encryption_state: None,
         }
     }
 
@@ -86,6 +91,7 @@ impl Document {
             bookmarks: Vec::new(),
             bookmark_table: HashMap::new(),
             xref_start: 0,
+            encryption_state: None,
         }
     }
 
@@ -437,10 +443,10 @@ impl Document {
         }
 
         self.trailer.set(b"Encrypt", encrypted);
+        self.encryption_state = None;
 
         Ok(())
     }
-
 
     /// Replaces all encrypted Strings and Streams with their decrypted contents
     pub fn decrypt(
@@ -508,6 +514,8 @@ impl Document {
         }
 
         self.trailer.remove(b"Encrypt");
+        self.encryption_state = Some(state);
+
         Ok(())
     }
 

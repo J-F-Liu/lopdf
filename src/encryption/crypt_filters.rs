@@ -12,7 +12,7 @@ type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
-pub trait CryptFilter: std::fmt::Debug {
+pub trait CryptFilter: std::fmt::Debug + Send + Sync {
     fn method(&self) -> &[u8];
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError>;
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError>;
