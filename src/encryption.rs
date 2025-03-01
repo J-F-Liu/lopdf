@@ -379,6 +379,62 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
 }
 
 impl EncryptionState {
+    pub fn version(&self) -> i64 {
+        self.version
+    }
+
+    pub fn revision(&self) -> i64 {
+        self.revision
+    }
+
+    pub fn key_length(&self) -> Option<usize> {
+        self.key_length
+    }
+
+    pub fn encrypt_metadata(&self) -> bool {
+        self.encrypt_metadata
+    }
+
+    pub fn crypt_filters(&self) -> &BTreeMap<Vec<u8>, Arc<dyn CryptFilter>> {
+        &self.crypt_filters
+    }
+
+    pub fn file_encryption_key(&self) -> &[u8] {
+        self.file_encryption_key.as_ref()
+    }
+
+    pub fn default_stream_filter(&self) -> &[u8] {
+        self.stream_filter.as_ref()
+    }
+
+    pub fn default_string_filter(&self) -> &[u8] {
+        self.string_filter.as_ref()
+    }
+
+    pub fn owner_value(&self) -> &[u8] {
+        self.owner_value.as_ref()
+    }
+
+    pub fn owner_encrypted(&self) -> &[u8] {
+        self.owner_encrypted.as_ref()
+    }
+
+    pub fn user_value(&self) -> &[u8] {
+        self.user_value.as_ref()
+    }
+
+    pub fn user_encrypted(&self) -> &[u8] {
+        self.user_encrypted.as_ref()
+    }
+
+    pub fn permissions(&self) -> Permissions {
+        self.permissions
+    }
+
+    pub fn permission_encrypted(&self) -> &[u8] {
+        self.permission_encrypted.as_ref()
+    }
+
     pub fn decode<P>(
         document: &Document,
         password: P,
@@ -573,9 +629,7 @@ impl EncryptionState {
 
         Ok(encrypted)
     }
-}
 
-impl EncryptionState {
     pub fn get_stream_filter(&self) -> Arc<dyn CryptFilter> {
         self.crypt_filters.get(&self.stream_filter).cloned().unwrap_or(Arc::new(Rc4CryptFilter))
     }
