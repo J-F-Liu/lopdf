@@ -31,6 +31,8 @@ pub enum DecryptionError {
     #[error("missing the key length (/Length)")]
     MissingKeyLength,
 
+    #[error("invalid hash length")]
+    InvalidHashLength,
     #[error("invalid key length")]
     InvalidKeyLength,
     #[error("invalid ciphertext length")]

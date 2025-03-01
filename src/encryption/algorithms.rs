@@ -690,6 +690,10 @@ impl PasswordAlgorithm {
             .as_str()
             .map_err(|_| DecryptionError::InvalidType)?;
 
+        if stored_hashed_user_password.len() < len {
+            return Err(DecryptionError::InvalidHashLength);
+        }
+
         if hashed_user_password[..len] != stored_hashed_user_password[..len] {
             return Err(DecryptionError::IncorrectPassword);
         }
