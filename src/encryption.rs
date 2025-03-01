@@ -174,20 +174,20 @@ pub enum EncryptionVersion<'a> {
 
 #[derive(Clone, Debug)]
 pub struct EncryptionState {
-    pub version: i64,
-    pub revision: i64,
-    pub key_length: Option<usize>,
-    pub encrypt_metadata: bool,
-    pub crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
-    pub file_encryption_key: Vec<u8>,
-    pub stream_filter: Vec<u8>,
-    pub string_filter: Vec<u8>,
-    pub owner_value: Vec<u8>,
-    pub owner_encrypted: Vec<u8>,
-    pub user_value: Vec<u8>,
-    pub user_encrypted: Vec<u8>,
-    pub permissions: Permissions,
-    pub permission_encrypted: Vec<u8>,
+    pub(crate) version: i64,
+    pub(crate) revision: i64,
+    pub(crate) key_length: Option<usize>,
+    pub(crate) encrypt_metadata: bool,
+    pub(crate) crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
+    pub(crate) file_encryption_key: Vec<u8>,
+    pub(crate) stream_filter: Vec<u8>,
+    pub(crate) string_filter: Vec<u8>,
+    pub(crate) owner_value: Vec<u8>,
+    pub(crate) owner_encrypted: Vec<u8>,
+    pub(crate) user_value: Vec<u8>,
+    pub(crate) user_encrypted: Vec<u8>,
+    pub(crate) permissions: Permissions,
+    pub(crate) permission_encrypted: Vec<u8>,
 }
 
 impl TryFrom<EncryptionVersion<'_>> for EncryptionState {

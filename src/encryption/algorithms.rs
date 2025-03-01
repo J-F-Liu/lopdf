@@ -24,10 +24,10 @@ const PAD_BYTES: [u8; 32] = [
 
 #[derive(Clone, Debug)]
 pub struct PasswordAlgorithm {
-    pub encrypt_metadata: bool,
-    pub length: Option<usize>,
-    pub version: i64,
-    pub revision: i64,
+    pub(crate) encrypt_metadata: bool,
+    pub(crate) length: Option<usize>,
+    pub(crate) version: i64,
+    pub(crate) revision: i64,
 }
 
 impl TryFrom<&Document> for PasswordAlgorithm {
