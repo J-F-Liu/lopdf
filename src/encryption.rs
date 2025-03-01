@@ -178,12 +178,27 @@ impl EncryptionState {
             .map_err(|_| DecryptionError::InvalidType)?
             .to_vec();
 
+        // The owner value is 32 bytes long if the value of R is 4 or less.
+        if algorithm.revision <= 4 && owner_value.len() != 32 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
+        // The owner value is 48 bytes long if the value of R is 6.
+        if algorithm.revision == 6 && owner_value.len() != 48 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
         let owner_encrypted = document.get_encrypted()
             .and_then(|dict| dict.get(b"OE"))
             .and_then(Object::as_str)
             .map(|s| s.to_vec())
             .ok()
             .unwrap_or_default();
+
+        // The owner encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
+        if algorithm.revision == 6 && owner_encrypted.len() != 32 {
+            return Err(DecryptionError::InvalidCipherTextLength)?;
+        }
 
         // Get the user value and user encrypted blobs.
         let user_value = document.get_encrypted()
@@ -193,12 +208,27 @@ impl EncryptionState {
             .map_err(|_| DecryptionError::InvalidType)?
             .to_vec();
 
+        // The user value is 32 bytes long if the value of R is 4 or less.
+        if algorithm.revision <= 4 && user_value.len() != 32 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
+        // The user value is 48 bytes long if the value of R is 6.
+        if algorithm.revision == 6 && user_value.len() != 48 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
         let user_encrypted = document.get_encrypted()
             .and_then(|dict| dict.get(b"UE"))
             .and_then(Object::as_str)
             .map(|s| s.to_vec())
             .ok()
             .unwrap_or_default();
+
+        // The user encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
+        if algorithm.revision == 6 && user_encrypted.len() != 32 {
+            return Err(DecryptionError::InvalidCipherTextLength)?;
+        }
 
         // Get the permission value and permission encrypted blobs.
         let permission_value = document.get_encrypted()
@@ -217,7 +247,17 @@ impl EncryptionState {
             .ok()
             .unwrap_or_default();
 
-        let crypt_filters = document.get_crypt_filters();
+        // The permission encrypted blob is required if R is 6 and the blob shall be 16 bytes long.
+        if algorithm.revision == 6 && permission_encrypted.len() != 16 {
+            return Err(DecryptionError::InvalidCipherTextLength)?;
+        }
+
+        let mut crypt_filters = document.get_crypt_filters();
+
+        // CF is meaningful only when the value of V is 4 (PDF 1.5) or 5 (PDF 2.0).
+        if algorithm.version < 4 {
+            crypt_filters.clear();
+        }
 
         let mut state = Self {
             version: algorithm.version,
@@ -236,16 +276,19 @@ impl EncryptionState {
             permission_encrypted,
         };
 
-        if let Ok(stream_filter) = document.get_encrypted()
-            .and_then(|dict| dict.get(b"StmF"))
-            .and_then(|object| object.as_name()) {
-            state.stream_filter = stream_filter.to_vec();
-        }
+        // StmF and StrF are meaningful only when the value of V is 4 (PDF 1.5) or 5 (PDF 2.0).
+        if algorithm.version == 4 || algorithm.version == 5 {
+            if let Ok(stream_filter) = document.get_encrypted()
+                .and_then(|dict| dict.get(b"StmF"))
+                .and_then(|object| object.as_name()) {
+                state.stream_filter = stream_filter.to_vec();
+            }
 
-        if let Ok(string_filter) = document.get_encrypted()
-            .and_then(|dict| dict.get(b"StrF"))
-            .and_then(|object| object.as_name()) {
-            state.string_filter = string_filter.to_vec();
+            if let Ok(string_filter) = document.get_encrypted()
+                .and_then(|dict| dict.get(b"StrF"))
+                .and_then(|object| object.as_name()) {
+                state.string_filter = string_filter.to_vec();
+            }
         }
 
         Ok(state)
