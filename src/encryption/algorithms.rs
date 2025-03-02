@@ -383,9 +383,11 @@ impl PasswordAlgorithm {
             // the file encryption key.
             let iv = [0u8; 16];
 
+            let mut owner_encrypted = self.owner_encrypted.clone();
+            let mut decryptor = Aes256CbcDec::new(&key.into(), &iv.into());
+
             for block in owner_encrypted.chunks_exact_mut(16) {
-                Aes256CbcDec::new(&key.into(), &iv.into())
-                    .decrypt_block_mut(block.into());
+                decryptor.decrypt_block_mut(block.into());
             }
 
             return Ok(owner_encrypted);
@@ -411,10 +413,11 @@ impl PasswordAlgorithm {
             // CBC mode with no padding and an initialization vector of zero. The 32-byte result is
             // the file encryption key.
             let iv = [0u8; 16];
+            let mut user_encrypted = self.user_encrypted.clone();
+            let mut decryptor = Aes256CbcDec::new(&key.into(), &iv.into());
 
             for block in user_encrypted.chunks_exact_mut(16) {
-                Aes256CbcDec::new(&key.into(), &iv.into())
-                    .decrypt_block_mut(block.into());
+                decryptor.decrypt_block_mut(block.into());
             }
 
             // Decrypt the 16-byte Perms string using AES-256 in EBC mode with an initialization
@@ -493,9 +496,10 @@ impl PasswordAlgorithm {
             let key = &k[0..][..16];
             let iv = &k[16..][..16];
 
+            let mut encryptor = Aes128CbcEnc::new(key.into(), iv.into());
+
             for block in k1.chunks_exact_mut(16) {
-                Aes128CbcEnc::new(key.into(), iv.into())
-                    .encrypt_block_mut(block.into());
+                encryptor.encrypt_block_mut(block.into());
             }
 
             let e = k1;
@@ -922,10 +926,10 @@ impl PasswordAlgorithm {
         let iv = [0u8; 16];
 
         let mut user_encrypted = file_encryption_key.to_vec();
+        let mut encryptor = Aes256CbcEnc::new(&key.into(), &iv.into());
 
         for block in user_encrypted.chunks_exact_mut(16) {
-            Aes256CbcEnc::new(&key.into(), &iv.into())
-                    .encrypt_block_mut(block.into());
+            encryptor.encrypt_block_mut(block.into());
         }
 
         Ok((user_value.to_vec(), user_encrypted))
@@ -978,12 +982,10 @@ impl PasswordAlgorithm {
         let iv = [0u8; 16];
 
         let mut owner_encrypted = file_encryption_key.to_vec();
-
-        rng.fill(&mut owner_encrypted[..]);
+        let mut encryptor = Aes256CbcEnc::new(&key.into(), &iv.into());
 
         for block in owner_encrypted.chunks_exact_mut(16) {
-            Aes256CbcEnc::new(&key.into(), &iv.into())
-                    .encrypt_block_mut(block.into());
+            encryptor.encrypt_block_mut(block.into());
         }
 
         Ok((owner_value.to_vec(), owner_encrypted))
