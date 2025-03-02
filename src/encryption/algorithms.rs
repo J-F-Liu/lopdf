@@ -22,12 +22,18 @@ const PAD_BYTES: [u8; 32] = [
     0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ];
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PasswordAlgorithm {
     pub(crate) encrypt_metadata: bool,
     pub(crate) length: Option<usize>,
     pub(crate) version: i64,
     pub(crate) revision: i64,
+    pub(crate) owner_value: Vec<u8>,
+    pub(crate) owner_encrypted: Vec<u8>,
+    pub(crate) user_value: Vec<u8>,
+    pub(crate) user_encrypted: Vec<u8>,
+    pub(crate) permissions: Permissions,
+    pub(crate) permission_encrypted: Vec<u8>,
 }
 
 impl TryFrom<&Document> for PasswordAlgorithm {
@@ -114,11 +120,93 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .as_i64()
             .map_err(|_| DecryptionError::InvalidType)?;
 
+        // Get the owner value and owner encrypted blobs.
+        let owner_value = encrypted.get(b"O")
+            .map_err(|_| DecryptionError::MissingOwnerPassword)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?
+            .to_vec();
+
+        // The owner value is 32 bytes long if the value of R is 4 or less.
+        if revision <= 4 && owner_value.len() != 32 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
+        // The owner value is 48 bytes long if the value of R is 6.
+        if revision == 6 && owner_value.len() != 48 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
+        let owner_encrypted = encrypted.get(b"OE")
+            .and_then(Object::as_str)
+            .map(|s| s.to_vec())
+            .ok()
+            .unwrap_or_default();
+
+        // The owner encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
+        if revision == 6 && owner_encrypted.len() != 32 {
+            return Err(DecryptionError::InvalidCipherTextLength)?;
+        }
+
+        // Get the user value and user encrypted blobs.
+        let user_value = encrypted.get(b"U")
+            .map_err(|_| DecryptionError::MissingUserPassword)?
+            .as_str()
+            .map_err(|_| DecryptionError::InvalidType)?
+            .to_vec();
+
+        // The user value is 32 bytes long if the value of R is 4 or less.
+        if revision <= 4 && user_value.len() != 32 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
+        // The user value is 48 bytes long if the value of R is 6.
+        if revision == 6 && user_value.len() != 48 {
+            return Err(DecryptionError::InvalidHashLength)?;
+        }
+
+        let user_encrypted = encrypted.get(b"UE")
+            .and_then(Object::as_str)
+            .map(|s| s.to_vec())
+            .ok()
+            .unwrap_or_default();
+
+        // The user encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
+        if revision == 6 && user_encrypted.len() != 32 {
+            return Err(DecryptionError::InvalidCipherTextLength)?;
+        }
+
+        // Get the permission value and permission encrypted blobs.
+        let permission_value = encrypted.get(b"P")
+            .map_err(|_| DecryptionError::MissingPermissions)?
+            .as_i64()
+            .map_err(|_| DecryptionError::InvalidType)?
+            as u64;
+
+        let permissions = Permissions::from_bits_truncate(permission_value);
+
+        let permission_encrypted = encrypted.get(b"Perms")
+            .and_then(Object::as_str)
+            .map(|s| s.to_vec())
+            .ok()
+            .unwrap_or_default();
+
+        // The permission encrypted blob is required if R is 6 and the blob shall be 16 bytes long.
+        if revision == 6 && permission_encrypted.len() != 16 {
+            return Err(DecryptionError::InvalidCipherTextLength)?;
+        }
+
         Ok(Self {
             encrypt_metadata,
             length,
             version,
             revision,
+            owner_value,
+            owner_encrypted,
+            user_value,
+            user_encrypted,
+            permissions,
+            permission_encrypted,
         })
     }
 }

@@ -111,6 +111,12 @@ bitflags! {
     }
 }
 
+impl Default for Permissions {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 impl Permissions {
     pub fn p_value(&self) -> u64 {
         self.bits() |
@@ -172,7 +178,7 @@ pub enum EncryptionVersion<'a> {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct EncryptionState {
     pub(crate) version: i64,
     pub(crate) revision: i64,
@@ -201,19 +207,21 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 user_password,
                 permissions,
             } => {
-                let algorithm = PasswordAlgorithm {
+                let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata: true,
                     length: None,
                     version: 1,
                     revision: 2,
+                    permissions,
+                    ..Default::default()
                 };
 
-                let user_value = algorithm.compute_hashed_user_password_r2(
+                algorithm.user_value = algorithm.compute_hashed_user_password_r2(
                     document,
                     user_password,
                 )?;
 
-                let owner_value = algorithm.compute_hashed_owner_password_r4(
+                algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
                     Some(owner_password),
                     user_password,
                 )?;
@@ -223,16 +231,10 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     revision: algorithm.revision,
                     key_length: algorithm.length,
                     encrypt_metadata: algorithm.encrypt_metadata,
-                    crypt_filters: BTreeMap::new(),
-                    file_encryption_key: vec![],
-                    stream_filter: vec![],
-                    string_filter: vec![],
-                    owner_value,
-                    owner_encrypted: vec![],
-                    user_value,
-                    user_encrypted: vec![],
-                    permissions,
-                    permission_encrypted: vec![],
+                    owner_value: algorithm.owner_value,
+                    user_value: algorithm.user_value,
+                    permissions: algorithm.permissions,
+                    ..Default::default()
                 })
             }
             EncryptionVersion::V2 {
@@ -242,19 +244,21 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 key_length,
                 permissions,
             } => {
-                let algorithm = PasswordAlgorithm {
+                let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata: true,
                     length: Some(key_length),
                     version: 2,
                     revision: 3,
+                    permissions,
+                    ..Default::default()
                 };
 
-                let user_value = algorithm.compute_hashed_user_password_r3_r4(
+                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
                     document,
                     user_password,
                 )?;
 
-                let owner_value = algorithm.compute_hashed_owner_password_r4(
+                algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
                     Some(owner_password),
                     user_password,
                 )?;
@@ -264,16 +268,10 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     revision: algorithm.revision,
                     key_length: algorithm.length,
                     encrypt_metadata: algorithm.encrypt_metadata,
-                    crypt_filters: BTreeMap::new(),
-                    file_encryption_key: vec![],
-                    stream_filter: vec![],
-                    string_filter: vec![],
-                    owner_value,
-                    owner_encrypted: vec![],
-                    user_value,
-                    user_encrypted: vec![],
+                    owner_value: algorithm.owner_value,
+                    user_value: algorithm.user_value,
                     permissions,
-                    permission_encrypted: vec![],
+                    ..Default::default()
                 })
             }
             EncryptionVersion::V4 {
@@ -286,19 +284,20 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 user_password,
                 permissions,
             } => {
-                let algorithm = PasswordAlgorithm {
+                let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
-                    length: None,
                     version: 4,
                     revision: 4,
+                    permissions,
+                    ..Default::default()
                 };
 
-                let user_value = algorithm.compute_hashed_user_password_r3_r4(
+                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
                     document,
                     user_password,
                 )?;
 
-                let owner_value = algorithm.compute_hashed_owner_password_r4(
+                algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
                     Some(owner_password),
                     user_password,
                 )?;
@@ -309,15 +308,12 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     key_length: algorithm.length,
                     encrypt_metadata: algorithm.encrypt_metadata,
                     crypt_filters,
-                    file_encryption_key: vec![],
                     stream_filter,
                     string_filter,
-                    owner_value,
-                    owner_encrypted: vec![],
-                    user_value,
-                    user_encrypted: vec![],
-                    permissions,
-                    permission_encrypted: vec![],
+                    owner_value: algorithm.owner_value,
+                    user_value: algorithm.user_value,
+                    permissions: algorithm.permissions,
+                    ..Default::default()
                 })
             }
             EncryptionVersion::V5 {
@@ -334,11 +330,12 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     return Err(DecryptionError::InvalidKeyLength)?;
                 }
 
-                let algorithm = PasswordAlgorithm {
+                let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
                     length: None,
                     version: 5,
                     revision: 6,
+                    ..Default::default()
                 };
 
                 let (user_value, user_encrypted) = algorithm.compute_hashed_user_password_r6(
@@ -346,13 +343,19 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     user_password,
                 )?;
 
+                algorithm.user_value = user_value;
+                algorithm.user_encrypted = user_encrypted;
+
                 let (owner_value, owner_encrypted) = algorithm.compute_hashed_owner_password_r6(
                     file_encryption_key,
                     owner_password,
-                    &user_value,
+                    &algorithm.user_value,
                 )?;
 
-                let permission_encrypted = algorithm.compute_permissions(
+                algorithm.owner_value = owner_value;
+                algorithm.owner_encrypted = owner_encrypted;
+
+                algorithm.permission_encrypted = algorithm.compute_permissions(
                     file_encryption_key,
                     permissions,
                 )?;
@@ -366,12 +369,12 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     file_encryption_key: file_encryption_key.to_vec(),
                     stream_filter,
                     string_filter,
-                    owner_value,
-                    owner_encrypted,
-                    user_value,
-                    user_encrypted,
-                    permissions,
-                    permission_encrypted,
+                    owner_value: algorithm.owner_value,
+                    owner_encrypted: algorithm.owner_encrypted,
+                    user_value: algorithm.user_value,
+                    user_encrypted: algorithm.user_encrypted,
+                    permissions: algorithm.permissions,
+                    permission_encrypted: algorithm.permission_encrypted,
                 })
             }
         }
@@ -462,88 +465,6 @@ impl EncryptionState {
         let algorithm = PasswordAlgorithm::try_from(document)?;
         let file_encryption_key = algorithm.compute_file_encryption_key(document, password)?;
 
-        // Get the owner value and owner encrypted blobs.
-        let owner_value = document.get_encrypted()
-            .and_then(|dict| dict.get(b"O"))
-            .map_err(|_| DecryptionError::MissingOwnerPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?
-            .to_vec();
-
-        // The owner value is 32 bytes long if the value of R is 4 or less.
-        if algorithm.revision <= 4 && owner_value.len() != 32 {
-            return Err(DecryptionError::InvalidHashLength)?;
-        }
-
-        // The owner value is 48 bytes long if the value of R is 6.
-        if algorithm.revision == 6 && owner_value.len() != 48 {
-            return Err(DecryptionError::InvalidHashLength)?;
-        }
-
-        let owner_encrypted = document.get_encrypted()
-            .and_then(|dict| dict.get(b"OE"))
-            .and_then(Object::as_str)
-            .map(|s| s.to_vec())
-            .ok()
-            .unwrap_or_default();
-
-        // The owner encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
-        if algorithm.revision == 6 && owner_encrypted.len() != 32 {
-            return Err(DecryptionError::InvalidCipherTextLength)?;
-        }
-
-        // Get the user value and user encrypted blobs.
-        let user_value = document.get_encrypted()
-            .and_then(|dict| dict.get(b"U"))
-            .map_err(|_| DecryptionError::MissingUserPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?
-            .to_vec();
-
-        // The user value is 32 bytes long if the value of R is 4 or less.
-        if algorithm.revision <= 4 && user_value.len() != 32 {
-            return Err(DecryptionError::InvalidHashLength)?;
-        }
-
-        // The user value is 48 bytes long if the value of R is 6.
-        if algorithm.revision == 6 && user_value.len() != 48 {
-            return Err(DecryptionError::InvalidHashLength)?;
-        }
-
-        let user_encrypted = document.get_encrypted()
-            .and_then(|dict| dict.get(b"UE"))
-            .and_then(Object::as_str)
-            .map(|s| s.to_vec())
-            .ok()
-            .unwrap_or_default();
-
-        // The user encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
-        if algorithm.revision == 6 && user_encrypted.len() != 32 {
-            return Err(DecryptionError::InvalidCipherTextLength)?;
-        }
-
-        // Get the permission value and permission encrypted blobs.
-        let permission_value = document.get_encrypted()
-            .and_then(|dict| dict.get(b"P"))
-            .map_err(|_| DecryptionError::MissingPermissions)?
-            .as_i64()
-            .map_err(|_| DecryptionError::InvalidType)?
-            as u64;
-
-        let permissions = Permissions::from_bits_truncate(permission_value);
-
-        let permission_encrypted = document.get_encrypted()
-            .and_then(|dict| dict.get(b"Perms"))
-            .and_then(Object::as_str)
-            .map(|s| s.to_vec())
-            .ok()
-            .unwrap_or_default();
-
-        // The permission encrypted blob is required if R is 6 and the blob shall be 16 bytes long.
-        if algorithm.revision == 6 && permission_encrypted.len() != 16 {
-            return Err(DecryptionError::InvalidCipherTextLength)?;
-        }
-
         let mut crypt_filters = document.get_crypt_filters();
 
         // CF is meaningful only when the value of V is 4 (PDF 1.5) or 5 (PDF 2.0).
@@ -558,14 +479,13 @@ impl EncryptionState {
             encrypt_metadata: algorithm.encrypt_metadata,
             crypt_filters,
             file_encryption_key,
-            stream_filter: vec![],
-            string_filter: vec![],
-            owner_value,
-            owner_encrypted,
-            user_value,
-            user_encrypted,
-            permissions,
-            permission_encrypted,
+            owner_value: algorithm.owner_value,
+            owner_encrypted: algorithm.owner_encrypted,
+            user_value: algorithm.user_value,
+            user_encrypted: algorithm.user_encrypted,
+            permissions: algorithm.permissions,
+            permission_encrypted: algorithm.permission_encrypted,
+            ..Default::default()
         };
 
         // StmF and StrF are meaningful only when the value of V is 4 (PDF 1.5) or 5 (PDF 2.0).
