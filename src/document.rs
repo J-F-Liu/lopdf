@@ -476,6 +476,8 @@ impl Document {
             return Err(Error::NotEncrypted);
         }
 
+        self.authenticate_raw_password(&password)?;
+
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
