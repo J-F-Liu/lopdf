@@ -442,7 +442,8 @@ impl Document {
             encryption::encrypt_object(state, id, obj)?;
         }
 
-        self.trailer.set(b"Encrypt", encrypted);
+        let object_id = self.add_object(encrypted);
+        self.trailer.set(b"Encrypt", Object::Reference(object_id));
         self.encryption_state = None;
 
         Ok(())
@@ -513,7 +514,9 @@ impl Document {
             self.objects.entry(id).or_insert(entry);
         }
 
-        self.trailer.remove(b"Encrypt");
+        let object_id = self.trailer.remove(b"Encrypt").unwrap().as_reference()?;
+        self.objects.remove(&object_id);
+
         self.encryption_state = Some(state);
 
         Ok(())
