@@ -400,21 +400,11 @@ impl PasswordAlgorithm {
         // input string consisting of the UTF-8 password concatenated with the 8 bytes of owner
         // validation salt, concatenated with the 48-byte U string. If the 32-byte result matches
         // the first 32 bytes of the O string, this is the owner password.
-        let mut input = Vec::with_capacity(password.len() + owner_validation_salt.len());
-
-        input.extend_from_slice(password);
-        input.extend_from_slice(owner_validation_salt);
-
-        if self.compute_hash(&input, Some(user_value))? == hashed_owner_password {
+        if self.compute_hash(password, owner_validation_salt, Some(&self.user_value))? == hashed_owner_password {
             // Compute an intermediate owner key by computing a hash using algorithm 2.B with an
             // input string consisting of the UTF-8 owner password concatenated with the 8 bytes of
             // owner key salt, concatenated with the 48-byte U string.
-            input.clear();
-
-            input.extend_from_slice(password);
-            input.extend_from_slice(owner_key_salt);
-
-            let hash = self.compute_hash(&input, Some(user_value))?;
+            let hash = self.compute_hash(password, owner_key_salt, Some(&self.user_value))?;
 
             let mut key = [0u8; 32];
             key.copy_from_slice(&hash);
@@ -438,21 +428,12 @@ impl PasswordAlgorithm {
         // input string consisting of the UTF-8 password concatenated with the 8 bytes of user
         // validation salt. If the 32-byte result matches the first 32-bytes of the U string, this
         // is the user password.
-        input.clear();
 
-        input.extend_from_slice(password);
-        input.extend_from_slice(user_validation_salt);
-
-        if self.compute_hash(&input, None)? == hashed_user_password {
+        if self.compute_hash(password, user_validation_salt, None)? == hashed_user_password {
             // Compute an intermediate user key by computing a hash using algorithm 2.B with an
             // input string consisting of the UTF-8 owner password concatenated with the 8 bytes of
             // user key salt.
-            input.clear();
-
-            input.extend_from_slice(password);
-            input.extend_from_slice(user_key_salt);
-
-            let hash = self.compute_hash(&input, None)?;
+            let hash = self.compute_hash(password, user_key_salt, None)?;
 
             let mut key = [0u8; 32];
             key.copy_from_slice(&hash);
@@ -485,38 +466,37 @@ impl PasswordAlgorithm {
     /// Compute a hash (revision 6 and later).
     ///
     /// This implements Algorithm 2.B as described in ISO 32000-2:2020 (PDF 2.0).
-    fn compute_hash<I>(
+    fn compute_hash<P, S>(
         &self,
-        input: I,
+        password: P,
+        salt: S,
         user_key: Option<&[u8]>,
     ) -> Result<Vec<u8>, DecryptionError>
     where
-        I: AsRef<[u8]>,
+        P: AsRef<[u8]>,
+        S: AsRef<[u8]>,
     {
-        let input = input.as_ref();
+        let password = password.as_ref();
+        let salt = salt.as_ref();
 
         // Take the SHA-256 hash of the original input to the algorithm and name the resulting 32
         // bytes, K.
-        let mut k = Sha256::digest(input).to_vec();
+        let mut hasher = Sha256::new();
 
-        let mut k1 = Vec::with_capacity(64 * (input.len() + k.len() + user_key.map(|user_key| user_key.len()).unwrap_or(0)));
+        hasher.update(password);
+        hasher.update(salt);
+
+        if let Some(user_key) = user_key {
+            hasher.update(user_key);
+        }
+
+        let mut k = hasher.finalize().to_vec();
+
+        let mut k1 = Vec::with_capacity(64 * (password.len() + 64 + user_key.map(|user_key| user_key.len()).unwrap_or(0)));
 
         // Perform the following steps at least 64 times, until the value of the last byte in K is
         // less than or equal to (round number) - 32.
-        for round in 0.. {
-            // Following 64 rounds (round number 0 to round number 64), do the following, starting
-            // with round number 64.
-            if round >= 64 {
-                // Look at the very last byte of E (now K). If the value of that byte (taken as an
-                // unsigned integer) is greater than the round number - 32, repeat the round again.
-                //
-                // Repeat rounds until the value of the last byte is less than or equal to (round
-                // number) - 32.
-                if k.last().copied().unwrap_or(0) <= round - 32 {
-                    break;
-                }
-            }
-
+        for round in 1.. {
             // Make a new string K0 as follows:
             //
             // * When checking the owner password or creating the owner key, K0 is the
@@ -527,7 +507,7 @@ impl PasswordAlgorithm {
             k1.clear();
 
             for _ in 0..64 {
-                k1.extend_from_slice(input);
+                k1.extend_from_slice(&password);
                 k1.extend_from_slice(&k);
 
                 if let Some(user_key) = user_key {
@@ -555,17 +535,24 @@ impl PasswordAlgorithm {
             // remainder, modulo 3. If the result is 0, the next hash used is SHA-256. If the
             // result is 1, the next hash used is SHA-384. If the result is 2, the next hash used
             // is SHA-256.
-            let mut slice = [0u8; 16];
-            slice.copy_from_slice(&e[..16]);
-
+            //
             // Using the hash algorithm determined in the previous step, take the hash of E. The
             // result is a new value of K, which will be 32, 48 or 64 bytes in length.
-            k = match u128::from_be_bytes(slice) % 3 {
+            k = match e[..16].iter().map(|v| *v as u32).sum::<u32>() % 3 {
                 0 => Sha256::digest(&e).to_vec(),
                 1 => Sha384::digest(&e).to_vec(),
                 2 => Sha512::digest(&e).to_vec(),
                 _ => unreachable!(),
             };
+
+            // Look at the very last byte of E. If the value of that byte (taken as an unsigned
+            // integer) is greater than the round number - 32, repeat the round again.
+            //
+            // Repeat rounds until the value of the last byte is less than or equal to (round
+            // number) - 32.
+            if round >= 64 && e.last().copied().unwrap_or(0) as u32 <= round - 32 {
+                break;
+            }
 
             // Move e into k1 for the next round (to reuse k1).
             k1 = e;
@@ -962,7 +949,7 @@ impl PasswordAlgorithm {
         input.extend_from_slice(user_password);
         input.extend_from_slice(user_validation_salt);
 
-        let hashed_user_password = self.compute_hash(&input, None)?;
+        let hashed_user_password = self.compute_hash(user_password, user_validation_salt, None)?;
         user_value[..32].copy_from_slice(&hashed_user_password);
 
         // Compute the 32-byte hash using algorithm 2.B with an input string consisting of the
@@ -974,7 +961,7 @@ impl PasswordAlgorithm {
         input.extend_from_slice(user_password);
         input.extend_from_slice(user_key_salt);
 
-        let hash = self.compute_hash(&input, None)?;
+        let hash = self.compute_hash(user_password, user_key_salt, None)?;
 
         // Using this hash as the key, encrypt the file encryption key using AES-256 in CBC mode
         // with no padding and initialization vector of zero. The resulting 32-byte string is
@@ -1026,24 +1013,14 @@ impl PasswordAlgorithm {
 
         let owner_validation_salt = &owner_value[32..][..8];
 
-        let mut input = Vec::with_capacity(owner_password.len() + owner_validation_salt.len());
-
-        input.extend_from_slice(owner_password);
-        input.extend_from_slice(owner_validation_salt);
-
-        let hashed_owner_password = self.compute_hash(&input, Some(user_value))?;
+        let hashed_owner_password = self.compute_hash(owner_password, owner_validation_salt, Some(&self.user_value))?;
         owner_value[..32].copy_from_slice(&hashed_owner_password);
 
         // Compute the 32-byte hash using algorithm 2.B with an input string consisting of the
         // UTF-8 password concatenated with the owner key salt.
         let owner_key_salt = &owner_value[40..][..8];
 
-        input.clear();
-
-        input.extend_from_slice(owner_password);
-        input.extend_from_slice(owner_key_salt);
-
-        let hash = self.compute_hash(&input, Some(user_value))?;
+        let hash = self.compute_hash(owner_password, owner_key_salt, Some(&self.user_value))?;
 
         // Using this hash as the key, encrypt the file encryption key using AES-256 in CBC mode
         // with no padding and initialization vector of zero. The resulting 32-byte string is
@@ -1145,7 +1122,7 @@ impl PasswordAlgorithm {
         input.extend_from_slice(user_password);
         input.extend_from_slice(user_validation_salt);
 
-        if self.compute_hash(&input, None)? != hashed_user_password {
+        if self.compute_hash(user_password, user_validation_salt, None)? != hashed_user_password {
             return Err(DecryptionError::IncorrectPassword);
         }
 
@@ -1198,7 +1175,7 @@ impl PasswordAlgorithm {
         input.extend_from_slice(owner_password);
         input.extend_from_slice(owner_validation_salt);
 
-        if self.compute_hash(&input, Some(user_value))? != hashed_owner_password {
+        if self.compute_hash(owner_password, owner_validation_salt, Some(&self.user_value))? != hashed_owner_password {
             return Err(DecryptionError::IncorrectPassword);
         }
 
