@@ -549,8 +549,8 @@ impl EncryptionState {
 
         encrypted.set(b"EncryptMetadata", Object::Boolean(self.encrypt_metadata));
 
-        encrypted.set(b"O", Object::Name(self.owner_value.clone()));
-        encrypted.set(b"U", Object::Name(self.user_value.clone()));
+        encrypted.set(b"O", Object::string_literal(self.owner_value.clone()));
+        encrypted.set(b"U", Object::string_literal(self.user_value.clone()));
         encrypted.set(b"P", Object::Integer(self.permissions.p_value() as i64));
 
         if self.revision >= 4 {
@@ -571,9 +571,9 @@ impl EncryptionState {
         }
 
         if self.revision >= 6 {
-            encrypted.set(b"OE", Object::Name(self.owner_encrypted.clone()));
-            encrypted.set(b"UE", Object::Name(self.user_encrypted.clone()));
-            encrypted.set(b"Perms", Object::Name(self.permission_encrypted.clone()));
+            encrypted.set(b"OE", Object::string_literal(self.owner_encrypted.clone()));
+            encrypted.set(b"UE", Object::string_literal(self.user_encrypted.clone()));
+            encrypted.set(b"Perms", Object::string_literal(self.permission_encrypted.clone()));
         }
 
         Ok(encrypted)
