@@ -652,7 +652,7 @@ impl PasswordAlgorithm {
         //
         // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
         // of password and the last len bytes of `PAD_BYTES`.
-        let len = password.len().min(32);
+        let len = user_password.len().min(32);
 
         // Encrypt the result of the previous step using an RC4 encryption function with the RC4 file
         // encryption key obtained in the step before the previous step.
