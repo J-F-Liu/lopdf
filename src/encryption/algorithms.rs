@@ -245,10 +245,6 @@ impl PasswordAlgorithm {
     {
         let password = password.as_ref();
 
-        let encrypted = doc
-            .get_encrypted()
-            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
-
         // Pad or truncate the resulting password string to exactly 32 bytes. If the password string is
         // more than 32 bytes long, use only its first 32 bytes; if it is less than 32 bytes long, pad
         // it by appending the required number of additional bytes from the beginning of the following
@@ -270,24 +266,14 @@ impl PasswordAlgorithm {
 
         // Pass the value of the encryption dictionary's O entry (owner password hash) to the MD5 hash
         // function.
-        let hashed_owner_password = encrypted
-            .get(b"O")
-            .map_err(|_| DecryptionError::MissingOwnerPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
-        hasher.update(hashed_owner_password);
+        hasher.update(&self.owner_value);
 
         // Convert the integer value of the P entry (permissions) to a 32-bit unsigned binary number
         // and pass these bytes to the MD5 hash function, low-order byte first.
         //
         // We don't actually care about the permissions, but we need the correct value to derive the
         // correct key.
-        let permissions = encrypted
-            .get(b"P")
-            .map_err(|_| DecryptionError::MissingPermissions)?
-            .as_i64()
-            .map_err(|_| DecryptionError::InvalidType)? as u32;
-        hasher.update(permissions.to_le_bytes());
+        hasher.update(self.permissions.bits().to_le_bytes());
 
         // Pass the first element of the file's file identifier array (the value of the ID entry in the
         // document's trailer dictionary to the MD5 hash function.
