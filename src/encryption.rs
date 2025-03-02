@@ -70,44 +70,44 @@ bitflags! {
         /// (Security handlers of revision 3 or greater) Print the document (possibly not at the
         /// highest quality level, depending on whether [`Permissions::PRINTABLE_IN_HIGH_QUALITY`]
         /// is also set).
-        const PRINTABLE = 1 << 3;
+        const PRINTABLE = 1 << 2;
 
         /// Modify the contents of the document by operations other than those controlled by
         /// [`Permissions::ANNOTABLE`], [`Permissions::FILLABLE`] and [`Permissions::ASSEMBLABLE`].
-        const MODIFIABLE = 1 << 4;
+        const MODIFIABLE = 1 << 3;
 
         /// Copy or otherwise extract text and graphics from the document. However, for the limited
         /// purpose of providing this content to assistive technology, a PDF reader should behave
         /// as if this bit was set to 1.
-        const COPYABLE = 1 << 5;
+        const COPYABLE = 1 << 4;
 
         /// Add or modify text annotations, fill in interactive form fields, and if
         /// [`Permissions::MODIFIABLE`] is also set, create or modify interactive form fields
         /// (including signature fields).
-        const ANNOTABLE = 1 << 6;
+        const ANNOTABLE = 1 << 5;
 
         /// Fill in existing interactive fields (including signature fields), even if
         /// [`Permissions::ANNOTABLE`] is clear.
-        const FILLABLE = 1 << 9;
+        const FILLABLE = 1 << 8;
 
         /// Copy or otherwise extract text and graphics from the document for the purpose of
         /// providing this content to assistive technology.
         ///
         /// Deprecated since PDF 2.0: must always be set for backward compatibility with PDF
         /// viewers following earlier specifications.
-        const COPYABLE_FOR_ACCESSIBILITY = 1 << 10;
+        const COPYABLE_FOR_ACCESSIBILITY = 1 << 9;
 
         /// (Security handlers of revision 3 or greater) Assemble the document (insert, rotate, or
         /// delete pages and create document outline items or thumbnail images), even if
         /// [`Permissions::MODIFIABLE`] is not set.
-        const ASSEMBLABLE = 1 << 11;
+        const ASSEMBLABLE = 1 << 10;
 
         /// (Security handlers of revision 3 or greater) Print the document to a representation
         /// from which a faithful copy of the PDF content could be generated, based on an
         /// implementation-dependent algorithm. When this bit is clear (and
         /// [`Permissions::PRINTABLE`] is set), printing shall be limited to a low-level
         /// representation of the appearance, possibly of degraded quality.
-        const PRINTABLE_IN_HIGH_QUALITY = 1 << 12;
+        const PRINTABLE_IN_HIGH_QUALITY = 1 << 11;
     }
 }
 
@@ -121,9 +121,9 @@ impl Permissions {
     pub fn p_value(&self) -> u64 {
         self.bits() |
         // 7-8: Reserved. Must be 1.
-        (0b11 << 7) |
+        (0b11 << 6) |
         // 13-32: Reserved. Must be 1.
-        (0b111 << 13) | (0xffff << 16) |
+        (0b1111 << 12) | (0xffff << 16) |
         // Extend the permissions (contents of the P integer) to 64 bits by setting the upper 32
         // bits to all 1s.
         (0xffffffff << 32)

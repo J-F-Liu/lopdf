@@ -32,7 +32,6 @@ pub struct PasswordAlgorithm {
     pub(crate) owner_encrypted: Vec<u8>,
     pub(crate) user_value: Vec<u8>,
     pub(crate) user_encrypted: Vec<u8>,
-    pub(crate) permission_value: u64,
     pub(crate) permissions: Permissions,
     pub(crate) permission_encrypted: Vec<u8>,
 }
@@ -206,7 +205,6 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             owner_encrypted,
             user_value,
             user_encrypted,
-            permission_value,
             permissions,
             permission_encrypted,
         })
@@ -275,7 +273,7 @@ impl PasswordAlgorithm {
         //
         // We don't actually care about the permissions, but we need the correct value to derive the
         // correct key.
-        hasher.update((self.permission_value as u32).to_le_bytes());
+        hasher.update((self.permissions.p_value() as u32).to_le_bytes());
 
         // Pass the first element of the file's file identifier array (the value of the ID entry in the
         // document's trailer dictionary to the MD5 hash function.
