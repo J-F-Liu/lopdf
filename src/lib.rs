@@ -38,6 +38,7 @@ pub use bookmarks::Bookmark;
 pub use common_data_structures::{decode_text_string, text_string};
 pub use destinations::Destination;
 pub use encodings::{encode_utf16_be, encode_utf8, Encoding};
+pub use encryption::{EncryptionState, EncryptionVersion, Permissions};
 pub use error::{Error, Result};
 pub use incremental_document::IncrementalDocument;
 pub use object_stream::ObjectStream;
