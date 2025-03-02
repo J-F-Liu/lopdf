@@ -345,7 +345,6 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 2.A as described in ISO 32000-2:2020 (PDF 2.0).
     fn compute_file_encryption_key_r6<P>(
         &self,
-        doc: &Document,
         password: P,
     ) -> Result<Vec<u8>, DecryptionError>
     where
@@ -353,43 +352,13 @@ impl PasswordAlgorithm {
     {
         let mut password = password.as_ref();
 
-        let encrypted = doc
-            .get_encrypted()
-            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
+        let hashed_owner_password = &self.owner_value[0..][..32];
+        let owner_validation_salt = &self.owner_value[32..][..8];
+        let owner_key_salt = &self.owner_value[40..][..8];
 
-        let owner_value = encrypted
-            .get(b"O")
-            .map_err(|_| DecryptionError::MissingOwnerPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
-
-        let hashed_owner_password = &owner_value[0..][..32];
-        let owner_validation_salt = &owner_value[32..][..8];
-        let owner_key_salt = &owner_value[40..][..8];
-
-        let mut owner_encrypted = encrypted
-            .get(b"OE")
-            .map_err(|_| DecryptionError::MissingOwnerPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?
-            .to_vec();
-
-        let user_value = encrypted
-            .get(b"U")
-            .map_err(|_| DecryptionError::MissingUserPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
-
-        let hashed_user_password = &user_value[0..][..32];
-        let user_validation_salt = &user_value[32..][..8];
-        let user_key_salt = &user_value[40..][..8];
-
-        let mut user_encrypted = encrypted
-            .get(b"UE")
-            .map_err(|_| DecryptionError::MissingOwnerPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?
-            .to_vec();
+        let hashed_user_password = &self.user_value[0..][..32];
+        let user_validation_salt = &self.user_value[32..][..8];
+        let user_key_salt = &self.user_value[40..][..8];
 
         // Truncate the UTF-8 representation to 127 bytes if it is longer than 127 bytes.
         if password.len() > 127 {
@@ -455,7 +424,7 @@ impl PasswordAlgorithm {
             // value in the P key.
             //
             // i.e., use algorithm 13 to validate the permissions.
-            self.validate_permissions(doc, &user_encrypted)?;
+            self.validate_permissions(&user_encrypted)?;
 
             return Ok(user_encrypted);
         }
@@ -793,21 +762,11 @@ impl PasswordAlgorithm {
             _ => hashed_user_password.len(),
         };
 
-        let encrypted = doc
-            .get_encrypted()
-            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
-
-        let stored_hashed_user_password = encrypted
-            .get(b"U")
-            .map_err(|_| DecryptionError::MissingUserPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
-
-        if stored_hashed_user_password.len() < len {
+        if self.user_value.len() < len {
             return Err(DecryptionError::InvalidHashLength);
         }
 
-        if hashed_user_password[..len] != stored_hashed_user_password[..len] {
+        if hashed_user_password[..len] != self.user_value[..len] {
             return Err(DecryptionError::IncorrectPassword);
         }
 
@@ -877,16 +836,7 @@ impl PasswordAlgorithm {
 
         // Decrypt the value of the encryption dictionary's O entry, using an RC4 encryption function
         // with the file encryption key to retrieve the user password.
-        let encrypted = doc
-            .get_encrypted()
-            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
-
-        let mut result = encrypted
-            .get(b"O")
-            .map_err(|_| DecryptionError::MissingUserPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?
-            .to_vec();
+        let mut result = self.owner_value.to_vec();
 
         // (Security handlers of revision 3 or greater) Do the following 19 times: Take the output from
         // the previous invocation of the RC4 function and pass it as input to a new invocation of the
@@ -984,20 +934,17 @@ impl PasswordAlgorithm {
     /// Compute the encryption dictionary's O-entry value (revision 6).
     ///
     /// This implements Algorithm 9 as described in ISO 32000-2:2020 (PDF 2.0).
-    pub(crate) fn compute_hashed_owner_password_r6<K, O, U>(
+    pub(crate) fn compute_hashed_owner_password_r6<K, O>(
         &self,
         file_encryption_key: K,
         owner_password: O,
-        user_value: U,
     ) -> Result<(Vec<u8>, Vec<u8>), DecryptionError>
     where
         K: AsRef<[u8]>,
         O: AsRef<[u8]>,
-        U: AsRef<[u8]>,
     {
         let file_encryption_key = file_encryption_key.as_ref();
         let owner_password = owner_password.as_ref();
-        let user_value = user_value.as_ref();
 
         // Generate 16 random bytes of data using a strong random number generator. The first 8
         // bytes are the owner validation salt. The second 8 bytes are the owner key salt. Compute
@@ -1048,7 +995,6 @@ impl PasswordAlgorithm {
     pub(crate) fn compute_permissions<K>(
         &self,
         file_encryption_key: K,
-        permissions: Permissions,
     ) -> Result<Vec<u8>, DecryptionError>
     where
         K: AsRef<[u8]>,
@@ -1057,7 +1003,7 @@ impl PasswordAlgorithm {
         let mut bytes = [0u8; 16];
 
         // Record the 8 bytes of permission in the bytes 0-7 of the block, low order byte first.
-        bytes[..8].copy_from_slice(&u64::to_le_bytes(permissions.p_value()));
+        bytes[..8].copy_from_slice(&u64::to_le_bytes(self.permissions.p_value()));
 
         // Set byte 8 to ASCII character "T" or "F" according to the EncryptMetadata boolean.
         bytes[8] = if self.encrypt_metadata { b'T' } else { b'F' };
@@ -1087,7 +1033,6 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 11 as described in ISO 32000-2:2020 (PDF 2.0).
     fn authenticate_user_password_r6<U>(
         &self,
-        doc: &Document,
         user_password: U,
     ) -> Result<(), DecryptionError>
     where
@@ -1095,18 +1040,8 @@ impl PasswordAlgorithm {
     {
         let mut user_password = user_password.as_ref();
 
-        let encrypted = doc
-            .get_encrypted()
-            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
-
-        let user_value = encrypted
-            .get(b"U")
-            .map_err(|_| DecryptionError::MissingUserPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
-
-        let hashed_user_password = &user_value[0..][..32];
-        let user_validation_salt = &user_value[32..][..8];
+        let hashed_user_password = &self.user_value[0..][..32];
+        let user_validation_salt = &self.user_value[32..][..8];
 
         // Truncate the UTF-8 representation to 127 bytes if it is longer than 127 bytes.
         if user_password.len() > 127 {
@@ -1134,7 +1069,6 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 12 as described in ISO 32000-2:2020 (PDF 2.0).
     fn authenticate_owner_password_r6<O>(
         &self,
-        doc: &Document,
         owner_password: O,
     ) -> Result<(), DecryptionError>
     where
@@ -1142,24 +1076,8 @@ impl PasswordAlgorithm {
     {
         let mut owner_password = owner_password.as_ref();
 
-        let encrypted = doc
-            .get_encrypted()
-            .map_err(|_| DecryptionError::MissingEncryptDictionary)?;
-
-        let owner_value = encrypted
-            .get(b"O")
-            .map_err(|_| DecryptionError::MissingUserPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
-
-        let hashed_owner_password = &owner_value[0..][..32];
-        let owner_validation_salt = &owner_value[32..][..8];
-
-        let user_value = encrypted
-            .get(b"U")
-            .map_err(|_| DecryptionError::MissingUserPassword)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
+        let hashed_owner_password = &self.owner_value[0..][..32];
+        let owner_validation_salt = &self.owner_value[32..][..8];
 
         // Truncate the UTF-8 representation to 127 bytes if it is longer than 127 bytes.
         if owner_password.len() > 127 {
@@ -1187,7 +1105,6 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 13 as described in ISO 32000-2:2020 (PDF 2.0).
     fn validate_permissions<K>(
         &self,
-        document: &Document,
         file_encryption_key: K,
     ) -> Result<(), DecryptionError>
     where
@@ -1195,30 +1112,10 @@ impl PasswordAlgorithm {
     {
         let file_encryption_key = file_encryption_key.as_ref();
 
-        // Get the permission value.
-        let permission_value = document.get_encrypted()
-            .and_then(|dict| dict.get(b"P"))
-            .map_err(|_| DecryptionError::MissingPermissions)?
-            .as_i64()
-            .map_err(|_| DecryptionError::InvalidType)?
-            as u64;
-
-       // Get the encrypted permissions.
-        let permission_encrypted = document.get_encrypted()
-            .and_then(|dict| dict.get(b"Perms"))
-            .map_err(|_| DecryptionError::MissingPermissions)?
-            .as_str()
-            .map_err(|_| DecryptionError::InvalidType)?;
-
-        // Ensure that the Perms field is 16 bytes.
-        if permission_encrypted.len() != 16 {
-            return Err(DecryptionError::InvalidPermissionLength);
-        }
-
         // Decrypt the 16 byte Perms string using AES-256 in ECB mode with an initialization vector
         // of zero and the file encryption key as the key.
         let mut bytes = [0u8; 16];
-        bytes.copy_from_slice(permission_encrypted);
+        bytes.copy_from_slice(&self.permission_encrypted);
 
         let mut key = [0u8; 32];
         key.copy_from_slice(file_encryption_key);
@@ -1233,7 +1130,7 @@ impl PasswordAlgorithm {
 
         // Bytes 0-3 of the decrypted Perms entry, treated as a little-endian integer, are the
         // user permissions. They should match the value in the P key.
-        if bytes[..3] != u64::to_le_bytes(permission_value)[..3] {
+        if bytes[..3] != u64::to_le_bytes(self.permissions.p_value())[..3] {
             return Err(DecryptionError::IncorrectPassword);
         }
 
@@ -1269,7 +1166,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.compute_file_encryption_key_r4(doc, password),
-            6 => self.compute_file_encryption_key_r6(doc, password),
+            6 => self.compute_file_encryption_key_r6(password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1285,7 +1182,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_user_password_r4(doc, user_password),
-            6 => self.authenticate_user_password_r6(doc, user_password),
+            6 => self.authenticate_user_password_r6(user_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1301,7 +1198,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_owner_password_r4(doc, owner_password),
-            6 => self.authenticate_owner_password_r6(doc, owner_password),
+            6 => self.authenticate_owner_password_r6(owner_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
