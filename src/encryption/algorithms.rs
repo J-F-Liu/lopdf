@@ -255,14 +255,14 @@ impl PasswordAlgorithm {
         // meaning there is no user password, substitute the entire padding string in its place.
         //
         // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the last len bytes of `PAD_BYTES`.
+        // of password and the first len bytes of `PAD_BYTES`.
         let len = password.len().min(32);
 
         // Initialize the MD5 hash function and pass the result as input to this function.
         let mut hasher = Md5::new();
 
         hasher.update(&password[..len]);
-        hasher.update(&PAD_BYTES[len..]);
+        hasher.update(&PAD_BYTES[..32 - len]);
 
         // Pass the value of the encryption dictionary's O entry (owner password hash) to the MD5 hash
         // function.
@@ -607,14 +607,14 @@ impl PasswordAlgorithm {
         // meaning there is no user password, substitute the entire padding string in its place.
         //
         // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the last len bytes of `PAD_BYTES`.
+        // of password and the first len bytes of `PAD_BYTES`.
         let len = password.len().min(32);
 
         // Initialize the MD5 hash function and pass the result as input to this function.
         let mut hasher = Md5::new();
 
         hasher.update(&password[..len]);
-        hasher.update(&PAD_BYTES[len..]);
+        hasher.update(&PAD_BYTES[..32 - len]);
 
         let mut hash = hasher.finalize();
 
@@ -651,7 +651,7 @@ impl PasswordAlgorithm {
         // meaning there is no user password, substitute the entire padding string in its place.
         //
         // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the last len bytes of `PAD_BYTES`.
+        // of password and the first len bytes of `PAD_BYTES`.
         let len = user_password.len().min(32);
 
         // Encrypt the result of the previous step using an RC4 encryption function with the RC4 file
@@ -659,7 +659,7 @@ impl PasswordAlgorithm {
         let mut bytes = [0u8; 32];
 
         bytes[..len].copy_from_slice(&user_password[..len]);
-        bytes[len..].copy_from_slice(&PAD_BYTES[len..]);
+        bytes[len..].copy_from_slice(&PAD_BYTES[..32 - len]);
 
         let mut result = Rc4::new(&hash[..n]).encrypt(bytes);
 
@@ -854,14 +854,14 @@ impl PasswordAlgorithm {
         // meaning there is no user password, substitute the entire padding string in its place.
         //
         // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the last len bytes of `PAD_BYTES`.
+        // of password and the first len bytes of `PAD_BYTES`.
         let len = password.len().min(32);
 
         // Initialize the MD5 hash function and pass the result as input to this function.
         let mut hasher = Md5::new();
 
         hasher.update(&password[..len]);
-        hasher.update(&PAD_BYTES[len..]);
+        hasher.update(&PAD_BYTES[..32 - len]);
 
         let mut hash = hasher.finalize();
 
