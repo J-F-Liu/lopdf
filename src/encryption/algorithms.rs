@@ -303,7 +303,7 @@ impl PasswordAlgorithm {
         // where n is the number of bytes of the file encryption key as defined by the value of the
         // encryption dictionary's Length entry.
         let n = if self.revision >= 3 {
-            self.length.ok_or(DecryptionError::MissingKeyLength)? / 8
+            self.length.unwrap_or(40) / 8
         } else {
             5
         };
@@ -631,7 +631,7 @@ impl PasswordAlgorithm {
         // handlers of revision 3 or greater, shall depend on the value of the encryption dictionary's
         // Length entry.
         let n = if self.revision >= 3 {
-            self.length.ok_or(DecryptionError::MissingKeyLength)? / 8
+            self.length.unwrap_or(40) / 8
         } else {
             5
         };
@@ -878,7 +878,7 @@ impl PasswordAlgorithm {
         // handlers of revision 3 or greater, shall depend on the value of the encryption dictionary's
         // Length entry.
         let n = if self.revision >= 3 {
-            self.length.ok_or(DecryptionError::MissingKeyLength)? / 8
+            self.length.unwrap_or(40) / 8
         } else {
             5
         };

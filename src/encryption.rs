@@ -28,8 +28,6 @@ pub enum DecryptionError {
     MissingPermissions,
     #[error("missing the file /ID elements")]
     MissingFileID,
-    #[error("missing the key length (/Length)")]
-    MissingKeyLength,
 
     #[error("invalid hash length")]
     InvalidHashLength,
