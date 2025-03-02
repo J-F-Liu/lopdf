@@ -217,7 +217,7 @@ impl PasswordAlgorithm {
     /// This implements the first step of Algorithm 2 as described in ISO 32000-2:2020 (PDF 2.0).
     ///
     /// This algorithm is deprecated in PDF 2.0.
-    fn sanitize_password_r4(
+    pub(crate) fn sanitize_password_r4(
         &self,
         password: &str,
     ) -> Result<Vec<u8>, DecryptionError> {
@@ -235,7 +235,7 @@ impl PasswordAlgorithm {
     /// This implements Algorithm 2 as described in ISO 32000-2:2020 (PDF 2.0).
     ///
     /// This algorithm is deprecated in PDF 2.0.
-    fn compute_file_encryption_key_r4<P>(
+    pub(crate) fn compute_file_encryption_key_r4<P>(
         &self,
         doc: &Document,
         password: P,
@@ -329,7 +329,7 @@ impl PasswordAlgorithm {
     /// Sanitize the password (revision 6 and later).
     ///
     /// This implements the first step of Algorithm 2.A as described in ISO 32000-2:2020 (PDF 2.0).
-    fn sanitize_password_r6(
+    pub(crate) fn sanitize_password_r6(
         &self,
         password: &str,
     ) -> Result<Vec<u8>, DecryptionError> {

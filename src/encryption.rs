@@ -134,16 +134,16 @@ pub enum EncryptionVersion<'a> {
     /// AES algorithms with a file encryption key length of 40 bits.
     V1 {
         document: &'a Document,
-        owner_password: &'a [u8],
-        user_password: &'a [u8],
+        owner_password: &'a str,
+        user_password: &'a str,
         permissions: Permissions,
     },
     /// (PDF 1.4; deprecated in PDF 2.0) Indicates the use of encryption of data using the RC4 or
     /// AES algorithms but permitting file encryption key lengths greater or 40 bits.
     V2 {
         document: &'a Document,
-        owner_password: &'a [u8],
-        user_password: &'a [u8],
+        owner_password: &'a str,
+        user_password: &'a str,
         key_length: usize,
         permissions: Permissions,
     },
@@ -157,8 +157,9 @@ pub enum EncryptionVersion<'a> {
         crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
         stream_filter: Vec<u8>,
         string_filter: Vec<u8>,
-        owner_password: &'a [u8],
-        user_password: &'a [u8],
+        owner_password: &'a str,
+        user_password: &'a str,
+        key_length: usize,
         permissions: Permissions,
     },
     /// (PDF 2.0) The security handler defines the use of encryption and decryption in the
@@ -170,8 +171,8 @@ pub enum EncryptionVersion<'a> {
         file_encryption_key: &'a [u8],
         stream_filter: Vec<u8>,
         string_filter: Vec<u8>,
-        owner_password: &'a [u8],
-        user_password: &'a [u8],
+        owner_password: &'a str,
+        user_password: &'a str,
         permissions: Permissions,
     },
 }
@@ -214,14 +215,22 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     ..Default::default()
                 };
 
-                algorithm.user_value = algorithm.compute_hashed_user_password_r2(
-                    document,
-                    user_password,
-                )?;
+                let owner_password = algorithm.sanitize_password_r4(owner_password)?;
+                let user_password = algorithm.sanitize_password_r4(user_password)?;
 
                 algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
-                    Some(owner_password),
-                    user_password,
+                    Some(&owner_password),
+                    &user_password,
+                )?;
+
+                algorithm.user_value = algorithm.compute_hashed_user_password_r2(
+                    document,
+                    &user_password,
+                )?;
+
+                let file_encryption_key = algorithm.compute_file_encryption_key_r4(
+                    document,
+                    &user_password,
                 )?;
 
                 Ok(Self {
@@ -229,6 +238,7 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     revision: algorithm.revision,
                     key_length: algorithm.length,
                     encrypt_metadata: algorithm.encrypt_metadata,
+                    file_encryption_key,
                     owner_value: algorithm.owner_value,
                     user_value: algorithm.user_value,
                     permissions: algorithm.permissions,
@@ -251,14 +261,22 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     ..Default::default()
                 };
 
-                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
-                    document,
-                    user_password,
-                )?;
+                let owner_password = algorithm.sanitize_password_r4(owner_password)?;
+                let user_password = algorithm.sanitize_password_r4(user_password)?;
 
                 algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
-                    Some(owner_password),
-                    user_password,
+                    Some(&owner_password),
+                    &user_password,
+                )?;
+
+                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
+                    document,
+                    &user_password,
+                )?;
+
+                let file_encryption_key = algorithm.compute_file_encryption_key_r4(
+                    document,
+                    &user_password,
                 )?;
 
                 Ok(Self {
@@ -266,6 +284,7 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     revision: algorithm.revision,
                     key_length: algorithm.length,
                     encrypt_metadata: algorithm.encrypt_metadata,
+                    file_encryption_key,
                     owner_value: algorithm.owner_value,
                     user_value: algorithm.user_value,
                     permissions,
@@ -280,24 +299,34 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 string_filter,
                 owner_password,
                 user_password,
+                key_length,
                 permissions,
             } => {
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
+                    length: Some(key_length),
                     version: 4,
                     revision: 4,
                     permissions,
                     ..Default::default()
                 };
 
-                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
-                    document,
-                    user_password,
-                )?;
+                let owner_password = algorithm.sanitize_password_r4(owner_password)?;
+                let user_password = algorithm.sanitize_password_r4(user_password)?;
 
                 algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
-                    Some(owner_password),
-                    user_password,
+                    Some(&owner_password),
+                    &user_password,
+                )?;
+
+                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
+                    document,
+                    &user_password,
+                )?;
+
+                let file_encryption_key = algorithm.compute_file_encryption_key_r4(
+                    document,
+                    &user_password,
                 )?;
 
                 Ok(Self {
@@ -305,6 +334,7 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     revision: algorithm.revision,
                     key_length: algorithm.length,
                     encrypt_metadata: algorithm.encrypt_metadata,
+                    file_encryption_key,
                     crypt_filters,
                     stream_filter,
                     string_filter,
@@ -330,11 +360,14 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
 
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
-                    length: None,
                     version: 5,
                     revision: 6,
+                    permissions,
                     ..Default::default()
                 };
+
+                let owner_password = algorithm.sanitize_password_r6(owner_password)?;
+                let user_password = algorithm.sanitize_password_r6(user_password)?;
 
                 let (user_value, user_encrypted) = algorithm.compute_hashed_user_password_r6(
                     file_encryption_key,
@@ -347,7 +380,6 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 let (owner_value, owner_encrypted) = algorithm.compute_hashed_owner_password_r6(
                     file_encryption_key,
                     owner_password,
-                    &algorithm.user_value,
                 )?;
 
                 algorithm.owner_value = owner_value;
@@ -355,7 +387,6 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
 
                 algorithm.permission_encrypted = algorithm.compute_permissions(
                     file_encryption_key,
-                    permissions,
                 )?;
 
                 Ok(Self {
