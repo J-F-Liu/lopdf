@@ -479,7 +479,7 @@ impl PasswordAlgorithm {
             k1.clear();
 
             for _ in 0..64 {
-                k1.extend_from_slice(&password);
+                k1.extend_from_slice(password);
                 k1.extend_from_slice(&k);
 
                 if let Some(user_key) = user_key {
