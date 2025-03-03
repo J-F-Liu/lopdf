@@ -12,7 +12,7 @@ type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 
-pub trait CryptFilter: std::fmt::Debug {
+pub trait CryptFilter: std::fmt::Debug + Send + Sync {
     fn method(&self) -> &[u8];
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError>;
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError>;
@@ -117,7 +117,7 @@ impl CryptFilter for Aes128CryptFilter {
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
         // The ciphertext needs to be a multiple of 16 bytes to include the padding.
-        let ciphertext_len = (plaintext.len() + 15) / 16 * 16;
+        let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
 
         // Allocate sufficient bytes for the initialization vector, the ciphertext and the padding
         // combined.
@@ -131,6 +131,7 @@ impl CryptFilter for Aes128CryptFilter {
         // Combine the IV and the plaintext.
         ciphertext.extend_from_slice(&iv);
         ciphertext.extend_from_slice(plaintext);
+        ciphertext.resize(16 + ciphertext_len, 0);
 
         // Use the 128-bit AES-CBC algorithm with PKCS#5 padding to encrypt the plaintext.
         //
@@ -189,7 +190,7 @@ impl CryptFilter for Aes256CryptFilter {
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
         // The ciphertext needs to be a multiple of 16 bytes to include the padding.
-        let ciphertext_len = (plaintext.len() + 15) / 16 * 16;
+        let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
 
         // Allocate sufficient bytes for the initialization vector, the ciphertext and the padding
         // combined.
@@ -203,6 +204,7 @@ impl CryptFilter for Aes256CryptFilter {
         // Combine the IV and the plaintext.
         ciphertext.extend_from_slice(&iv);
         ciphertext.extend_from_slice(plaintext);
+        ciphertext.resize(16 + ciphertext_len, 0);
 
         // Use the 256-bit AES-CBC algorithm with PKCS#5 padding to encrypt the plaintext.
         //
