@@ -464,6 +464,12 @@ impl PasswordAlgorithm {
 
         let mut k = hasher.finalize().to_vec();
 
+        // Revision 5 uses a simplified hash algorithm that simply calculates the SHA-256 hash of
+        // the original input to the algorithm.
+        if self.revision == 5 {
+            return Ok(k);
+        }
+
         let mut k1 = Vec::with_capacity(64 * (password.len() + 64 + user_key.map(|user_key| user_key.len()).unwrap_or(0)));
 
         // Perform the following steps at least 64 times, until the value of the last byte in K is
