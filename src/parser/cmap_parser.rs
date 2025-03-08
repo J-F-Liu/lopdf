@@ -1,5 +1,5 @@
 use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, CodeLen, SourceCode, SourceRangeMapping};
-use crate::parser::{comment, dict_dup, dictionary, eol, hex_char, name, NomError, NomResult, ParserInput};
+use crate::parser::{comment, dict_dup, dictionary, eol, hex_char, name, NomResult, ParserInput};
 use nom::branch::alt;
 pub use nom::bytes::complete::tag;
 use nom::combinator::map;
@@ -9,7 +9,7 @@ use nom::sequence::{pair, preceded, separated_pair, terminated};
 use nom::Parser;
 use nom::{
     character::complete::digit1,
-    sequence::{delimited, tuple},
+    sequence::delimited,
 };
 
 impl<E> From<nom::Err<E>> for CMapParseError {
@@ -33,150 +33,115 @@ fn cmap_stream(input: ParserInput) -> NomResult<Vec<CMapSection>> {
     delimited(
         cidinit_procset,
         cmap_resource_dictionary,
-        tuple((tag(b"end"), multispace0)),
-    )(input)
-}
-
-fn tuple_discard_result<'a, O, List>(seq: List, input: ParserInput<'a>) -> NomResult<'a, ()>
-where
-    List: nom::sequence::Tuple<ParserInput<'a>, O, NomError<'a>>,
-{
-    let result = tuple(seq)(input);
-    match result {
-        Ok((rest_of_input, _)) => Ok((rest_of_input, ())),
-        Err(e) => Err(e),
-    }
+        (tag(&b"end"[..]), multispace0),
+    ).parse(input)
 }
 
 fn space0(input: ParserInput) -> NomResult<()> {
-    fold_many0(alt((tag(b" "), tag("\t"))), || {}, |_, _| ())(input)
+    fold_many0(alt((tag(&b" "[..]), tag("\t"))), || {}, |_, _| ()).parse(input)
 }
 
 fn space1(input: ParserInput) -> NomResult<()> {
-    fold_many1(alt((tag(b" "), tag("\t"))), || {}, |_, _| ())(input)
-}
-
-fn parser_discard_result<'a, O>(
-    parser: impl Fn(ParserInput<'a>) -> NomResult<'a, O>,
-) -> impl Fn(ParserInput<'a>) -> NomResult<'a, ()> {
-    move |input| {
-        let result = parser(input);
-        match result {
-            Ok((rest_of_input, _)) => Ok((rest_of_input, ())),
-            Err(e) => Err(e),
-        }
-    }
+    fold_many1(alt((tag(&b" "[..]), tag("\t"))), || {}, |_, _| ()).parse(input)
 }
 
 fn multispace0(input: ParserInput) -> NomResult<()> {
-    let space = parser_discard_result(tag(b" "));
-    let tab = parser_discard_result(tag("\t"));
-    let eol = parser_discard_result(eol);
-    fold_many0(alt((space, tab, eol, comment)), || {}, |_, _| ())(input)
+    let space = tag(&b" "[..]).map(|_| ());
+    let tab = tag("\t").map(|_| ());
+    let eol = eol.map(|_| ());
+    fold_many0(alt((space, tab, eol, comment)), || {}, |_, _| ()).parse(input)
 }
 
 fn multispace1(input: ParserInput) -> NomResult<()> {
-    let space = parser_discard_result(tag(b" "));
-    let tab = parser_discard_result(tag("\t"));
-    let eol = parser_discard_result(eol);
-    fold_many1(alt((space, tab, eol, comment)), || {}, |_, _| ())(input)
+    let space = tag(&b" "[..]).map(|_| ());
+    let tab = tag("\t").map(|_| ());
+    let eol = eol.map(|_| ());
+    fold_many1(alt((space, tab, eol, comment)), || {}, |_, _| ()).parse(input)
 }
 
 fn cidinit_procset(input: ParserInput) -> NomResult<()> {
-    tuple_discard_result(
-        (
-            multispace0,
-            tag(b"/CIDInit"),
-            space0,
-            alt((tag(b"/ProcSet"), tag(b"/Procset"))),
-            space1,
-            tag(b"findresource"),
-            space1,
-            tag(b"begin"),
-            multispace1,
-        ),
-        input,
-    )
+    (
+        multispace0,
+        tag(&b"/CIDInit"[..]),
+        space0,
+        alt((tag(&b"/ProcSet"[..]), tag(&b"/Procset"[..]))),
+        space1,
+        tag(&b"findresource"[..]),
+        space1,
+        tag(&b"begin"[..]),
+        multispace1,
+    ).parse(input).map(|(i, _)| (i, ()))
 }
 
 fn cmap_resource_dictionary(input: ParserInput) -> NomResult<Vec<CMapSection>> {
-    let begin_parser = tuple((digit1, space1, tag(b"dict"), space1, tag(b"begin"), multispace1));
-    let end_parser = tuple((tag(b"end"), multispace1));
-    delimited(begin_parser, cmap_data, end_parser)(input)
+    let begin_parser = (digit1, space1, tag(&b"dict"[..]), space1, tag(&b"begin"[..]), multispace1);
+    let end_parser = (tag(&b"end"[..]), multispace1);
+    delimited(begin_parser, cmap_data, end_parser).parse(input)
 }
 
 fn cmap_data(input: ParserInput) -> NomResult<Vec<CMapSection>> {
-    let cmap_end = tuple((
-        tag(b"endcmap"),
+    let cmap_end = (
+        tag(&b"endcmap"[..]),
         multispace1,
-        tag(b"CMapName"),
+        tag(&b"CMapName"[..]),
         space1,
-        tag(b"currentdict"),
+        tag(&b"currentdict"[..]),
         space1,
-        tag(b"/CMap"),
+        tag(&b"/CMap"[..]),
         space1,
-        tag(b"defineresource"),
+        tag(&b"defineresource"[..]),
         space1,
-        tag(b"pop"),
+        tag(&b"pop"[..]),
         multispace1,
-    ));
+    );
     delimited(
-        tuple((tag(b"begincmap"), multispace1)),
+        (tag(&b"begincmap"[..]), multispace1),
         preceded(cmap_metadata, cmap_codespace_and_mappings),
         cmap_end,
-    )(input)
+    ).parse(input)
 }
 
 fn cmap_metadata(input: ParserInput) -> NomResult<()> {
     let metadata_parser = alt((cid_system_info, cmap_name, cmap_type));
-    fold_many_m_n(1, 4, metadata_parser, || (), |_, _| ())(input)
+    fold_many_m_n(1, 4, metadata_parser, || (), |_, _| ()).parse(input)
 }
 
 fn cid_system_info(input: ParserInput) -> NomResult<()> {
     // Note: Can array of CIDSystemInfo occur here?
     // Normally in cmap this can be an array, but can it be also if this is a ToUnicode cmap?
-    tuple_discard_result(
-        (
-            tag(b"/CIDSystemInfo"),
-            multispace0,
-            alt((dictionary, dict_dup)),
-            multispace1,
-            tag(b"def"),
-            multispace1,
-        ),
-        input,
-    )
+    (
+        tag(&b"/CIDSystemInfo"[..]),
+        multispace0,
+        alt((dictionary, dict_dup)),
+        multispace1,
+        tag(&b"def"[..]),
+        multispace1,
+    ).parse(input).map(|(i, _)| (i, ()))
 }
 
 fn cmap_name(input: ParserInput) -> NomResult<()> {
-    tuple_discard_result(
-        (tag(b"/CMapName"), space0, name, space1, tag(b"def"), multispace1),
-        input,
-    )
+    (tag(&b"/CMapName"[..]), space0, name, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
 }
 
 fn cmap_type(input: ParserInput) -> NomResult<()> {
-    tuple_discard_result(
-        (tag(b"/CMapType"), space1, digit1, space1, tag(b"def"), multispace1),
-        input,
-    )
+    (tag(&b"/CMapType"[..]), space1, digit1, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
 }
 
 fn cmap_codespace_and_mappings(input: ParserInput) -> NomResult<Vec<CMapSection>> {
-    many1(alt((codespace_range_section, bf_char_section, bf_range_section)))(input)
+    many1(alt((codespace_range_section, bf_char_section, bf_range_section))).parse(input)
 }
 
 fn codespace_range_section(input: ParserInput) -> NomResult<CMapSection> {
-    let begin_section = tuple((digit1, space1, tag(b"begincodespacerange"), multispace1));
-    let end_section = tuple((tag(b"endcodespacerange"), multispace1));
+    let begin_section = (digit1, space1, tag(&b"begincodespacerange"[..]), multispace1);
+    let end_section = (tag(&b"endcodespacerange"[..]), multispace1);
     let parse_range = delimited(space0, code_range_pair, multispace1);
-    let (rest_of_input, ranges_result) = delimited(begin_section, many1(parse_range), end_section)(input)?;
+    let (rest_of_input, ranges_result) = delimited(begin_section, many1(parse_range), end_section).parse(input)?;
     Ok((rest_of_input, CMapSection::CsRange(ranges_result)))
 }
 
 fn code_range_pair(input: ParserInput) -> NomResult<(SourceCode, SourceCode, CodeLen)> {
     let (rest_of_input, ((code_begin, code_len_beg), (code_end, code_len_end))) =
-        separated_pair(source_code, space0, source_code)(input)?;
+        separated_pair(source_code, space0, source_code).parse(input)?;
     if code_len_beg != code_len_end {
         create_code_len_err(rest_of_input)
     } else {
@@ -192,7 +157,7 @@ fn create_code_len_err<'a, T, E: ParseError<ParserInput<'a>>>(input: ParserInput
 }
 
 fn source_code(input: ParserInput) -> NomResult<(SourceCode, CodeLen)> {
-    let (rest_of_input, bytes) = delimited(tag(b"<"), many_m_n(1, 4, hex_char), tag(b">"))(input)?;
+    let (rest_of_input, bytes) = delimited(tag(&b"<"[..]), many_m_n(1, 4, hex_char), tag(&b">"[..])).parse(input)?;
     let code_len = bytes.len();
     let source_code = bytes
         .into_iter()
@@ -204,27 +169,27 @@ fn source_code(input: ParserInput) -> NomResult<(SourceCode, CodeLen)> {
 }
 
 fn hex_u16(input: ParserInput) -> NomResult<u16> {
-    map(pair(hex_char, hex_char), |(h1, h2)| h1 as u16 * 256 + h2 as u16)(input)
+    map(pair(hex_char, hex_char), |(h1, h2)| h1 as u16 * 256 + h2 as u16).parse(input)
 }
 
 fn bf_char_section(input: ParserInput) -> NomResult<CMapSection> {
-    let begin_section = tuple((digit1, space1, tag(b"beginbfchar"), multispace1));
-    let end_section = tuple((tag(b"endbfchar"), multispace1));
+    let begin_section = (digit1, space1, tag(&b"beginbfchar"[..]), multispace1);
+    let end_section = (tag(&b"endbfchar"[..]), multispace1);
     let bf_char_line = delimited(space0, separated_pair(source_code, space0, target_string), multispace1);
-    let (rest_of_input, bf_char_mappings) = delimited(begin_section, many1(bf_char_line), end_section)(input)?;
+    let (rest_of_input, bf_char_mappings) = delimited(begin_section, many1(bf_char_line), end_section).parse(input)?;
     Ok((rest_of_input, CMapSection::BfChar(bf_char_mappings)))
 }
 
 fn target_string(input: ParserInput) -> NomResult<Vec<u16>> {
     // according to specification dstString can be up to 512 bytes
     // in ToUnicode cmap these should be 2-byte big endian Unicode values
-    delimited(tag(b"<"), many_m_n(1, 256, terminated(hex_u16, multispace0)), tag(b">"))(input)
+    delimited(tag(&b"<"[..]), many_m_n(1, 256, terminated(hex_u16, multispace0)), tag(&b">"[..])).parse(input)
 }
 
 fn bf_range_section(input: ParserInput) -> NomResult<CMapSection> {
-    let begin_section = tuple((digit1, space1, tag(b"beginbfrange"), multispace1));
-    let end_section = tuple((tag(b"endbfrange"), multispace1));
-    let (rest_of_input, bf_range_mappings) = delimited(begin_section, many1(bf_range_line), end_section)(input)?;
+    let begin_section = (digit1, space1, tag(&b"beginbfrange"[..]), multispace1);
+    let end_section = (tag(&b"endbfrange"[..]), multispace1);
+    let (rest_of_input, bf_range_mappings) = delimited(begin_section, many1(bf_range_line), end_section).parse(input)?;
     Ok((rest_of_input, CMapSection::BfRange(bf_range_mappings)))
 }
 
@@ -234,15 +199,15 @@ fn bf_range_line(input: ParserInput) -> NomResult<SourceRangeMapping> {
         space0,
         alt((target_string.map(|res| vec![res]), range_target_array)),
     );
-    delimited(space0, bf_range_parser, multispace1)(input)
+    delimited(space0, bf_range_parser, multispace1).parse(input)
 }
 
 fn range_target_array(input: ParserInput) -> NomResult<ArrayOfTargetStrings> {
     delimited(
-        tuple((tag(b"["), space0)),
+        (tag(&b"["[..]), space0),
         separated_list1(space1, target_string),
-        tuple((space0, tag(b"]"))),
-    )(input)
+        (space0, tag(&b"]"[..])),
+    ).parse(input)
 }
 
 #[cfg(test)]
