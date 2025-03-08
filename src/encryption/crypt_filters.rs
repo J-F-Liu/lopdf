@@ -146,7 +146,8 @@ impl CryptFilter for Aes128CryptFilter {
         // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
         Aes128CbcEnc::new(key.into(), &iv.into())
             .encrypt_padded_mut::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
-            .unwrap();
+            // Padding errors should not occur when encrypting, but avoid causing a panic.
+            .map_err(|_| DecryptionError::Padding)?;
 
         Ok(ciphertext)
     }
@@ -180,7 +181,7 @@ impl CryptFilter for Aes128CryptFilter {
 
         Ok(Aes128CbcDec::new(key.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs5>(data)
-            .unwrap()
+            .map_err(|_| DecryptionError::Padding)?
             .to_vec())
     }
 }
@@ -229,7 +230,8 @@ impl CryptFilter for Aes256CryptFilter {
         // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
         Aes256CbcEnc::new(key.into(), &iv.into())
             .encrypt_padded_mut::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
-            .unwrap();
+            // Padding errors should not occur when encrypting, but avoid causing a panic.
+            .map_err(|_| DecryptionError::Padding)?;
 
         Ok(ciphertext)
     }
@@ -263,7 +265,7 @@ impl CryptFilter for Aes256CryptFilter {
 
         Ok(Aes256CbcDec::new(key.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs5>(data)
-            .unwrap()
+            .map_err(|_| DecryptionError::Padding)?
             .to_vec())
     }
 }

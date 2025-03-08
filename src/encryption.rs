@@ -59,6 +59,8 @@ pub enum DecryptionError {
 
     #[error(transparent)]
     StringPrep(#[from] stringprep::Error),
+    #[error("invalid padding encountered when decrypting, key might be incorrect")]
+    Padding,
 }
 
 bitflags! {
