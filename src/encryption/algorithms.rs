@@ -1158,7 +1158,7 @@ impl PasswordAlgorithm {
     ) -> Result<Vec<u8>, DecryptionError> {
         match self.revision {
             2..=4 => self.sanitize_password_r4(password),
-            6 => self.sanitize_password_r6(password),
+            5..=6 => self.sanitize_password_r6(password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1174,7 +1174,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.compute_file_encryption_key_r4(doc, password),
-            6 => self.compute_file_encryption_key_r6(password),
+            5..=6 => self.compute_file_encryption_key_r6(password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1190,7 +1190,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_user_password_r4(doc, user_password),
-            6 => self.authenticate_user_password_r6(user_password),
+            5..=6 => self.authenticate_user_password_r6(user_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1206,7 +1206,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_owner_password_r4(doc, owner_password),
-            6 => self.authenticate_owner_password_r6(owner_password),
+            5..=6 => self.authenticate_owner_password_r6(owner_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
