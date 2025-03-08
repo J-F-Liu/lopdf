@@ -116,6 +116,11 @@ impl CryptFilter for Aes128CryptFilter {
     }
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 128 bits (i.e., 16 bytes).
+        if key.len() != 16 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // The ciphertext needs to be a multiple of 16 bytes to include the padding.
         let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
 
@@ -147,6 +152,11 @@ impl CryptFilter for Aes128CryptFilter {
     }
 
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 128 bits (i.e., 16 bytes).
+        if key.len() != 16 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // Ensure that the ciphertext length is a multiple of 16 bytes.
         if ciphertext.len() % 16 != 0 {
             return Err(DecryptionError::InvalidCipherTextLength);
@@ -189,6 +199,11 @@ impl CryptFilter for Aes256CryptFilter {
     }
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 256 bits (i.e., 32 bytes).
+        if key.len() != 32 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // The ciphertext needs to be a multiple of 16 bytes to include the padding.
         let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
 
@@ -220,6 +235,11 @@ impl CryptFilter for Aes256CryptFilter {
     }
 
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 256 bits (i.e., 32 bytes).
+        if key.len() != 32 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // Ensure that the ciphertext length is a multiple of 16 bytes.
         if ciphertext.len() % 16 != 0 {
             return Err(DecryptionError::InvalidCipherTextLength);
