@@ -159,7 +159,6 @@ pub enum EncryptionVersion<'a> {
         string_filter: Vec<u8>,
         owner_password: &'a str,
         user_password: &'a str,
-        key_length: usize,
         permissions: Permissions,
     },
     /// (PDF 2.0) The security handler defines the use of encryption and decryption in the
@@ -299,12 +298,11 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 string_filter,
                 owner_password,
                 user_password,
-                key_length,
                 permissions,
             } => {
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
-                    length: Some(key_length),
+                    length: Some(128),
                     version: 4,
                     revision: 4,
                     permissions,
