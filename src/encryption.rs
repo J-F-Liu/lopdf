@@ -162,6 +162,20 @@ pub enum EncryptionVersion<'a> {
         key_length: usize,
         permissions: Permissions,
     },
+    /// (PDF 2.0; deprecated in PDF 2.0) Shall not be used. This value was used by a deprecated
+    /// proprietary Adobe extension.
+    ///
+    /// This exists for testing purposes to guarantee improved compatibility.
+    R5 {
+        encrypt_metadata: bool,
+        crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
+        file_encryption_key: &'a [u8],
+        stream_filter: Vec<u8>,
+        string_filter: Vec<u8>,
+        owner_password: &'a str,
+        user_password: &'a str,
+        permissions: Permissions,
+    },
     /// (PDF 2.0) The security handler defines the use of encryption and decryption in the
     /// document, using the rules specified by the CF, StmF, StrF and EFF entries using encryption
     /// of data using the AES algorithms with a file encryption key length of 256 bits.
@@ -342,6 +356,68 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     user_value: algorithm.user_value,
                     permissions: algorithm.permissions,
                     ..Default::default()
+                })
+            }
+            EncryptionVersion::R5 {
+                encrypt_metadata,
+                crypt_filters,
+                file_encryption_key,
+                stream_filter,
+                string_filter,
+                owner_password,
+                user_password,
+                permissions,
+            } => {
+                if file_encryption_key.len() != 32 {
+                    return Err(DecryptionError::InvalidKeyLength)?;
+                }
+
+                let mut algorithm = PasswordAlgorithm {
+                    encrypt_metadata,
+                    version: 5,
+                    revision: 5,
+                    permissions,
+                    ..Default::default()
+                };
+
+                let owner_password = algorithm.sanitize_password_r6(owner_password)?;
+                let user_password = algorithm.sanitize_password_r6(user_password)?;
+
+                let (user_value, user_encrypted) = algorithm.compute_hashed_user_password_r6(
+                    file_encryption_key,
+                    user_password,
+                )?;
+
+                algorithm.user_value = user_value;
+                algorithm.user_encrypted = user_encrypted;
+
+                let (owner_value, owner_encrypted) = algorithm.compute_hashed_owner_password_r6(
+                    file_encryption_key,
+                    owner_password,
+                )?;
+
+                algorithm.owner_value = owner_value;
+                algorithm.owner_encrypted = owner_encrypted;
+
+                algorithm.permission_encrypted = algorithm.compute_permissions(
+                    file_encryption_key,
+                )?;
+
+                Ok(Self {
+                    version: algorithm.version,
+                    revision: algorithm.revision,
+                    key_length: algorithm.length,
+                    encrypt_metadata: algorithm.encrypt_metadata,
+                    crypt_filters,
+                    file_encryption_key: file_encryption_key.to_vec(),
+                    stream_filter,
+                    string_filter,
+                    owner_value: algorithm.owner_value,
+                    owner_encrypted: algorithm.owner_encrypted,
+                    user_value: algorithm.user_value,
+                    user_encrypted: algorithm.user_encrypted,
+                    permissions: algorithm.permissions,
+                    permission_encrypted: algorithm.permission_encrypted,
                 })
             }
             EncryptionVersion::V5 {
