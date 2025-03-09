@@ -547,7 +547,11 @@ impl EncryptionState {
             encrypted.set(b"Length", Object::Integer(key_length as i64));
         }
 
-        encrypted.set(b"EncryptMetadata", Object::Boolean(self.encrypt_metadata));
+        // Optional; meaningful only when the value of V is 4 (PDF 1.5) or 5 (PDF 2.0)). Indicates
+        // whether the document-level metadata stream shall be encrypted. Default value: true.
+        if self.version >= 4 {
+            encrypted.set(b"EncryptMetadata", Object::Boolean(self.encrypt_metadata));
+        }
 
         encrypted.set(b"O", Object::string_literal(self.owner_value.clone()));
         encrypted.set(b"U", Object::string_literal(self.user_value.clone()));
