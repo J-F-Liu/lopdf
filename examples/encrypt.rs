@@ -1,5 +1,6 @@
 use lopdf::{Document, EncryptionState, EncryptionVersion, Permissions};
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
+use rand::Rng as _;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ fn main() {
 
     let mut doc = Document::load(input_file).unwrap();
     let permissions = Permissions::PRINTABLE | Permissions::COPYABLE | Permissions::COPYABLE_FOR_ACCESSIBILITY | Permissions::PRINTABLE_IN_HIGH_QUALITY;
+    let mut file_encryption_key = [0u8; 32];
 
     let requested_version = match version {
         1 => {
@@ -72,10 +74,13 @@ fn main() {
 
             let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
 
+            let mut rng = rand::rng();
+            rng.fill(&mut file_encryption_key);
+
             EncryptionVersion::V5 {
                 encrypt_metadata: true,
                 crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
-                file_encryption_key: &[0u8; 32],
+                file_encryption_key: &file_encryption_key,
                 stream_filter: b"StdCF".to_vec(),
                 string_filter: b"StdCF".to_vec(),
                 owner_password,
@@ -116,6 +121,7 @@ async fn main() {
 
     let mut doc = Document::load(input_file).await.unwrap();
     let permissions = Permissions::PRINTABLE | Permissions::COPYABLE | Permissions::COPYABLE_FOR_ACCESSIBILITY | Permissions::PRINTABLE_IN_HIGH_QUALITY;
+    let mut file_encryption_key = [0u8; 32];
 
     let requested_version = match version {
         1 => {
@@ -174,10 +180,13 @@ async fn main() {
 
             let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
 
+            let mut rng = rand::rng();
+            rng.fill(&mut file_encryption_key);
+
             EncryptionVersion::V5 {
                 encrypt_metadata: true,
                 crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
-                file_encryption_key: &[0u8; 32],
+                file_encryption_key: &file_encryption_key,
                 stream_filter: b"StdCF".to_vec(),
                 string_filter: b"StdCF".to_vec(),
                 owner_password,
