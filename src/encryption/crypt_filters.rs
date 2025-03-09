@@ -116,6 +116,11 @@ impl CryptFilter for Aes128CryptFilter {
     }
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 128 bits (i.e., 16 bytes).
+        if key.len() != 16 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // The ciphertext needs to be a multiple of 16 bytes to include the padding.
         let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
 
@@ -141,12 +146,18 @@ impl CryptFilter for Aes128CryptFilter {
         // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
         Aes128CbcEnc::new(key.into(), &iv.into())
             .encrypt_padded_mut::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
-            .unwrap();
+            // Padding errors should not occur when encrypting, but avoid causing a panic.
+            .map_err(|_| DecryptionError::Padding)?;
 
         Ok(ciphertext)
     }
 
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 128 bits (i.e., 16 bytes).
+        if key.len() != 16 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // Ensure that the ciphertext length is a multiple of 16 bytes.
         if ciphertext.len() % 16 != 0 {
             return Err(DecryptionError::InvalidCipherTextLength);
@@ -170,7 +181,7 @@ impl CryptFilter for Aes128CryptFilter {
 
         Ok(Aes128CbcDec::new(key.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs5>(data)
-            .unwrap()
+            .map_err(|_| DecryptionError::Padding)?
             .to_vec())
     }
 }
@@ -189,6 +200,11 @@ impl CryptFilter for Aes256CryptFilter {
     }
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 256 bits (i.e., 32 bytes).
+        if key.len() != 32 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // The ciphertext needs to be a multiple of 16 bytes to include the padding.
         let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
 
@@ -214,12 +230,18 @@ impl CryptFilter for Aes256CryptFilter {
         // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
         Aes256CbcEnc::new(key.into(), &iv.into())
             .encrypt_padded_mut::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
-            .unwrap();
+            // Padding errors should not occur when encrypting, but avoid causing a panic.
+            .map_err(|_| DecryptionError::Padding)?;
 
         Ok(ciphertext)
     }
 
     fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+        // Ensure that the key is 256 bits (i.e., 32 bytes).
+        if key.len() != 32 {
+            return Err(DecryptionError::InvalidKeyLength);
+        }
+
         // Ensure that the ciphertext length is a multiple of 16 bytes.
         if ciphertext.len() % 16 != 0 {
             return Err(DecryptionError::InvalidCipherTextLength);
@@ -243,7 +265,7 @@ impl CryptFilter for Aes256CryptFilter {
 
         Ok(Aes256CbcDec::new(key.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs5>(data)
-            .unwrap()
+            .map_err(|_| DecryptionError::Padding)?
             .to_vec())
     }
 }
