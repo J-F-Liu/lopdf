@@ -33,8 +33,8 @@ itoa = "1.0"
 jiff = { version = "0.2", optional = true }
 log = "0.4"
 md-5 = "0.10"
-nom = "7.1"
-nom_locate = "4.2.0"
+nom = "8.0"
+nom_locate = "5.0"
 rand = { version = "0.9" }
 rangemap = "1.5"
 rayon = { version = "1.6", optional = true }
