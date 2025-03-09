@@ -464,6 +464,12 @@ impl PasswordAlgorithm {
 
         let mut k = hasher.finalize().to_vec();
 
+        // Revision 5 uses a simplified hash algorithm that simply calculates the SHA-256 hash of
+        // the original input to the algorithm.
+        if self.revision == 5 {
+            return Ok(k);
+        }
+
         let mut k1 = Vec::with_capacity(64 * (password.len() + 64 + user_key.map(|user_key| user_key.len()).unwrap_or(0)));
 
         // Perform the following steps at least 64 times, until the value of the last byte in K is
@@ -1152,7 +1158,7 @@ impl PasswordAlgorithm {
     ) -> Result<Vec<u8>, DecryptionError> {
         match self.revision {
             2..=4 => self.sanitize_password_r4(password),
-            6 => self.sanitize_password_r6(password),
+            5..=6 => self.sanitize_password_r6(password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1168,7 +1174,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.compute_file_encryption_key_r4(doc, password),
-            6 => self.compute_file_encryption_key_r6(password),
+            5..=6 => self.compute_file_encryption_key_r6(password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1184,7 +1190,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_user_password_r4(doc, user_password),
-            6 => self.authenticate_user_password_r6(user_password),
+            5..=6 => self.authenticate_user_password_r6(user_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
@@ -1200,7 +1206,7 @@ impl PasswordAlgorithm {
     {
         match self.revision {
             2..=4 => self.authenticate_owner_password_r4(doc, owner_password),
-            6 => self.authenticate_owner_password_r6(owner_password),
+            5..=6 => self.authenticate_owner_password_r6(owner_password),
             _ => Err(DecryptionError::UnsupportedRevision),
         }
     }
