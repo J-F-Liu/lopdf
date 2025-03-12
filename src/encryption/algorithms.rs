@@ -132,8 +132,8 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             return Err(DecryptionError::InvalidHashLength)?;
         }
 
-        // The owner value is 48 bytes long if the value of R is 6.
-        if revision == 6 && owner_value.len() != 48 {
+        // The owner value is 48 bytes long if the value of R is 5 or greater.
+        if revision >= 5 && owner_value.len() != 48 {
             return Err(DecryptionError::InvalidHashLength)?;
         }
 
@@ -143,8 +143,9 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .ok()
             .unwrap_or_default();
 
-        // The owner encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
-        if revision == 6 && owner_encrypted.len() != 32 {
+        // The owner encrypted blob is required if R is 5 or greater and the blob shall be 32 bytes
+        // long.
+        if revision >= 5 && owner_encrypted.len() != 32 {
             return Err(DecryptionError::InvalidCipherTextLength)?;
         }
 
@@ -160,8 +161,8 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             return Err(DecryptionError::InvalidHashLength)?;
         }
 
-        // The user value is 48 bytes long if the value of R is 6.
-        if revision == 6 && user_value.len() != 48 {
+        // The user value is 48 bytes long if the value of R is 5 or greater.
+        if revision >= 5 && user_value.len() != 48 {
             return Err(DecryptionError::InvalidHashLength)?;
         }
 
@@ -171,8 +172,9 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .ok()
             .unwrap_or_default();
 
-        // The user encrypted blob is required if R is 6 and the blob shall be 32 bytes long.
-        if revision == 6 && user_encrypted.len() != 32 {
+        // The user encrypted blob is required if R is 5 or greater and the blob shall be 32 bytes
+        // long.
+        if revision >= 5 && user_encrypted.len() != 32 {
             return Err(DecryptionError::InvalidCipherTextLength)?;
         }
 
@@ -191,8 +193,9 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .ok()
             .unwrap_or_default();
 
-        // The permission encrypted blob is required if R is 6 and the blob shall be 16 bytes long.
-        if revision == 6 && permission_encrypted.len() != 16 {
+        // The permission encrypted blob is required if R is 65 or greater and the blob shall be
+        // 16 bytes long.
+        if revision >= 5 && permission_encrypted.len() != 16 {
             return Err(DecryptionError::InvalidCipherTextLength)?;
         }
 
