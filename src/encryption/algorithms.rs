@@ -1214,3 +1214,257 @@ impl PasswordAlgorithm {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::Permissions;
+    use crate::creator::tests::create_document;
+    use crate::encryption::PasswordAlgorithm;
+    use rand::Rng as _;
+
+    #[test]
+    fn authenticate_password_r2() {
+        let document = create_document();
+
+        let mut algorithm = PasswordAlgorithm {
+            encrypt_metadata: true,
+            length: None,
+            version: 1,
+            revision: 2,
+            permissions: Permissions::all(),
+            ..Default::default()
+        };
+
+        let owner_password = "owner";
+        let user_password = "user";
+
+        // Sanitize the passwords.
+        let owner_password = algorithm.sanitize_password_r4(owner_password).unwrap();
+        let user_password = algorithm.sanitize_password_r4(user_password).unwrap();
+
+        // Compute the hashed values.
+        algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
+            Some(&owner_password),
+            &user_password,
+        ).unwrap();
+
+        algorithm.user_value = algorithm.compute_hashed_user_password_r2(
+            &document,
+            &user_password,
+        ).unwrap();
+
+        // Assert that the correct passwords authenticate.
+        assert!(algorithm.authenticate_owner_password_r4(&document, &owner_password).is_ok());
+        assert!(algorithm.authenticate_user_password_r4(&document, &user_password).is_ok());
+
+        // Assert that the swapped passwords do not authenticate.
+        assert!(algorithm.authenticate_owner_password_r4(&document, user_password).is_err());
+        assert!(algorithm.authenticate_user_password_r4(&document, owner_password).is_err());
+    }
+
+    #[test]
+    fn authenticate_password_r3() {
+        let document = create_document();
+
+        let mut algorithm = PasswordAlgorithm {
+            encrypt_metadata: true,
+            length: Some(40),
+            version: 2,
+            revision: 3,
+            permissions: Permissions::all(),
+            ..Default::default()
+        };
+
+        let owner_password = "owner";
+        let user_password = "user";
+
+        // Sanitize the passwords.
+        let owner_password = algorithm.sanitize_password_r4(owner_password).unwrap();
+        let user_password = algorithm.sanitize_password_r4(user_password).unwrap();
+
+        // Compute the hashed values.
+        algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
+            Some(&owner_password),
+            &user_password,
+        ).unwrap();
+
+        algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
+            &document,
+            &user_password,
+        ).unwrap();
+
+        // Assert that the correct passwords authenticate.
+        assert!(algorithm.authenticate_owner_password_r4(&document, &owner_password).is_ok());
+        assert!(algorithm.authenticate_user_password_r4(&document, &user_password).is_ok());
+
+        // Assert that the swapped passwords do not authenticate.
+        assert!(algorithm.authenticate_owner_password_r4(&document, user_password).is_err());
+        assert!(algorithm.authenticate_user_password_r4(&document, owner_password).is_err());
+    }
+
+    #[test]
+    fn authenticate_password_r4() {
+        let document = create_document();
+
+        let mut algorithm = PasswordAlgorithm {
+            encrypt_metadata: true,
+            length: Some(128),
+            version: 4,
+            revision: 4,
+            permissions: Permissions::all(),
+            ..Default::default()
+        };
+
+        let owner_password = "owner";
+        let user_password = "user";
+
+        // Sanitize the passwords.
+        let owner_password = algorithm.sanitize_password_r4(owner_password).unwrap();
+        let user_password = algorithm.sanitize_password_r4(user_password).unwrap();
+
+        // Compute the hashed values.
+        algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(
+            Some(&owner_password),
+            &user_password,
+        ).unwrap();
+
+        algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(
+            &document,
+            &user_password,
+        ).unwrap();
+
+        // Assert that the correct passwords authenticate.
+        assert!(algorithm.authenticate_owner_password_r4(&document, &owner_password).is_ok());
+        assert!(algorithm.authenticate_user_password_r4(&document, &user_password).is_ok());
+
+        // Assert that the swapped passwords do not authenticate.
+        assert!(algorithm.authenticate_owner_password_r4(&document, user_password).is_err());
+        assert!(algorithm.authenticate_user_password_r4(&document, owner_password).is_err());
+    }
+
+    #[test]
+    fn authenticate_password_r5() {
+        let mut algorithm = PasswordAlgorithm {
+            encrypt_metadata: true,
+            version: 5,
+            revision: 5,
+            permissions: Permissions::all(),
+            ..Default::default()
+        };
+
+        let owner_password = "owner";
+        let user_password = "user";
+
+        // Sanitize the passwords.
+        let owner_password = algorithm.sanitize_password_r6(owner_password).unwrap();
+        let user_password = algorithm.sanitize_password_r6(user_password).unwrap();
+
+        // Compute the hashed values.
+        let mut file_encryption_key = [0u8; 32];
+
+        let mut rng = rand::rng();
+        rng.fill(&mut file_encryption_key);
+
+        let (user_value, user_encrypted) = algorithm.compute_hashed_user_password_r6(
+            file_encryption_key,
+            &user_password,
+        ).unwrap();
+
+        algorithm.user_value = user_value;
+        algorithm.user_encrypted = user_encrypted;
+
+        let (owner_value, owner_encrypted) = algorithm.compute_hashed_owner_password_r6(
+            file_encryption_key,
+            &owner_password,
+        ).unwrap();
+
+        algorithm.owner_value = owner_value;
+        algorithm.owner_encrypted = owner_encrypted;
+
+        algorithm.permission_encrypted = algorithm.compute_permissions(
+            file_encryption_key,
+        ).unwrap();
+
+        // Assert that the correct passwords authenticate.
+        assert!(algorithm.authenticate_owner_password_r6(&owner_password).is_ok());
+        assert!(algorithm.authenticate_user_password_r6(&user_password).is_ok());
+
+        // Assert that the swapped passwords do not authenticate.
+        assert!(algorithm.authenticate_owner_password_r6(&user_password).is_err());
+        assert!(algorithm.authenticate_user_password_r6(&owner_password).is_err());
+
+        // Assert that the permissions validate correctly.
+        assert!(algorithm.validate_permissions(&file_encryption_key).is_ok());
+
+        // Assert that the file encryption key is equal for the owner password.
+        let key = algorithm.compute_file_encryption_key_r6(&owner_password).unwrap();
+        assert_eq!(&file_encryption_key[..], key);
+
+        // Assert that the file encryption key is equal for the user password.
+        let key = algorithm.compute_file_encryption_key_r6(&user_password).unwrap();
+        assert_eq!(&file_encryption_key[..], key);
+    }
+
+    #[test]
+    fn authenticate_password_r6() {
+        let mut algorithm = PasswordAlgorithm {
+            encrypt_metadata: true,
+            version: 5,
+            revision: 6,
+            permissions: Permissions::all(),
+            ..Default::default()
+        };
+
+        let owner_password = "owner";
+        let user_password = "user";
+
+        // Sanitize the passwords.
+        let owner_password = algorithm.sanitize_password_r6(owner_password).unwrap();
+        let user_password = algorithm.sanitize_password_r6(user_password).unwrap();
+
+        // Compute the hashed values.
+        let mut file_encryption_key = [0u8; 32];
+
+        let mut rng = rand::rng();
+        rng.fill(&mut file_encryption_key);
+
+        let (user_value, user_encrypted) = algorithm.compute_hashed_user_password_r6(
+            file_encryption_key,
+            &user_password,
+        ).unwrap();
+
+        algorithm.user_value = user_value;
+        algorithm.user_encrypted = user_encrypted;
+
+        let (owner_value, owner_encrypted) = algorithm.compute_hashed_owner_password_r6(
+            file_encryption_key,
+            &owner_password,
+        ).unwrap();
+
+        algorithm.owner_value = owner_value;
+        algorithm.owner_encrypted = owner_encrypted;
+
+        algorithm.permission_encrypted = algorithm.compute_permissions(
+            file_encryption_key,
+        ).unwrap();
+
+        // Assert that the correct passwords authenticate.
+        assert!(algorithm.authenticate_owner_password_r6(&owner_password).is_ok());
+        assert!(algorithm.authenticate_user_password_r6(&user_password).is_ok());
+
+        // Assert that the swapped passwords do not authenticate.
+        assert!(algorithm.authenticate_owner_password_r6(&user_password).is_err());
+        assert!(algorithm.authenticate_user_password_r6(&owner_password).is_err());
+
+        // Assert that the permissions validate correctly.
+        assert!(algorithm.validate_permissions(&file_encryption_key).is_ok());
+
+        // Assert that the file encryption key is equal for the owner password.
+        let key = algorithm.compute_file_encryption_key_r6(&owner_password).unwrap();
+        assert_eq!(&file_encryption_key[..], key);
+
+        // Assert that the file encryption key is equal for the user password.
+        let key = algorithm.compute_file_encryption_key_r6(&user_password).unwrap();
+        assert_eq!(&file_encryption_key[..], key);
+    }
+}

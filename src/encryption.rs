@@ -842,7 +842,6 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::rc4::Rc4;
 
     #[test]
