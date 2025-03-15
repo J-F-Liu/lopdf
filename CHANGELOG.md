@@ -1,4 +1,149 @@
 
+<a name="v0.36.0"></a>
+## [v0.36.0](https://github.com/J-F-Liu/lopdf/compare/0.35.0...v0.36.0) (2025-03-15)
+
+### Add
+
+* Add support for Revision 5 ([#401](https://github.com/J-F-Liu/lopdf/issues/401))
+* Add more checks to the encryption/decryption logic ([#399](https://github.com/J-F-Liu/lopdf/issues/399))
+* Add sanity checks for PDF encryption, add examples for decrypting/encrypting PDF files and various bug fixes ([#397](https://github.com/J-F-Liu/lopdf/issues/397))
+* Add encrypt function to crypt filters
+* Add support for jiff and make both chrono and time optional features
+
+### Avoid
+
+* Avoid parsing encrypted object streams early and correctly parse object streams upon decryption ([#385](https://github.com/J-F-Liu/lopdf/issues/385))
+* Avoid decrypting cross-reference streams ([#381](https://github.com/J-F-Liu/lopdf/issues/381))
+
+### Check
+
+* Check if the security handler is the standard one
+
+### Clarify
+
+* Clarify datetime parsing logic using the PDF specification
+
+### Compute
+
+* Compute the file encryption key (revision 6)
+
+### Declare
+
+* Declare and implement crypt filters
+
+### Ensure
+
+* Ensure the document is actually encrypted
+
+### Fix
+
+* Fix unused imports
+* Fix warning for rotate example
+* Fix warnings about nom_parser
+* Fix clippy warning about operator precedence
+* Fix typo in comment
+
+### Gracefully
+
+* Gracefully handle the is_aes check without throwing errors ([#376](https://github.com/J-F-Liu/lopdf/issues/376))
+
+### Handle
+
+* Handle cases where the stream objects override the crypt filter
+
+### Implement
+
+* Implement Document::encrypt() ([#396](https://github.com/J-F-Liu/lopdf/issues/396))
+* Implement password authentication (revision 6)
+* Implement decrypt with and without password sanitization
+* Implement authentication functions
+* Implement password sanitization from string
+* Implement password algorithms 2-7
+* Implement encrypt_object function
+* Implement and use PKCS[#5](https://github.com/J-F-Liu/lopdf/issues/5) padding instead
+* Implement function to parse the available crypt filters
+* Implement 256-bit AES-CBC crypt filter
+* Implement TryFrom rather than TryInto
+
+### Improve
+
+* Improve the AES decryption with some sanity checks ([#383](https://github.com/J-F-Liu/lopdf/issues/383))
+
+### Merge
+
+* Merge remaining algorithms functions into PasswordAlgorithm implementation
+
+### Missing
+
+* Missing import to test
+
+### Only
+
+* Only encode EncryptMetadata when V >= 4 ([#400](https://github.com/J-F-Liu/lopdf/issues/400))
+
+### Provide
+
+* Provide revision-agnostic functions for the password algorithms
+
+### Randomly
+
+* Randomly generate file encryption key for V5 in encrypt example ([#403](https://github.com/J-F-Liu/lopdf/issues/403))
+
+### Recurse
+
+* Recurse into arrays and dictionaries to fully decrypt all strings/streams ([#378](https://github.com/J-F-Liu/lopdf/issues/378))
+
+### Release
+
+* Release 0.36
+
+### Remove
+
+* Remove the old implementation
+* Remove workflow that used to enable the nom_parser feature
+* Remove nom_parser feature
+
+### Reorganize
+
+* Reorganize encryption code
+
+### Sanitize
+
+* Sanitize passwords (revision 6)
+
+### Try
+
+* Try decrypting with an empty password
+
+### Unpack
+
+* Unpack objects after decrypting object streams ([#382](https://github.com/J-F-Liu/lopdf/issues/382))
+
+### Update
+
+* Update to nom 8.0 and nom_locate 5.0 ([#402](https://github.com/J-F-Liu/lopdf/issues/402))
+
+### Update
+
+* update changelog
+
+### Use
+
+* Use a hasher instead of allocating a Vec
+* Use the new implementation to compute the file encryption key
+* Use the default stream and string crypt filter if present
+* Use Unix epoch if time feature is not enabled
+* Use get_deref for the Kids array to handle indirect references ([#379](https://github.com/J-F-Liu/lopdf/issues/379))
+
+### Validate
+
+* Validate encryption dictionary for revision 5 ([#405](https://github.com/J-F-Liu/lopdf/issues/405))
+
+### Validate
+
+* validate binary comment during parsing ([#392](https://github.com/J-F-Liu/lopdf/issues/392))
+
+
 <a name="0.35.0"></a>
 ## [0.35.0](https://github.com/J-F-Liu/lopdf/compare/v0.34.0...0.35.0) (2025-01-19)
 
@@ -59,9 +204,15 @@
 
 * Refactor and optimize image processing logic in xobject.rs
 
+### Release
+
+* Release 0.35
+
 ### Remove
 
 * remove misleading Object::as_string ([#350](https://github.com/J-F-Liu/lopdf/issues/350))
+
+### Remove
 
 * Remove superfluous `ref` keyword ([#361](https://github.com/J-F-Liu/lopdf/issues/361))
 * Remove pom parser ([#355](https://github.com/J-F-Liu/lopdf/issues/355))
@@ -88,6 +239,10 @@
 ### Throw
 
 * Throw error if xref stream cannot be uncompressed ([#339](https://github.com/J-F-Liu/lopdf/issues/339))
+
+### Update
+
+* update changelog
 
 
 <a name="v0.34.0"></a>
