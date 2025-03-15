@@ -13,7 +13,7 @@ license = "MIT"
 name = "lopdf"
 readme = "README.md"
 repository = "https://github.com/J-F-Liu/lopdf.git"
-version = "0.35.0"
+version = "0.36.0"
 rust-version = "1.74"
 
 [dependencies]
@@ -42,7 +42,10 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 sha2 = "0.10.8"
 stringprep = "0.1.5"
 thiserror = "2.0.3"
-time = { version = "0.3", features = ["formatting", "parsing"], optional = true }
+time = { version = "0.3", features = [
+    "formatting",
+    "parsing",
+], optional = true }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.1"
 
