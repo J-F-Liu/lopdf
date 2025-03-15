@@ -652,7 +652,7 @@ impl EncryptionState {
             encrypted.set(b"StrF", Object::Name(self.string_filter.clone()));
         }
 
-        if self.revision >= 6 {
+        if self.revision >= 5 {
             encrypted.set(b"OE", Object::string_literal(self.owner_encrypted.clone()));
             encrypted.set(b"UE", Object::string_literal(self.user_encrypted.clone()));
             encrypted.set(b"Perms", Object::string_literal(self.permission_encrypted.clone()));
