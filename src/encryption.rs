@@ -842,7 +842,13 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
 
 #[cfg(test)]
 mod tests {
+    use crate::{EncryptionState, EncryptionVersion, Permissions};
+    use crate::creator::tests::create_document;
+    use crate::encryption::{CryptFilter, Aes128CryptFilter, Aes256CryptFilter};
+    use rand::Rng as _;
     use super::rc4::Rc4;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     #[test]
     fn rc4_works() {
@@ -868,5 +874,120 @@ mod tests {
             let decrypted = decryptor.decrypt(&cipher_bytes);
             assert_eq!(plain.as_bytes(), &decrypted[..]);
         }
+    }
+
+    #[test]
+    fn encrypt_v1() {
+        let mut document = create_document();
+
+        let version = EncryptionVersion::V1 {
+            document: &document,
+            owner_password: "owner",
+            user_password: "user",
+            permissions: Permissions::all(),
+        };
+
+        let state = EncryptionState::try_from(version).unwrap();
+
+        assert!(document.encrypt(&state).is_ok());
+        assert!(document.decrypt("user").is_ok());
+    }
+
+    #[test]
+    fn encrypt_v2() {
+        let mut document = create_document();
+
+        let version = EncryptionVersion::V2 {
+            document: &document,
+            owner_password: "owner",
+            user_password: "user",
+            key_length: 40,
+            permissions: Permissions::all(),
+        };
+
+        let state = EncryptionState::try_from(version).unwrap();
+
+        assert!(document.encrypt(&state).is_ok());
+        assert!(document.decrypt("user").is_ok());
+    }
+
+    #[test]
+    fn encrypt_v4() {
+        let mut document = create_document();
+
+        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+
+        let version = EncryptionVersion::V4 {
+            document: &document,
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: "user",
+            permissions: Permissions::all(),
+        };
+
+        let state = EncryptionState::try_from(version).unwrap();
+
+        assert!(document.encrypt(&state).is_ok());
+        assert!(document.decrypt("user").is_ok());
+    }
+
+    #[test]
+    fn encrypt_r5() {
+        let mut document = create_document();
+
+        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+
+        let mut file_encryption_key = [0u8; 32];
+
+        let mut rng = rand::rng();
+        rng.fill(&mut file_encryption_key);
+
+        #[allow(deprecated)]
+        let version = EncryptionVersion::R5 {
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+            file_encryption_key: &file_encryption_key,
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: "user",
+            permissions: Permissions::all(),
+        };
+
+        let state = EncryptionState::try_from(version).unwrap();
+
+        assert!(document.encrypt(&state).is_ok());
+        assert!(document.decrypt("user").is_ok());
+    }
+
+    #[test]
+    fn encrypt_v5() {
+        let mut document = create_document();
+
+        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+
+        let mut file_encryption_key = [0u8; 32];
+
+        let mut rng = rand::rng();
+        rng.fill(&mut file_encryption_key);
+
+        let version = EncryptionVersion::V5 {
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+            file_encryption_key: &file_encryption_key,
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: "user",
+            permissions: Permissions::all(),
+        };
+
+        let state = EncryptionState::try_from(version).unwrap();
+
+        assert!(document.encrypt(&state).is_ok());
+        assert!(document.decrypt("user").is_ok());
     }
 }
