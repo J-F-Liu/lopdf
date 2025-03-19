@@ -61,3 +61,16 @@ jobs:
               run: cargo clippy
             - name: clippy for pdfutil
               run: cargo clippy --manifest-path pdfutil/Cargo.toml
+
+    wasm:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v2
+
+            - name: Install
+              run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+            - run: cargo test
+            - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --chrome --features wasm_js
+            - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --firefox --features wasm_js
