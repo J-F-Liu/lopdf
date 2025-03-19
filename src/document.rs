@@ -504,7 +504,9 @@ impl Document {
                 continue;
             }
 
-            let obj_stream = ObjectStream::new(stream).ok().unwrap();
+            let Some(obj_stream) = ObjectStream::new(stream).ok() else {
+                continue;
+            };
 
             // TODO: Is insert and replace intended behavior?
             // See https://github.com/J-F-Liu/lopdf/issues/160 for more info
