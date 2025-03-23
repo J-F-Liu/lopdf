@@ -74,3 +74,18 @@ jobs:
             - run: cargo test
             - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --chrome --features wasm_js
             - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --firefox --features wasm_js
+
+    wasi:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                target: [wasm32-wasip1, wasm32-wasip2]
+
+        steps:
+            - uses: actions/checkout@v2
+            - uses: hecrj/setup-rust-action@v1
+              with:
+                targets: ${{ matrix.target }}
+
+            - name: Build
+              run: cargo build --verbose --target ${{ matrix.target }}
