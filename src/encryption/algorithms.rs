@@ -185,7 +185,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .map_err(|_| DecryptionError::InvalidType)?
             as u64;
 
-        let permissions = Permissions::from_bits_truncate(permission_value);
+        let permissions = Permissions::from_bits_retain(permission_value);
 
         let permission_encrypted = encrypted.get(b"Perms")
             .and_then(Object::as_str)
@@ -276,7 +276,7 @@ impl PasswordAlgorithm {
         //
         // We don't actually care about the permissions, but we need the correct value to derive the
         // correct key.
-        hasher.update((self.permissions.p_value() as u32).to_le_bytes());
+        hasher.update((self.permissions.bits() as u32).to_le_bytes());
 
         // Pass the first element of the file's file identifier array (the value of the ID entry in the
         // document's trailer dictionary to the MD5 hash function.
