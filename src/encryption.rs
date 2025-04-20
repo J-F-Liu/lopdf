@@ -113,20 +113,19 @@ bitflags! {
 
 impl Default for Permissions {
     fn default() -> Self {
-        Self::all()
-    }
-}
+        let mut bits = Self::all().bits();
 
-impl Permissions {
-    pub fn p_value(&self) -> u64 {
-        self.bits() |
         // 7-8: Reserved. Must be 1.
-        (0b11 << 6) |
+        bits |= 0b11 << 6;
+
         // 13-32: Reserved. Must be 1.
-        (0b1111 << 12) | (0xffff << 16) |
+        bits |= 0b1111 << 12 | 0xffff << 16;
+
         // Extend the permissions (contents of the P integer) to 64 bits by setting the upper 32
         // bits to all 1s.
-        (0xffffffff << 32)
+        bits |= 0xffffffff << 32;
+
+        Permissions::from_bits_retain(bits)
     }
 }
 
@@ -633,7 +632,7 @@ impl EncryptionState {
 
         encrypted.set(b"O", Object::string_literal(self.owner_value.clone()));
         encrypted.set(b"U", Object::string_literal(self.user_value.clone()));
-        encrypted.set(b"P", Object::Integer(self.permissions.p_value() as i64));
+        encrypted.set(b"P", Object::Integer(self.permissions.bits() as i64));
 
         if self.revision >= 4 {
             let mut filters = Dictionary::new();

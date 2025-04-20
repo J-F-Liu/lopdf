@@ -185,7 +185,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .map_err(|_| DecryptionError::InvalidType)?
             as u64;
 
-        let permissions = Permissions::from_bits_truncate(permission_value);
+        let permissions = Permissions::from_bits_retain(permission_value);
 
         let permission_encrypted = encrypted.get(b"Perms")
             .and_then(Object::as_str)
@@ -276,7 +276,7 @@ impl PasswordAlgorithm {
         //
         // We don't actually care about the permissions, but we need the correct value to derive the
         // correct key.
-        hasher.update((self.permissions.p_value() as u32).to_le_bytes());
+        hasher.update((self.permissions.bits() as u32).to_le_bytes());
 
         // Pass the first element of the file's file identifier array (the value of the ID entry in the
         // document's trailer dictionary to the MD5 hash function.
@@ -1014,7 +1014,7 @@ impl PasswordAlgorithm {
         let mut bytes = [0u8; 16];
 
         // Record the 8 bytes of permission in the bytes 0-7 of the block, low order byte first.
-        bytes[..8].copy_from_slice(&u64::to_le_bytes(self.permissions.p_value()));
+        bytes[..8].copy_from_slice(&u64::to_le_bytes(self.permissions.bits()));
 
         // Set byte 8 to ASCII character "T" or "F" according to the EncryptMetadata boolean.
         bytes[8] = if self.encrypt_metadata { b'T' } else { b'F' };
@@ -1141,7 +1141,7 @@ impl PasswordAlgorithm {
 
         // Bytes 0-3 of the decrypted Perms entry, treated as a little-endian integer, are the
         // user permissions. They should match the value in the P key.
-        if bytes[..3] != u64::to_le_bytes(self.permissions.p_value())[..3] {
+        if bytes[..3] != u64::to_le_bytes(self.permissions.bits())[..3] {
             return Err(DecryptionError::IncorrectPassword);
         }
 
