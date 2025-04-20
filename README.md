@@ -437,8 +437,8 @@ use lopdf::Document;
 
 * Why does the library keep everything in memory as high-level objects until finally serializing the entire document?
 
-    Normally, a PDF document won't be very large, ranging from tens of KB to hundreds of MB. Memory size is not a bottle neck for today's computer.
-    By keeping the whole document in memory, the stream length can be pre-calculated, no need to use a reference object for the Length entry.
-    The resulting PDF file is smaller for distribution and faster for PDF consumers to process.
+  Normally, a PDF document won't be very large, ranging from tens of KB to hundreds of MB. Memory size is not a bottle neck for today's computer.
+  By keeping the whole document in memory, the stream length can be pre-calculated, no need to use a reference object for the Length entry.
+  The resulting PDF file is smaller for distribution and faster for PDF consumers to process.
 
-    Producing is a one-time effort, while consuming is many more.
+  Producing is a one-time effort, while consuming is many more.

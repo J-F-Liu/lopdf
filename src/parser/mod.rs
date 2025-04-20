@@ -586,7 +586,7 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
         }
     };
 
-    let stride = (width * (num_colors * bpc) + 7) / 8;
+    let stride = (width * (num_colors * bpc)).div_ceil(8);
     let length = height * stride;
 
     let (input, content) = match get_abbr(b"F", b"Filter") {
