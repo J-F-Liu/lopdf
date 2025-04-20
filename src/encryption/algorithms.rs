@@ -106,9 +106,9 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         }
 
         // The length of the file encryption key shall be a multiple of 8, in the range 40 to and
-        // including 128.
+        // including 128, or 256.
         if let Some(length) = length {
-            if length % 8 != 0 || !(40..=128).contains(&length) {
+            if length % 8 != 0 || (!(40..=128).contains(&length) && length != 256) {
                 return Err(DecryptionError::InvalidKeyLength)?;
             }
         }
@@ -1131,9 +1131,11 @@ impl PasswordAlgorithm {
         let mut key = [0u8; 32];
         key.copy_from_slice(file_encryption_key);
 
-        Aes256EbcDec::new(&key.into())
-            .decrypt_block_mut(&mut bytes.into());
-
+        let mut decryptor = Aes256EbcDec::new(&key.into());
+        for block in bytes.chunks_exact_mut(16) {
+            decryptor.decrypt_block_mut(block.into());
+        }
+        
         // Verify that bytes 9-11 of the result are the characters "a", "d", "b".
         if &bytes[9..][..3] != b"adb" {
             return Err(DecryptionError::IncorrectPassword);
