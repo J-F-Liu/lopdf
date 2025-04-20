@@ -113,7 +113,13 @@ bitflags! {
 
 impl Default for Permissions {
     fn default() -> Self {
-        let mut bits = Self::all().bits();
+        Self::all()
+    }
+}
+
+impl Permissions {
+    fn correct_bits(self) -> Self {
+        let mut bits = self.bits();
 
         // 7-8: Reserved. Must be 1.
         bits |= 0b11 << 6;
@@ -221,6 +227,8 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 user_password,
                 permissions,
             } => {
+                let permissions = permissions.correct_bits();
+
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata: true,
                     length: None,
@@ -267,6 +275,8 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 key_length,
                 permissions,
             } => {
+                let permissions = permissions.correct_bits();
+
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata: true,
                     length: Some(key_length),
@@ -316,6 +326,8 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 user_password,
                 permissions,
             } => {
+                let permissions = permissions.correct_bits();
+
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
                     length: Some(128),
@@ -372,6 +384,8 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 if file_encryption_key.len() != 32 {
                     return Err(DecryptionError::InvalidKeyLength)?;
                 }
+
+                let permissions = permissions.correct_bits();
 
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
@@ -434,6 +448,8 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 if file_encryption_key.len() != 32 {
                     return Err(DecryptionError::InvalidKeyLength)?;
                 }
+
+                let permissions = permissions.correct_bits();
 
                 let mut algorithm = PasswordAlgorithm {
                     encrypt_metadata,
