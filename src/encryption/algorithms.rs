@@ -101,15 +101,31 @@ impl TryFrom<&Document> for PasswordAlgorithm {
 
         // The length of the file encryption key shall only be present if V is 2 or 3 (but
         // documents with higher values for V seem to have this field).
-        if length.is_some() && version < 2 {
-            return Err(DecryptionError::InvalidKeyLength)?;
-        }
-
-        // The length of the file encryption key shall be a multiple of 8, in the range 40 to and
-        // including 128.
         if let Some(length) = length {
-            if length % 8 != 0 || !(40..=128).contains(&length) {
-                return Err(DecryptionError::InvalidKeyLength)?;
+            match version {
+                // The length of the file encryption key shall be a multiple of 8 in the range 40
+                // to and including 128.
+                2..=3 => {
+                    if length % 8 != 0 || !(40..=128).contains(&length) {
+                        return Err(DecryptionError::InvalidKeyLength)?;
+                    }
+                },
+                // The Length field should not be present if V is 4. However, if it is present it
+                // must be 128.
+                4 => {
+                    if length != 128 {
+                        return Err(DecryptionError::InvalidKeyLength)?;
+                    }
+                }
+                // The Length field should not be present if V is 5. However, if it is present it
+                // must be 256.
+                5 => {
+                    if length != 256 {
+                        return Err(DecryptionError::InvalidKeyLength)?;
+                    }
+                }
+                // The Length field may not be present otherwise.
+                _ => return Err(DecryptionError::InvalidKeyLength)?,
             }
         }
 
