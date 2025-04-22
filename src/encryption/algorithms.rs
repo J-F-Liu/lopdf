@@ -1047,8 +1047,11 @@ impl PasswordAlgorithm {
         let mut key = [0u8; 32];
         key.copy_from_slice(file_encryption_key);
 
-        Aes256EbcEnc::new(&key.into())
-            .encrypt_block_mut(&mut bytes.into());
+        let mut encryptor = Aes256EbcEnc::new(&key.into());
+
+        for block in bytes.chunks_exact_mut(16) {
+            encryptor.encrypt_block_mut(block.into());
+        }
 
         // The result (16 bytes) is stored as the Perms string, and checked for validity when the
         // file is opened.
@@ -1147,8 +1150,11 @@ impl PasswordAlgorithm {
         let mut key = [0u8; 32];
         key.copy_from_slice(file_encryption_key);
 
-        Aes256EbcDec::new(&key.into())
-            .decrypt_block_mut(&mut bytes.into());
+        let mut decryptor = Aes256EbcDec::new(&key.into());
+
+        for block in bytes.chunks_exact_mut(16) {
+            decryptor.decrypt_block_mut(block.into());
+        }
 
         // Verify that bytes 9-11 of the result are the characters "a", "d", "b".
         if &bytes[9..][..3] != b"adb" {
