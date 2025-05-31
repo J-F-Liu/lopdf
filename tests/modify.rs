@@ -27,6 +27,7 @@ fn test_get_object() {
 
 #[cfg(all(test, not(feature = "async")))]
 mod tests_with_parsing {
+    use std::path::Path;
     use super::*;
     use lopdf::Result;
 
@@ -53,11 +54,11 @@ mod tests_with_parsing {
 
     fn replace_text() -> Result<Document> {
         let mut doc = Document::load("assets/example.pdf")?;
-        doc.replace_text(1, "Hello World!", "Modified text!")?;
+        doc.replace_text(1, "Hello World!", "Modified text!", None)?;
 
         // Create temporary folder to store file.
         let temp_dir = tempfile::tempdir()?;
-        let file_path = temp_dir.path().join("test_4_replace.pdf");
+        let file_path = temp_dir.path().join("test_4_unicode_replace.pdf");
         doc.save(&file_path)?;
 
         let doc = Document::load(file_path)?;
@@ -67,6 +68,25 @@ mod tests_with_parsing {
     #[test]
     fn test_replace() {
         assert_eq!(replace_text().unwrap().extract_text(&[1]).unwrap(), "Modified text!\n");
+    }
+
+    fn replace_unicode_text() -> Result<Document> {
+        let mut doc = Document::load("assets/unicode.pdf")?;
+        doc.replace_text(1, "😀", "🔧", Some("  "))?;
+
+        // Create temporary folder to store file.
+        let temp_dir = tempfile::tempdir()?;
+        let file_path = temp_dir.path().join("test_4_unicode_replace.pdf");
+        doc.save(&file_path)?;
+
+        let doc = Document::load(file_path)?;
+        Ok(doc)
+    }
+
+    #[test]
+    fn test_unicode_replace() {
+        let text = replace_unicode_text().unwrap().extract_text(&[1]).unwrap();
+        assert_eq!(text, "🔧\n🔧\n🔨\n");
     }
 
     fn get_mut() -> Result<bool> {
