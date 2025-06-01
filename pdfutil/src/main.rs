@@ -402,7 +402,7 @@ fn main() {
                         let parts: Vec<&str> = text.splitn(2, ':').collect();
                         let page = u32::from_str(parts[0]).unwrap();
                         let words: Vec<&str> = parts[1].splitn(2, "=>").collect();
-                        let _ = doc.replace_text(page, words[0], words[1]);
+                        let _ = doc.replace_text(page, words[0], words[1], None);
                     }
                 }
                 "print_streams" => {

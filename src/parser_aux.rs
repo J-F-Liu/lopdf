@@ -260,7 +260,7 @@ pub fn substr(s: &str, start: usize, len: usize) -> &str {
     };
 
     let end_idx = indices
-        .nth(len.saturating_sub(1)) // 跳过 len-1 个字符
+        .nth(len.saturating_sub(1))
         .map(|(idx, _)| idx)
         .unwrap_or(s.len());
 

@@ -405,7 +405,7 @@ use lopdf::Document;
     let mut doc = Document::load("assets/example.pdf").unwrap();
 
     doc.version = "1.4".to_string();
-    doc.replace_text(1, "Hello World!", "Modified text!");
+    doc.replace_text(1, "Hello World!", "Modified text!", None);
     // Store file in current working directory.
     // Note: Line is excluded when running tests
     if false {
@@ -423,7 +423,7 @@ use lopdf::Document;
             let mut doc = Document::load("assets/example.pdf").await.unwrap();
             
             doc.version = "1.4".to_string();
-            doc.replace_text(1, "Hello World!", "Modified text!");
+            doc.replace_text(1, "Hello World!", "Modified text!", None);
             // Store file in current working directory.
             // Note: Line is excluded when running tests
             if false {
