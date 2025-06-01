@@ -269,12 +269,9 @@ impl Document {
     }
 
     /// Authenticate the provided owner password directly as bytes without sanitization
-    pub fn authenticate_raw_owner_password<P>(
-        &self,
-        password: P,
-    ) -> Result<()>
+    pub fn authenticate_raw_owner_password<P>(&self, password: P) -> Result<()>
     where
-        P: AsRef<[u8]>
+        P: AsRef<[u8]>,
     {
         if !self.is_encrypted() {
             return Err(Error::NotEncrypted);
@@ -288,10 +285,7 @@ impl Document {
     }
 
     /// Authenticate the provided user password directly as bytes without sanitization
-    pub fn authenticate_raw_user_password<P>(
-        &self,
-        password: P,
-    ) -> Result<()>
+    pub fn authenticate_raw_user_password<P>(&self, password: P) -> Result<()>
     where
         P: AsRef<[u8]>,
     {
@@ -307,12 +301,9 @@ impl Document {
     }
 
     /// Authenticate the provided owner/user password as bytes without sanitization
-    pub fn authenticate_raw_password<P>(
-        &self,
-        password: P,
-    ) -> Result<()>
+    pub fn authenticate_raw_password<P>(&self, password: P) -> Result<()>
     where
-        P: AsRef<[u8]>
+        P: AsRef<[u8]>,
     {
         if !self.is_encrypted() {
             return Err(Error::NotEncrypted);
@@ -320,17 +311,15 @@ impl Document {
 
         let password = password.as_ref();
         let algorithm = PasswordAlgorithm::try_from(self)?;
-        algorithm.authenticate_owner_password(self, password)
+        algorithm
+            .authenticate_owner_password(self, password)
             .or(algorithm.authenticate_user_password(self, password))?;
 
         Ok(())
     }
 
     /// Authenticate the provided owner password
-    pub fn authenticate_owner_password(
-        &self,
-        password: &str,
-    ) -> Result<()> {
+    pub fn authenticate_owner_password(&self, password: &str) -> Result<()> {
         if !self.is_encrypted() {
             return Err(Error::NotEncrypted);
         }
@@ -343,10 +332,7 @@ impl Document {
     }
 
     /// Authenticate the provided user password
-    pub fn authenticate_user_password(
-        &self,
-        password: &str,
-    ) -> Result<()> {
+    pub fn authenticate_user_password(&self, password: &str) -> Result<()> {
         if !self.is_encrypted() {
             return Err(Error::NotEncrypted);
         }
@@ -359,17 +345,15 @@ impl Document {
     }
 
     /// Authenticate the provided owner/user password
-    pub fn authenticate_password(
-        &self,
-        password: &str,
-    ) -> Result<()> {
+    pub fn authenticate_password(&self, password: &str) -> Result<()> {
         if !self.is_encrypted() {
             return Err(Error::NotEncrypted);
         }
 
         let algorithm = PasswordAlgorithm::try_from(self)?;
         let password = algorithm.sanitize_password(password)?;
-        algorithm.authenticate_owner_password(self, &password)
+        algorithm
+            .authenticate_owner_password(self, &password)
             .or(algorithm.authenticate_user_password(self, &password))?;
 
         Ok(())
@@ -382,7 +366,8 @@ impl Document {
         if let Ok(filters) = self
             .get_encrypted()
             .and_then(|dict| dict.get(b"CF"))
-            .and_then(|object| object.as_dict()) {
+            .and_then(|object| object.as_dict())
+        {
             for (name, filter) in filters {
                 let Ok(filter) = filter.as_dict() else {
                     continue;
@@ -393,9 +378,7 @@ impl Document {
                 }
 
                 // Get the Crypt Filter Method (CFM) used, if any, by the PDF reader to decrypt data.
-                let cfm = filter.get(b"CFM")
-                    .and_then(|object| object.as_name())
-                    .ok();
+                let cfm = filter.get(b"CFM").and_then(|object| object.as_name()).ok();
 
                 let crypt_filter: Arc<dyn CryptFilter> = match cfm {
                     // The application shall ask the security handler for the file encryption key
@@ -428,10 +411,7 @@ impl Document {
     }
 
     /// Replaces all encrypted Strings and Streams with their encrypted contents
-    pub fn encrypt(
-        &mut self,
-        state: &EncryptionState,
-    ) -> Result<()> {
+    pub fn encrypt(&mut self, state: &EncryptionState) -> Result<()> {
         if self.is_encrypted() {
             return Err(Error::AlreadyEncrypted);
         }
@@ -450,10 +430,7 @@ impl Document {
     }
 
     /// Replaces all encrypted Strings and Streams with their decrypted contents
-    pub fn decrypt(
-        &mut self,
-        password: &str,
-    ) -> Result<()> {
+    pub fn decrypt(&mut self, password: &str) -> Result<()> {
         if !self.is_encrypted() {
             return Err(Error::NotEncrypted);
         }
@@ -465,10 +442,7 @@ impl Document {
 
     /// Replaces all encrypted Strings and Streams with their decrypted contents with the password
     /// provided directly as bytes without sanitization
-    pub fn decrypt_raw<P>(
-        &mut self,
-        password: P,
-    ) -> Result<()>
+    pub fn decrypt_raw<P>(&mut self, password: P) -> Result<()>
     where
         P: AsRef<[u8]>,
     {

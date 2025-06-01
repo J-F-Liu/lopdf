@@ -7,7 +7,7 @@ use crate::Result;
 use cmap::ToUnicodeCMap;
 use encoding_rs::UTF_16BE;
 use log::debug;
-
+use crate::parser_aux::substr;
 pub use self::mappings::*;
 
 pub fn bytes_to_string(encoding: &CodedCharacterSet, bytes: &[u8]) -> String {
@@ -89,9 +89,50 @@ impl Encoding<'_> {
         match self {
             Self::OneByteEncoding(map) => string_to_bytes(map, text),
             Self::SimpleEncoding(b"UniGB-UCS2-H") | Self::SimpleEncoding(b"UniGB-UTF16-H") => encode_utf16_be(text),
-            Self::UnicodeMapEncoding(_unicode_map) => {
-                // maybe only possible if the unicode map is an identity?
-                unimplemented!()
+            Self::UnicodeMapEncoding(unicode_map) => {
+                let mut result_bytes = Vec::new();
+
+                let mut i = 0;
+                while i < text.chars().count() {
+                    let current_unicode_seq: Vec<u16> = substr(text, i, 1).encode_utf16().collect();
+
+                    if let Some(entries) = unicode_map.get_source_codes_for_unicode(&current_unicode_seq) {
+                        if let Some(entry) = entries.first() {
+                            // TODO: Add logic to pick the best entry if multiple
+                            let mut bytes_for_code = Vec::new();
+                            let val = entry.source_code;
+                            match entry.code_len {
+                                1 => bytes_for_code.push(val as u8),
+                                2 => bytes_for_code.extend_from_slice(&(val as u16).to_be_bytes()),
+                                3 => {
+                                    bytes_for_code.push((val >> 16) as u8);
+                                    bytes_for_code.push((val >> 8) as u8);
+                                    bytes_for_code.push(val as u8);
+                                }
+                                4 => bytes_for_code.extend_from_slice(&val.to_be_bytes()),
+                                _ => { /* Should not happen */ }
+                            }
+                            result_bytes.extend(bytes_for_code);
+                            i += 1; // Advance by the length of matched sequence
+                        } else {
+                            // No specific entry, handle as unmappable
+                            log::warn!(
+                                "Unicode sequence {:04X?} found in map but no entries, skipping.",
+                                current_unicode_seq
+                            );
+                            i += 1;
+                        }
+                    } else {
+                        // Character or sequence not found in CMap
+                        log::warn!(
+                            "Unicode sequence {:04X?} not found in ToUnicode CMap, skipping.",
+                            current_unicode_seq
+                        );
+                        // Potentially add a replacement character's byte code if defined, or just skip.
+                        i += 1; // Advance by one u16 if not found
+                    }
+                }
+                result_bytes
             }
             Self::SimpleEncoding(_) => {
                 debug!("Unknown encoding used to encode text {self:?}");

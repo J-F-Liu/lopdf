@@ -73,26 +73,6 @@ impl Document {
     fn extract_text_chunks_from_page(
         &self, pages: &BTreeMap<u32, (u32, u16)>, page_number: u32,
     ) -> Result<Vec<Result<String>>> {
-        fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> Result<()> {
-            for operand in operands.iter() {
-                match operand {
-                    Object::String(bytes, _) => {
-                        text.push_str(&Document::decode_text(encoding, bytes)?);
-                    }
-                    Object::Array(arr) => {
-                        collect_text(text, encoding, arr)?;
-                        text.push(' ');
-                    }
-                    Object::Integer(i) => {
-                        if *i < -100 {
-                            text.push(' ');
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Ok(())
-        }
         let mut collected_chunks_and_errs: Vec<std::result::Result<String, Error>> = Vec::new();
 
         let page_id = *pages.get(&page_number).ok_or(Error::PageNumberNotFound(page_number))?;
@@ -158,7 +138,9 @@ impl Document {
         Ok(collected_chunks_and_errs)
     }
 
-    pub fn replace_text(&mut self, page_number: u32, text: &str, other_text: &str) -> Result<()> {
+    pub fn replace_text(
+        &mut self, page_number: u32, text: &str, other_text: &str, default_str: Option<&str>,
+    ) -> Result<()> {
         let page = page_number.saturating_sub(1) as usize;
         let page_id = self
             .page_iter()
@@ -182,10 +164,14 @@ impl Document {
                         .as_name()?;
                     current_encoding = encodings.get(current_font);
                 }
-                "Tj" => match current_encoding {
-                    Some(encoding) => try_to_replace_encoded_text(operation, encoding, text, other_text)?,
-                    None => {
-                        warn!("Could not decode extracted text, some of the occurances might not be properly replaced")
+                "Tj" | "TJ" => {
+                    match current_encoding {
+                        Some(encoding) => {
+                            try_to_replace_encoded_text(operation, encoding, text, other_text, default_str.unwrap_or(""))?
+                        }
+                        None => {
+                            warn!("Could not decode extracted text, some of the occurances might not be properly replaced")
+                        }
                     }
                 },
                 _ => {}
@@ -240,17 +226,96 @@ impl Document {
         self.change_page_content(page_id, modified_content)
     }
 }
-
-fn try_to_replace_encoded_text(
-    operation: &mut Operation, encoding: &Encoding, text_to_replace: &str, replacement: &str,
-) -> Result<()> {
-    for bytes in operation.operands.iter_mut().flat_map(Object::as_str_mut) {
-        let decoded_text = Document::decode_text(encoding, bytes)?;
-        if decoded_text == text_to_replace {
-            let encoded_bytes = Document::encode_text(encoding, replacement);
-            *bytes = encoded_bytes;
+fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> Result<()> {
+    for operand in operands.iter() {
+        match operand {
+            Object::String(bytes, _) => {
+                text.push_str(&Document::decode_text(encoding, bytes)?);
+            }
+            Object::Array(arr) => {
+                collect_text(text, encoding, arr)?;
+                text.push(' ');
+            }
+            Object::Integer(i) => {
+                if *i < -100 {
+                    text.push(' ');
+                }
+            }
+            _ => {}
         }
     }
+    Ok(())
+}
+pub fn substr(s: &str, start: usize, len: usize) -> &str {
+    let mut indices = s.char_indices();
+
+    for _ in 0..start {
+        if indices.next().is_none() {
+            return "";
+        }
+    }
+
+    let Some((start_idx, _)) = indices.next() else {
+        return "";
+    };
+
+    let end_idx = indices
+        .nth(len.saturating_sub(1))
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len());
+
+    &s[start_idx..end_idx]
+}
+pub fn substring(s: &str, start: usize) -> &str {
+    s.char_indices().nth(start).map(|(idx, _)| &s[idx..]).unwrap_or("")
+}
+fn try_to_replace_encoded_text(
+    operation: &mut Operation, encoding: &Encoding, text_to_replace: &str, replacement: &str, default_str: &str,
+) -> Result<()> {
+    for operand in &mut operation.operands {
+        match operand {
+            Object::String(bytes, _) => {
+                let decoded_text = Document::decode_text(encoding, bytes)?;
+                if decoded_text == text_to_replace {
+                    let encoded_bytes = Document::encode_text(encoding, replacement);
+                    *bytes = encoded_bytes;
+                }
+            }
+            Object::Array(arr) => {
+                let mut str_collected = String::new();
+                collect_text(&mut str_collected, encoding, arr)?;
+                if str_collected == text_to_replace {
+                    let s_len = str_collected.chars().count();
+                    let r_len = replacement.chars().count();
+                    let mut cur = 0;
+                    for item in arr.iter_mut() {
+                        if let Object::String(bytes, f) = item {
+                            if cur == s_len - 1 {
+                                let sub = substring(replacement, cur);
+                                let encoded_bytes = Document::encode_text(encoding, sub);
+                                *bytes = encoded_bytes;
+                                break;
+                            } else if cur > r_len {
+                                *item = Object::Null;
+                            } else {
+                                let sub = substr(replacement, cur, 1);
+                                let encoded_bytes = Document::encode_text(encoding, sub);
+                                let encoded_bytes = if encoded_bytes.len() > 0 {
+                                    encoded_bytes
+                                } else {
+                                    Document::encode_text(encoding, default_str)
+                                };
+                                *bytes = encoded_bytes;
+                            }
+                            cur += 1;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     Ok(())
 }
 
@@ -356,8 +421,8 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[test]
     fn load_and_save() {
-        use crate::Document;
         use crate::creator::tests::{create_document, save_document};
+        use crate::Document;
 
         // test load_from() and save_to()
         use std::fs::File;

@@ -4,6 +4,7 @@ use crate::parser::ParserInput;
 
 use log::error;
 use rangemap::RangeInclusiveMap;
+use std::collections::HashMap;
 use thiserror::Error;
 
 /// Unicode Cmap is implemented by 4 maps.
@@ -13,7 +14,16 @@ use thiserror::Error;
 /// as 2 byte code <0000> shouldn't be matched with a single byte <00> even though they have the same integer value.
 #[derive(Debug, Default)]
 pub struct ToUnicodeCMap {
-    bf_ranges: [RangeInclusiveMap<SourceCode, BfRangeTarget>; 4],
+    pub bf_ranges: [RangeInclusiveMap<SourceCode, BfRangeTarget>; 4],
+    reverse_map: Option<HashMap<Vec<u16>, Vec<ReverseCMapEntry>>>,
+}
+/// Represents the information needed to map a Unicode sequence back to a source code.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReverseCMapEntry {
+    pub source_code: SourceCode,
+    pub code_len: CodeLen,
+    // Optionally, add priority if multiple source codes map to the same Unicode sequence
+    // pub priority: u8,
 }
 
 #[derive(Debug, Error)]
@@ -36,6 +46,7 @@ impl ToUnicodeCMap {
     pub fn new() -> ToUnicodeCMap {
         ToUnicodeCMap {
             bf_ranges: [(); 4].map(|_| RangeInclusiveMap::new()),
+            reverse_map: None,
         }
     }
 
@@ -76,6 +87,62 @@ impl ToUnicodeCMap {
                 }
             }
         }
+
+        let mut rev_map = HashMap::new();
+
+        for code_len_idx in 0..cmap.bf_ranges.len() {
+            let code_len = (code_len_idx + 1) as u8;
+            for (range, target) in cmap.bf_ranges[code_len_idx].iter() {
+                for src_code in range.clone() {
+                    let unicode_sequence: Option<Vec<u16>> = match target {
+                        BfRangeTarget::UTF16CodePoint { offset } => {
+                            Some(vec![u32::wrapping_add(src_code, *offset) as u16])
+                        }
+                        BfRangeTarget::HexString(hex_str_vec) => {
+                            // If the hex_str_vec itself is the target for a single src_code in a bfchar-like mapping
+                            // or if it's a base for a bfrange where only the last element increments.
+                            if src_code == *range.start() {
+                                // Simplified: assume direct mapping for start of range
+                                Some(hex_str_vec.clone())
+                            } else if hex_str_vec.len() == 1 {
+                                // For ranges like <01> <05> <0041>
+                                Some(vec![hex_str_vec[0].wrapping_add((src_code - range.start()) as u16)])
+                            } else if !hex_str_vec.is_empty() {
+                                // For ranges like <01> <05> [<0041> <0042> ...]
+                                let mut current_hex_str = hex_str_vec.clone();
+                                if let Some(last_val) = current_hex_str.last_mut() {
+                                    *last_val = last_val.wrapping_add((src_code - range.start()) as u16);
+                                    Some(current_hex_str)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+                        BfRangeTarget::ArrayOfHexStrings(array_of_hex_str) => {
+                            let index = (src_code - range.start()) as usize;
+                            if index < array_of_hex_str.len() {
+                                Some(array_of_hex_str[index].clone())
+                            } else {
+                                None
+                            }
+                        }
+                    };
+
+                    if let Some(uni_seq) = unicode_sequence {
+                        if !uni_seq.is_empty() {
+                            rev_map.entry(uni_seq).or_insert_with(Vec::new).push(ReverseCMapEntry {
+                                source_code: src_code,
+                                code_len,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        cmap.reverse_map = Some(rev_map);
+        
         Ok(cmap)
     }
 
@@ -121,6 +188,17 @@ impl ToUnicodeCMap {
             BfRangeTarget::HexString(dst)
         };
         self.put(code, code, code_len, target)
+    }
+
+    /// Gets the source code(s) for a given Unicode sequence.
+    /// Prioritizes shorter byte sequences if multiple mappings exist.
+    pub fn get_source_codes_for_unicode(&self, unicode_sequence: &[u16]) -> Option<&[ReverseCMapEntry]> {
+        if let Some(map) = &self.reverse_map {
+            // TODO: Add prioritization logic if needed (e.g., prefer shorter code_len)
+            map.get(unicode_sequence).map(|v| v.as_slice())
+        } else {
+            None
+        }
     }
 }
 
