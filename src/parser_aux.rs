@@ -269,6 +269,26 @@ pub fn substr(s: &str, start: usize, len: usize) -> &str {
 pub fn substring(s: &str, start: usize) -> &str {
     s.char_indices().nth(start).map(|(idx, _)| &s[idx..]).unwrap_or("")
 }
+
+fn encode(encoding: &Encoding, txt: &str, default_str: &str) -> Vec<u8> {
+    if txt.chars().count() > 1 {
+        let mut cur = 0;
+        let mut result = Vec::new();
+        while cur < txt.chars().count() {
+            let c = substr(txt, cur, 1);
+            result.extend_from_slice(&encode(encoding, c, default_str));
+            cur += 1;
+        }
+        result
+    } else {
+        let encoded_bytes = Document::encode_text(encoding, txt);
+        if !encoded_bytes.is_empty() {
+            encoded_bytes
+        } else {
+            Document::encode_text(encoding, default_str)
+        }
+    }
+}
 fn try_to_replace_encoded_text(
     operation: &mut Operation, encoding: &Encoding, text_to_replace: &str, replacement: &str, default_str: &str,
 ) -> Result<()> {
@@ -277,7 +297,7 @@ fn try_to_replace_encoded_text(
             Object::String(bytes, _) => {
                 let decoded_text = Document::decode_text(encoding, bytes)?;
                 if decoded_text == text_to_replace {
-                    let encoded_bytes = Document::encode_text(encoding, replacement);
+                    let encoded_bytes = encode(encoding, replacement, default_str);
                     *bytes = encoded_bytes;
                 }
             }
@@ -292,19 +312,14 @@ fn try_to_replace_encoded_text(
                         if let Object::String(bytes, f) = item {
                             if cur == s_len - 1 {
                                 let sub = substring(replacement, cur);
-                                let encoded_bytes = Document::encode_text(encoding, sub);
+                                let encoded_bytes = encode(encoding, sub, default_str);
                                 *bytes = encoded_bytes;
                                 break;
                             } else if cur > r_len {
                                 *item = Object::Null;
                             } else {
                                 let sub = substr(replacement, cur, 1);
-                                let encoded_bytes = Document::encode_text(encoding, sub);
-                                let encoded_bytes = if encoded_bytes.len() > 0 {
-                                    encoded_bytes
-                                } else {
-                                    Document::encode_text(encoding, default_str)
-                                };
+                                let encoded_bytes = encode(encoding, sub, default_str);
                                 *bytes = encoded_bytes;
                             }
                             cur += 1;
