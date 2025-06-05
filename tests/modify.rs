@@ -72,7 +72,7 @@ mod tests_with_parsing {
 
     fn replace_unicode_text() -> Result<Document> {
         let mut doc = Document::load("assets/unicode.pdf")?;
-        doc.replace_text(1, "😀", "🔧", Some("  "))?;
+        doc.replace_text(1, "😀", "🔧2", Some("🔨"))?;
 
         // Create temporary folder to store file.
         let temp_dir = tempfile::tempdir()?;
@@ -86,7 +86,7 @@ mod tests_with_parsing {
     #[test]
     fn test_unicode_replace() {
         let text = replace_unicode_text().unwrap().extract_text(&[1]).unwrap();
-        assert_eq!(text, "🔧\n🔧\n🔨\n");
+        assert_eq!(text, "🔧🔨\n🔧\n🔨\n");
     }
 
     fn get_mut() -> Result<bool> {
