@@ -28,7 +28,19 @@ impl Document {
     }
 
     /// Remove PDF object from document's object list.
+    ///
+    /// Other objects may still hold references to this object! Therefore, removing the object might
+    /// lead to dangling references.
     pub fn remove_object(&mut self, object_id: &ObjectId) -> Result<()> {
+        self.objects.remove(object_id);
+        Ok(())
+    }
+
+    /// Remove annotation from the document.
+    ///
+    /// References to this annotation are removed from the pages' lists of annotations. Finally, the
+    /// annotation object itself is removed.
+    pub fn remove_annot(&mut self, object_id: &ObjectId) -> Result<()> {
         for (_, page_id) in self.get_pages() {
             let page = self.get_object_mut(page_id)?.as_dict_mut()?;
             let annots = page.get_mut(b"Annots")?.as_array_mut()?;
@@ -41,6 +53,8 @@ impl Document {
                 true
             });
         }
+
+        self.remove_object(object_id)?;
 
         Ok(())
     }
