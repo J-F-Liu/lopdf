@@ -36,6 +36,29 @@ impl Document {
         Ok(())
     }
 
+    /// Remove annotation from the document.
+    ///
+    /// References to this annotation are removed from the pages' lists of annotations. Finally, the
+    /// annotation object itself is removed.
+    pub fn remove_annot(&mut self, object_id: &ObjectId) -> Result<()> {
+        for (_, page_id) in self.get_pages() {
+            let page = self.get_object_mut(page_id)?.as_dict_mut()?;
+            let annots = page.get_mut(b"Annots")?.as_array_mut()?;
+
+            annots.retain(|object| {
+                if let Ok(id) = object.as_reference() {
+                    return id != *object_id;
+                }
+
+                true
+            });
+        }
+
+        self.remove_object(object_id)?;
+
+        Ok(())
+    }
+
     /// Get the page's resource dictionary.
     ///
     /// Get Object that has the key "Resources".
