@@ -45,3 +45,6 @@ pub use object_stream::ObjectStream;
 pub use outlines::Outline;
 pub use reader::Reader;
 pub use toc::Toc;
+
+pub use parser_aux::substring;
+pub use parser_aux::substr;
