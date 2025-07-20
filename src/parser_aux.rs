@@ -368,7 +368,7 @@ fn try_to_replace_encoded_text(
                     let r_len = replacement.chars().count();
                     let mut cur = 0;
                     for item in arr.iter_mut() {
-                        if let Object::String(bytes, f) = item {
+                        if let Object::String(bytes, _f) = item {
                             if cur == s_len - 1 {
                                 let sub = substring(replacement, cur);
                                 let encoded_bytes = encode(encoding, sub, default_str);

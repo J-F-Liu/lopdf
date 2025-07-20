@@ -690,7 +690,7 @@ impl Document {
         Ok(annotations)
     }
 
-    pub fn get_page_images(&self, page_id: ObjectId) -> Result<Vec<PdfImage>> {
+    pub fn get_page_images(&'_ self, page_id: ObjectId) -> Result<Vec<PdfImage<'_>>> {
         let mut images = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
             let resources = self.get_dict_in_dict(page, b"Resources")?;

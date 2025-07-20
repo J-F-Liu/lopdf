@@ -628,7 +628,7 @@ pub fn content(input: ParserInput) -> Option<Content<Vec<Operation>>> {
 mod tests {
     use super::*;
 
-    fn test_span(s: &[u8]) -> ParserInput {
+    fn test_span(s: &'_ [u8]) -> ParserInput<'_> {
         LocatedSpan::new_extra(s, "test")
     }
 

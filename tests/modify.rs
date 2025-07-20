@@ -27,7 +27,6 @@ fn test_get_object() {
 
 #[cfg(all(test, not(feature = "async")))]
 mod tests_with_parsing {
-    use std::path::Path;
     use super::*;
     use lopdf::Result;
 
@@ -74,7 +73,6 @@ mod tests_with_parsing {
         let mut doc = Document::load("assets/unicode.pdf")?;
         doc.replace_text(1, "😀", "🔧2", Some("🔨"))?;
 
-        // Create temporary folder to store file.
         let temp_dir = tempfile::tempdir()?;
         let file_path = temp_dir.path().join("test_4_unicode_replace.pdf");
         doc.save(&file_path)?;
