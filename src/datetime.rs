@@ -159,7 +159,7 @@ pub struct DateTime(String);
 impl Object {
     // Parses the `D`, `:` and `\` out of a `Object::String` to parse the date time
     fn datetime_string(&self) -> Option<String> {
-        if let Object::String(ref bytes, _) = self {
+        if let Object::String(bytes, _) = self {
             String::from_utf8(
                 bytes
                     .iter()

@@ -181,6 +181,65 @@ impl Document {
         self.change_page_content(page_id, modified_content)
     }
 
+    pub fn replace_partial_text(
+        &mut self,
+        page_number: u32,
+        search_text: &str,
+        replacement_text: &str,
+        default_char: Option<&str>,
+    ) -> Result<usize> {
+        let page = page_number.saturating_sub(1) as usize;
+        let page_id = self
+            .page_iter()
+            .nth(page)
+            .ok_or(Error::PageNumberNotFound(page_number))?;
+        
+        let encodings: BTreeMap<Vec<u8>, Encoding> = self
+            .get_page_fonts(page_id)?
+            .into_iter()
+            .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
+            .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
+        
+        let content_data = self.get_page_content(page_id)?;
+        let mut content = Content::decode(&content_data)?;
+        let mut current_encoding = None;
+        let mut replacement_count = 0;
+        
+        for operation in &mut content.operations {
+            match operation.operator.as_ref() {
+                "Tf" => {
+                    let current_font = operation
+                        .operands
+                        .first()
+                        .ok_or_else(|| Error::Syntax("missing font operand".to_string()))?
+                        .as_name()?;
+                    current_encoding = encodings.get(current_font);
+                }
+                "Tj" | "TJ" => {
+                    if let Some(encoding) = current_encoding {
+                        replacement_count += replace_partial_in_operation(
+                            operation,
+                            encoding,
+                            search_text,
+                            replacement_text,
+                            default_char.unwrap_or("?"),
+                        )?;
+                    } else {
+                        warn!("No encoding found for text operation");
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        if replacement_count > 0 {
+            let modified_content = content.encode()?;
+            self.change_page_content(page_id, modified_content)?;
+        }
+        
+        Ok(replacement_count)
+    }
+
     pub fn insert_image(
         &mut self, page_id: ObjectId, img_object: Stream, position: (f32, f32), size: (f32, f32),
     ) -> Result<()> {
@@ -332,6 +391,79 @@ fn try_to_replace_encoded_text(
     }
 
     Ok(())
+}
+
+fn replace_partial_in_operation(
+    operation: &mut Operation,
+    encoding: &Encoding,
+    search_text: &str,
+    replacement_text: &str,
+    default_char: &str,
+) -> Result<usize> {
+    let mut replacement_count = 0;
+    
+    for operand in &mut operation.operands {
+        match operand {
+            Object::String(bytes, _) => {
+                let decoded_text = Document::decode_text(encoding, bytes)?;
+                if decoded_text.contains(search_text) {
+                    let new_text = decoded_text.replace(search_text, replacement_text);
+                    let encoded_bytes = encode_with_fallback(encoding, &new_text, default_char);
+                    *bytes = encoded_bytes;
+                    replacement_count += decoded_text.matches(search_text).count();
+                }
+            }
+            Object::Array(arr) => {
+                replacement_count += replace_partial_in_array(
+                    arr,
+                    encoding,
+                    search_text,
+                    replacement_text,
+                    default_char,
+                )?;
+            }
+            _ => {}
+        }
+    }
+    
+    Ok(replacement_count)
+}
+
+fn replace_partial_in_array(
+    arr: &mut Vec<Object>,
+    encoding: &Encoding,
+    search_text: &str,
+    replacement_text: &str,
+    default_char: &str,
+) -> Result<usize> {
+    let mut replacement_count = 0;
+
+    for item in arr.iter_mut() {
+        if let Object::String(bytes, _) = item {
+            let decoded_text = Document::decode_text(encoding, bytes)?;
+            if decoded_text.contains(search_text) {
+                let new_text = decoded_text.replace(search_text, replacement_text);
+                let encoded_bytes = encode_with_fallback(encoding, &new_text, default_char);
+                *bytes = encoded_bytes;
+                replacement_count += decoded_text.matches(search_text).count();
+            }
+        }
+    }
+    
+    Ok(replacement_count)
+}
+
+fn encode_with_fallback(
+    encoding: &Encoding,
+    text: &str,
+    default_char: &str,
+) -> Vec<u8> {
+    let encoded = Document::encode_text(encoding, text);
+    if !encoded.is_empty() {
+        return encoded;
+    }
+    
+    encode(encoding, text, default_char)
 }
 
 /// Decode CrossReferenceStream
@@ -487,5 +619,17 @@ mod tests {
         let doc = create_document_with_texts(&[text1, text2]);
         let extracted_text = doc.extract_text(&[1, 2]);
         assert_eq!(extracted_text.unwrap(), format!("{text1}\n{text2}\n"));
+    }
+
+    #[test]
+    fn test_replace_partial_text() {
+        use crate::creator::tests::create_document_with_texts;
+
+        let mut doc = create_document_with_texts(&["Hello World! Hello Universe!"]);
+        let replacements = doc.replace_partial_text(1, "Hello", "Hi", None).unwrap();
+        assert_eq!(replacements, 2); // Should replace both occurrences
+        
+        let extracted_text = doc.extract_text(&[1]).unwrap();
+        assert!(extracted_text.contains("Hi World! Hi Universe!"));
     }
 }
