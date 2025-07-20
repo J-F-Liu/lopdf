@@ -214,7 +214,7 @@ fn range_target_array(input: ParserInput) -> NomResult<ArrayOfTargetStrings> {
 mod tests {
     use super::*;
 
-    fn test_span(s: &[u8]) -> ParserInput {
+    fn test_span(s: &'_ [u8]) -> ParserInput<'_> {
         ParserInput::new_extra(s, "")
     }
     #[test]

@@ -396,15 +396,15 @@ impl Dictionary {
             .or_else(|_| self.get(b"Linearized").and(Ok(b"Linearized")))
     }
 
-    pub fn iter(&self) -> indexmap::map::Iter<Vec<u8>, Object> {
+    pub fn iter(&'_ self) -> indexmap::map::Iter<'_, Vec<u8>, Object> {
         self.0.iter()
     }
 
-    pub fn iter_mut(&mut self) -> indexmap::map::IterMut<Vec<u8>, Object> {
+    pub fn iter_mut(&'_ mut self) -> indexmap::map::IterMut<'_, Vec<u8>, Object> {
         self.0.iter_mut()
     }
 
-    pub fn get_font_encoding(&self, doc: &Document) -> Result<Encoding> {
+    pub fn get_font_encoding(&'_ self, doc: &Document) -> Result<Encoding<'_>> {
         if !self.has_type(b"Font") {
             return Err(Error::DictType {
                 expected: "Font",
@@ -448,7 +448,7 @@ impl Dictionary {
         }
     }
 
-    fn get_encoding_from_to_unicode_cmap(&self, stream: &Stream) -> Result<Encoding> {
+    fn get_encoding_from_to_unicode_cmap(&'_ self, stream: &Stream) -> Result<Encoding<'_>> {
         let content = stream.get_plain_content()?;
         let cmap = ToUnicodeCMap::parse(content)?;
         Ok(Encoding::UnicodeMapEncoding(cmap))
