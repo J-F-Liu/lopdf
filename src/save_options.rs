@@ -1,7 +1,7 @@
 use crate::ObjectStreamConfig;
 
 /// Options for saving PDF documents
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SaveOptions {
     /// Enable object streams for compressing non-stream objects
     pub use_object_streams: bool,
@@ -20,17 +20,6 @@ impl SaveOptions {
     /// Create a builder for SaveOptions
     pub fn builder() -> SaveOptionsBuilder {
         SaveOptionsBuilder::default()
-    }
-}
-
-impl Default for SaveOptions {
-    fn default() -> Self {
-        Self {
-            use_object_streams: false,
-            use_xref_streams: false,
-            linearize: false,
-            object_stream_config: ObjectStreamConfig::default(),
-        }
     }
 }
 

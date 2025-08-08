@@ -144,7 +144,7 @@ impl ObjectStream {
         
         for ((obj_num, _gen), obj) in &sorted_objects {
             // Store the object number and its offset
-            offset_entries.push(format!("{} {}", obj_num, current_offset));
+            offset_entries.push(format!("{obj_num} {current_offset}"));
             
             // Calculate size of this object's serialization
             let mut obj_bytes = Vec::new();
@@ -184,7 +184,7 @@ impl ObjectStream {
         let mut current_offset = 0;
         
         for ((obj_num, _gen), obj) in &sorted_objects {
-            offset_entries.push(format!("{} {}", obj_num, current_offset));
+            offset_entries.push(format!("{obj_num} {current_offset}"));
             
             // Calculate size of this object's serialization
             let mut obj_bytes = Vec::new();

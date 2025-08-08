@@ -116,15 +116,13 @@ impl Encoding<'_> {
                         } else {
                             // No specific entry, handle as unmappable
                             log::warn!(
-                                "Unicode sequence {:04X?} found in map but no entries, skipping.",
-                                current_unicode_seq
+                                "Unicode sequence {current_unicode_seq:04X?} found in map but no entries, skipping."
                             );
                         }
                     } else {
                         // Character or sequence not found in CMap
                         log::warn!(
-                            "Unicode sequence {:04X?} not found in ToUnicode CMap, skipping.",
-                            current_unicode_seq
+                            "Unicode sequence {current_unicode_seq:04X?} not found in ToUnicode CMap, skipping."
                         );
                     }
                     i += 1;

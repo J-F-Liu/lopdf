@@ -316,23 +316,23 @@ impl fmt::Debug for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Object::Null => write!(f, "Null"),
-            Object::Boolean(value) => write!(f, "{}", value),
-            Object::Integer(value) => write!(f, "{}", value),
-            Object::Real(value) => write!(f, "{}", value),
+            Object::Boolean(value) => write!(f, "{value}"),
+            Object::Integer(value) => write!(f, "{value}"),
+            Object::Real(value) => write!(f, "{value}"),
             Object::Name(name) => write!(f, "/{}", String::from_utf8_lossy(name)),
             Object::String(text, StringFormat::Literal) => write!(f, "({})", String::from_utf8_lossy(text)),
             Object::String(text, StringFormat::Hexadecimal) => {
                 write!(f, "<")?;
                 for b in text {
-                    write!(f, "{:02x}", b)?;
+                    write!(f, "{b:02x}")?
                 }
                 write!(f, ">")
             }
             Object::Array(array) => {
-                let items = array.iter().map(|item| format!("{:?}", item)).collect::<Vec<String>>();
+                let items = array.iter().map(|item| format!("{item:?}")).collect::<Vec<String>>();
                 write!(f, "[{}]", items.join(" "))
             }
-            Object::Dictionary(dict) => write!(f, "{:?}", dict),
+            Object::Dictionary(dict) => write!(f, "{dict:?}"),
             Object::Stream(stream) => write!(f, "{:?}stream...endstream", stream.dict),
             Object::Reference(id) => write!(f, "{} {} R", id.0, id.1),
         }
@@ -434,8 +434,7 @@ impl Dictionary {
             Ok(name) => Ok(Encoding::SimpleEncoding(name)),
             Err(err) => {
                 warn!(
-                    "Could not parse the encoding, error: {:#?}\nFont: {:#?}\nTrying to retrieve ToUnicode.",
-                    err, self
+                    "Could not parse the encoding, error: {err:#?}\nFont: {self:#?}\nTrying to retrieve ToUnicode."
                 );
                 let stream = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream);
                 if let Ok(stream) = stream {
@@ -722,7 +721,7 @@ impl Stream {
 
         let result = decoder.into_stream(&mut output).decode_all(input);
         if let Err(err) = result.status {
-            warn!("{}", err);
+            warn!("{err}");
         }
 
         output
@@ -737,7 +736,7 @@ impl Stream {
 
         if !input.is_empty() {
             decoder.read_to_end(&mut output).unwrap_or_else(|err| {
-                warn!("{}", err);
+                warn!("{err}");
                 0
             });
         }

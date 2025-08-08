@@ -291,7 +291,7 @@ impl Document {
     }
 
     pub fn extract_stream(&self, stream_id: ObjectId, decompress: bool) -> Result<()> {
-        let mut file = File::create(format!("{:?}.bin", stream_id))?;
+        let mut file = File::create(format!("{stream_id:?}.bin"))?;
         if let Ok(Object::Stream(stream)) = self.get_object(stream_id) {
             if decompress {
                 if let Ok(data) = stream.decompressed_content() {
