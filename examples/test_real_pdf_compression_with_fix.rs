@@ -1,6 +1,25 @@
 use lopdf::{Document, SaveOptions};
 use std::path::Path;
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Document::load(path)?)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })?)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test with the PDF from the Downloads folder
     let pdf_path = "/Users/nicolasdao/Downloads/pdfs/pdf-demo.pdf";
@@ -14,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Input: {}", pdf_path);
     
     // Load the PDF
-    let mut doc = Document::load(pdf_path)?;
+    let mut doc = load_document(pdf_path)?;
     
     // Save without object streams
     let mut normal_output = Vec::new();

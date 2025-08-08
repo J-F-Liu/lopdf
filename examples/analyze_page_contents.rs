@@ -1,6 +1,25 @@
 use lopdf::{Document, Object};
 use std::env;
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Document::load(path)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -12,7 +31,7 @@ fn main() {
     println!("Analyzing page contents in: {}", pdf_path);
     println!("{}", "=".repeat(80));
 
-    match Document::load(pdf_path) {
+    match load_document(pdf_path) {
         Ok(doc) => {
             analyze_pages(&doc);
         }

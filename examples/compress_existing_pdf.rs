@@ -2,6 +2,25 @@ use lopdf::{Document, SaveOptions};
 use std::env;
 use std::path::Path;
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Document::load(path)?)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })?)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get filename from command line or use default
     let args: Vec<String> = env::args().collect();
@@ -21,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading PDF: {}", input_file);
     
     // Load the PDF
-    let mut doc = Document::load(input_file)?;
+    let mut doc = load_document(input_file)?;
     println!("PDF version: {}", doc.version);
     println!("Number of objects: {}", doc.objects.len());
     println!("Number of pages: {}", doc.get_pages().len());

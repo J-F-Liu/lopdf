@@ -305,7 +305,7 @@ fn test_compression_with_save_integration() {
             "Info should be in object stream");
     
     // Load and verify the PDF is valid
-    let loaded = Document::load_from(&mut output.as_slice()).unwrap();
+    let loaded = Document::load_mem(&output).unwrap();
     assert!(loaded.trailer.get(b"Root").is_ok(), "Loaded PDF should have valid Root");
     assert!(loaded.trailer.get(b"Info").is_ok(), "Loaded PDF should have valid Info");
 }

@@ -1,5 +1,24 @@
 use lopdf::{Document, Object, ObjectStream, dictionary};
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Document {
+    Document::load(path).unwrap()
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Document {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await.unwrap()
+        })
+}
+
 fn main() {
     println!("Testing direct object stream creation and saving...\n");
     
@@ -49,7 +68,7 @@ fn main() {
     
     // Load it back and check
     println!("\nLoading back...");
-    let loaded = Document::load("test_direct_objstream.pdf").unwrap();
+    let loaded = load_document("test_direct_objstream.pdf");
     
     for (id, obj) in &loaded.objects {
         if let Object::Stream(stream) = obj {

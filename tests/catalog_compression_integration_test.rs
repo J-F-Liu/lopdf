@@ -41,7 +41,7 @@ fn test_catalog_included_in_object_stream_output() {
     doc.save_with_options(&mut output, options).unwrap();
     
     // Parse the output to verify catalog is in object stream
-    let saved_doc = Document::load_from(&mut output.as_slice()).unwrap();
+    let saved_doc = Document::load_mem(&output).unwrap();
     
     // Count object streams
     let obj_stream_count = saved_doc.objects.iter()

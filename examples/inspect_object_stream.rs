@@ -1,10 +1,29 @@
 use lopdf::{Document, Object, ObjectStream};
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Document::load(path)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })
+}
+
 fn main() {
     let pdf_path = "/Users/nicolasdao/Downloads/pdfs/RFQ - SDS WebApp.docx_compressed.pdf";
     println!("Inspecting object stream in: {}", pdf_path);
     
-    match Document::load(pdf_path) {
+    match load_document(pdf_path) {
         Ok(doc) => {
             // Find object stream 511
             if let Ok(Object::Stream(stream)) = doc.get_object((511, 0)) {

@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Load and verify the compressed PDF
     println!("\n=== Verifying compressed PDF ===");
-    let compressed_doc = Document::load_from(&with_objstm[..])?;
+    let compressed_doc = Document::load_mem(&with_objstm[..])?;
     
     let mut objstm_found = 0;
     let mut compressed_objects = 0;

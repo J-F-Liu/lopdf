@@ -1,12 +1,31 @@
 use lopdf::{Document, Object, ObjectId};
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Document::load(path)?)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })?)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pdf_path = "/Users/nicolasdao/Downloads/poor.pdf";
     
     println!("Testing improved compression algorithm...\n");
     
-    let doc = Document::load(pdf_path)?;
+    let doc = load_document(pdf_path)?;
     
     // Build complete reference graph
     let (non_compressible, reason_map) = find_all_non_compressible_objects(&doc);
