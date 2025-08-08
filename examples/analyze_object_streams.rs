@@ -2,6 +2,9 @@ use lopdf::{Document, Object};
 use std::env;
 use std::collections::HashMap;
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -13,7 +16,7 @@ fn main() {
     println!("Analyzing PDF: {}", pdf_path);
     println!("{}", "=".repeat(80));
 
-    match Document::load(pdf_path) {
+    match load_document(pdf_path) {
         Ok(doc) => {
             analyze_document(&doc);
         }
@@ -22,6 +25,22 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Document::load(path)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })
 }
 
 fn analyze_document(doc: &Document) {

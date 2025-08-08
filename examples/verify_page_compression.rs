@@ -1,12 +1,31 @@
 use lopdf::{Document, Object};
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Document::load(path)?)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })?)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let compressed_path = "/Users/nicolasdao/Downloads/pdfs/pdf-demo_compressed.pdf";
     
     println!("Checking if Page objects are in object streams...\n");
     
     // Load the compressed PDF
-    let doc = Document::load(compressed_path)?;
+    let doc = load_document(compressed_path)?;
     
     // Check for object streams
     let mut objstm_count = 0;

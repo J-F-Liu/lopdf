@@ -1,5 +1,24 @@
 use lopdf::{Document, SaveOptions, Object};
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Document {
+    Document::load(path).unwrap()
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Document {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await.unwrap()
+        })
+}
+
 fn main() {
     println!("Checking raw object stream in saved PDF...\n");
     
@@ -95,7 +114,7 @@ fn main() {
     
     // Now load it back and check
     println!("\n\nLoading PDF back...");
-    let loaded = Document::load(filename).unwrap();
+    let loaded = load_document(filename);
     
     let mut found_objstream = false;
     for (id, obj) in &loaded.objects {

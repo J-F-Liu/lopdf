@@ -4,6 +4,25 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Document::load(path)?)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })?)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     let input_file = if args.len() > 1 {
@@ -17,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Load original PDF
     println!("1. Loading original PDF: {}", input_file);
-    let mut doc = Document::load(input_file)?;
+    let mut doc = load_document(input_file)?;
     let _original_objects = doc.objects.len();
     
     // Analyze original structure

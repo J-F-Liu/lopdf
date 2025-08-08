@@ -499,6 +499,7 @@ Object streams allow multiple non-stream objects to be compressed together, sign
 ```rust,no_run
 use lopdf::{Document, SaveOptions};
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load existing PDF
     let mut doc = Document::load("input.pdf")?;
@@ -519,6 +520,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut file2 = std::fs::File::create("output_custom.pdf")?;
     doc.save_with_options(&mut file2, options)?;
     
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // For async feature, you need to use tokio runtime
+    println!("This example requires the async feature to be disabled");
     Ok(())
 }
 ```

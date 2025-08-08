@@ -1,5 +1,24 @@
 use lopdf::{Document, SaveOptions};
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Document::load(path)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, lopdf::Error> {
+    Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })
+}
+
 fn main() {
     println!("Debugging object stream compression in detail...\n");
     
@@ -7,7 +26,7 @@ fn main() {
     let pdf_path = "/Users/nicolasdao/Downloads/pdfs/RFQ - SDS WebApp.docx.pdf";
     println!("Loading PDF: {}", pdf_path);
     
-    let mut doc = match Document::load(pdf_path) {
+    let mut doc = match load_document(pdf_path) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("Failed to load PDF: {}", e);

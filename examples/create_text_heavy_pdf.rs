@@ -2,6 +2,25 @@ use lopdf::dictionary;
 use lopdf::{Document, Object, Stream};
 use lopdf::content::{Content, Operation};
 
+#[cfg(feature = "async")]
+use tokio::runtime::Builder;
+
+#[cfg(not(feature = "async"))]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Document::load(path)?)
+}
+
+#[cfg(feature = "async")]
+fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
+    Ok(Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            Document::load(path).await
+        })?)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Creating a text-heavy PDF with many objects...");
     
@@ -130,7 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Analyze the compressed PDF
     println!("\nAnalyzing compressed PDF:");
-    let compressed_doc = Document::load("text_heavy_compressed.pdf")?;
+    let compressed_doc = load_document("text_heavy_compressed.pdf")?;
     let has_objstm = compressed_doc.objects.values().any(|obj| {
         if let Object::Dictionary(dict) = obj {
             if let Ok(Object::Name(name)) = dict.get(b"Type") {
