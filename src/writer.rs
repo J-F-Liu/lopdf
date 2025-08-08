@@ -22,6 +22,25 @@ impl Document {
         self.save_internal(target)
     }
 
+    /// Save PDF with custom options
+    pub fn save_with_options<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
+        if options.use_object_streams {
+            self.save_with_object_streams(target, options)
+        } else {
+            self.save_internal(target)
+        }
+    }
+
+    /// Save PDF with modern features (object streams and cross-reference streams)
+    pub fn save_modern<W: Write>(&mut self, target: &mut W) -> Result<()> {
+        let options = crate::SaveOptions {
+            use_object_streams: true,
+            use_xref_streams: true,
+            ..Default::default()
+        };
+        self.save_with_options(target, options)
+    }
+
     fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
         let mut target = CountingWrite {
             inner: target,
@@ -60,6 +79,119 @@ impl Document {
         // Write `startxref` part of trailer
         write!(target, "\nstartxref\n{}\n%%EOF", xref_start)?;
 
+        Ok(())
+    }
+
+    /// Save PDF with object streams enabled
+    fn save_with_object_streams<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
+        use crate::ObjectStream;
+        use std::collections::HashMap;
+        
+        let mut target = CountingWrite {
+            inner: target,
+            bytes_written: 0,
+        };
+
+        // Ensure PDF version is at least 1.5 (required for object streams)
+        if self.version < "1.5".to_string() {
+            self.version = "1.5".to_string();
+        }
+
+        // Update cross-reference type if requested
+        if options.use_xref_streams {
+            self.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
+        }
+
+        let mut xref = Xref::new(self.max_id + 1, self.reference_table.cross_reference_type);
+        writeln!(target, "%PDF-{}", self.version)?;
+        Writer::write_binary_mark(&mut target, &self.binary_mark)?;
+
+        // Organize objects into streams
+        let mut object_streams: Vec<crate::ObjectStream> = Vec::new();
+        let mut objects_to_write_directly = Vec::new();
+        let mut object_to_stream_map = HashMap::new();
+
+        // Categorize objects
+        for (&(id, generation), object) in &self.objects {
+            // Skip existing object streams - we'll create new ones
+            if let Object::Stream(stream) = object {
+                if let Ok(type_obj) = stream.dict.get(b"Type") {
+                    if let Ok(type_name) = type_obj.as_name() {
+                        if type_name == b"ObjStm" {
+                            continue; // Skip existing object streams
+                        }
+                    }
+                }
+            }
+            
+            if generation == 0 && ObjectStream::can_be_compressed((id, generation), object, self) {
+                // Object can be compressed
+                // Find or create an object stream for it
+                let stream_index = object_streams.len().saturating_sub(1);
+                
+                if object_streams.is_empty() || 
+                   object_streams[stream_index].object_count() >= options.object_stream_config.max_objects_per_stream {
+                    // Create new object stream
+                    let new_stream = ObjectStream::builder()
+                        .max_objects(options.object_stream_config.max_objects_per_stream)
+                        .compression_level(options.object_stream_config.compression_level)
+                        .build();
+                    object_streams.push(new_stream);
+                }
+                
+                let stream_index = object_streams.len() - 1;
+                object_streams[stream_index].add_object((id, generation), object.clone()).ok();
+                object_to_stream_map.insert((id, generation), stream_index);
+            } else {
+                // Object must be written directly
+                objects_to_write_directly.push(((id, generation), object));
+            }
+        }
+
+        // Write direct objects first
+        for ((id, generation), object) in objects_to_write_directly {
+            Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
+        }
+
+        // Write object streams
+        let mut stream_count = 0;
+        for obj_stream in object_streams.into_iter() {
+            let stream_id = self.max_id + 1 + stream_count;
+            let stream_obj = obj_stream.to_stream_object().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            
+            // Record compressed objects in xref
+            // Must use the same sort order as build_stream_content()
+            let mut sorted_objects: Vec<_> = obj_stream.objects.keys().cloned().collect();
+            sorted_objects.sort_by_key(|id| *id);
+            for (index_in_stream, (obj_id, _gen)) in sorted_objects.iter().enumerate() {
+                xref.insert(*obj_id, XrefEntry::Compressed {
+                    container: stream_id,
+                    index: index_in_stream as u16,
+                });
+            }
+            
+            // Write the object stream
+            Writer::write_indirect_object(&mut target, stream_id, 0, &Object::Stream(stream_obj), &mut xref)?;
+            stream_count += 1;
+        }
+
+        // Update max_id to account for object streams
+        self.max_id += stream_count;
+
+        let xref_start = target.bytes_written;
+
+        // Write cross-reference
+        match xref.cross_reference_type {
+            XrefType::CrossReferenceTable => {
+                Writer::write_xref(&mut target, &xref)?;
+                self.write_trailer(&mut target)?;
+            }
+            XrefType::CrossReferenceStream => {
+                self.write_cross_reference_stream(&mut target, &mut xref, xref_start as u32)?;
+            }
+        }
+
+        write!(target, "\nstartxref\n{}\n%%EOF", xref_start)?;
         Ok(())
     }
 
