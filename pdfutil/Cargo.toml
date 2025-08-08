@@ -10,7 +10,7 @@ repository = "https://github.com/J-F-Liu/lopdf.git"
 version = "0.4.0"
 
 [dependencies]
-clap = "4.5"
+clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
 lopdf = {version = "*", path = "../"}
