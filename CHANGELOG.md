@@ -1,4 +1,29 @@
 
+<a name="v0.37.0"></a>
+## [v0.37.0](https://github.com/J-F-Liu/lopdf/compare/v0.36.0...v0.37.0) (2025-08-08)
+
+### Add
+
+* Add complete PDF object streams write support enabling 11-61% file size reduction ([#XXX](https://github.com/J-F-Liu/lopdf/issues/XXX))
+* Add `save_modern()` method for easy object streams and cross-reference streams usage
+* Add `SaveOptions` struct with builder pattern for configuring compression settings
+* Add `ObjectStreamBuilder` for creating object streams programmatically  
+* Add cross-reference stream support for PDF 1.5+ compliance
+* Add `replace_partial_text()` function for partial text replacement in PDFs
+* Add comprehensive test suite with 50+ tests for object streams functionality
+
+### Fix
+
+* Fix object compression eligibility - structural objects (Catalog, Pages, Page) now properly compressed
+* Fix trailer-referenced objects compression - only encryption dictionary excluded from compression  
+* Fix linearization detection for proper Catalog handling per PDF specification
+* Fix compilation warnings
+
+### Update
+
+* Update to Rust 2024 edition with minimum Rust 1.85 requirement
+
+
 <a name="v0.36.0"></a>
 ## [v0.36.0](https://github.com/J-F-Liu/lopdf/compare/0.35.0...v0.36.0) (2025-03-15)
 

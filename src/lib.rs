@@ -30,6 +30,7 @@ mod object_stream;
 mod parser;
 mod parser_aux;
 mod reader;
+mod save_options;
 
 pub use document::Document;
 pub use object::{Dictionary, Object, ObjectId, Stream, StringFormat};
@@ -41,9 +42,10 @@ pub use encodings::{encode_utf16_be, encode_utf8, Encoding};
 pub use encryption::{EncryptionState, EncryptionVersion, Permissions};
 pub use error::{Error, Result};
 pub use incremental_document::IncrementalDocument;
-pub use object_stream::ObjectStream;
+pub use object_stream::{ObjectStream, ObjectStreamBuilder, ObjectStreamConfig};
 pub use outlines::Outline;
 pub use reader::Reader;
+pub use save_options::{SaveOptions, SaveOptionsBuilder};
 pub use toc::Toc;
 
 pub use parser_aux::substring;
