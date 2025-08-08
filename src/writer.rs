@@ -77,7 +77,7 @@ impl Document {
             }
         }
         // Write `startxref` part of trailer
-        write!(target, "\nstartxref\n{}\n%%EOF", xref_start)?;
+        write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
 
         Ok(())
     }
@@ -93,7 +93,7 @@ impl Document {
         };
 
         // Ensure PDF version is at least 1.5 (required for object streams)
-        if self.version < "1.5".to_string() {
+        if self.version.as_str() < "1.5" {
             self.version = "1.5".to_string();
         }
 
@@ -157,7 +157,7 @@ impl Document {
         let mut stream_count = 0;
         for obj_stream in object_streams.into_iter() {
             let stream_id = self.max_id + 1 + stream_count;
-            let stream_obj = obj_stream.to_stream_object().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let stream_obj = obj_stream.to_stream_object().map_err(std::io::Error::other)?;
             
             // Record compressed objects in xref
             // Must use the same sort order as build_stream_content()
@@ -191,7 +191,7 @@ impl Document {
             }
         }
 
-        write!(target, "\nstartxref\n{}\n%%EOF", xref_start)?;
+        write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
         Ok(())
     }
 
@@ -323,7 +323,7 @@ impl IncrementalDocument {
             }
         }
         // Write `startxref` part of trailer
-        write!(target, "\nstartxref\n{}\n%%EOF", xref_start)?;
+        write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
 
         Ok(())
     }
@@ -467,7 +467,7 @@ impl Writer {
         if filter == XRefStreamFilter::ASCIIHexDecode {
             xref_stream = xref_stream
                 .iter()
-                .flat_map(|c| format!("{:02X}", c).as_bytes().to_vec())
+                .flat_map(|c| format!("{c:02X}").as_bytes().to_vec())
                 .collect::<Vec<u8>>();
         }
 
@@ -509,7 +509,7 @@ impl Writer {
                 let mut buf = itoa::Buffer::new();
                 file.write_all(buf.format(*value).as_bytes())
             }
-            Real(value) => write!(file, "{}", value),
+            Real(value) => write!(file, "{value}"),
             Name(name) => Writer::write_name(file, name),
             String(text, format) => Writer::write_string(file, text, format),
             Array(array) => Writer::write_array(file, array),
@@ -525,7 +525,7 @@ impl Writer {
             // white-space and delimiter chars are encoded to # sequences
             // also encode bytes outside of the range 33 (!) to 126 (~)
             if b" \t\n\r\x0C()<>[]{}/%#".contains(&byte) || !(33..=126).contains(&byte) {
-                write!(file, "#{:02X}", byte)?;
+                write!(file, "#{byte:02X}")?;
             } else {
                 file.write_all(&[byte])?;
             }
@@ -577,7 +577,7 @@ impl Writer {
             StringFormat::Hexadecimal => {
                 file.write_all(b"<")?;
                 for &byte in text {
-                    write!(file, "{:02X}", byte)?;
+                    write!(file, "{byte:02X}")?;
                 }
                 file.write_all(b">")?;
             }

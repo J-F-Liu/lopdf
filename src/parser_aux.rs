@@ -430,7 +430,7 @@ fn replace_partial_in_operation(
 }
 
 fn replace_partial_in_array(
-    arr: &mut Vec<Object>,
+    arr: &mut [Object],
     encoding: &Encoding,
     search_text: &str,
     replacement_text: &str,

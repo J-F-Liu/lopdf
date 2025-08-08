@@ -115,7 +115,7 @@ impl XrefEntry {
     pub fn write_xref_entry(&self, file: &mut dyn Write) -> Result<()> {
         match self {
             XrefEntry::Normal { offset, generation } => {
-                writeln!(file, "{:>010} {:>05} n ", offset, generation)?;
+                writeln!(file, "{offset:>010} {generation:>05} n ")?;
             }
             XrefEntry::Compressed { container: _, index: _ } => {
                 writeln!(file, "{:>010} {:>05} f ", 0, 65535)?;
@@ -310,6 +310,6 @@ fn bytes_needed(value: u64) -> usize {
     if value == 0 {
         1
     } else {
-        ((64 - value.leading_zeros() + 7) / 8) as usize
+        (64 - value.leading_zeros()).div_ceil(8) as usize
     }
 }

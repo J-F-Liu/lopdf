@@ -112,7 +112,7 @@ impl Document {
             Object::Reference(object_id) => {
                 return self.build_outline_result(self.get_object(*object_id)?, title, named_destinations);
             }
-            _ => return Err(Error::InvalidOutline(format!("Unexpected destination {:?}", dest))),
+            _ => return Err(Error::InvalidOutline(format!("Unexpected destination {dest:?}"))),
         };
         Ok(Some(outline))
     }

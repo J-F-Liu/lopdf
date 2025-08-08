@@ -749,7 +749,7 @@ impl Document {
     }
 
     pub fn decode_text(encoding: &Encoding, bytes: &[u8]) -> Result<String> {
-        debug!("Decoding text with {:#?}", encoding);
+        debug!("Decoding text with {encoding:#?}");
         encoding.bytes_to_string(bytes)
     }
 

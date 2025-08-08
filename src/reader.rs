@@ -296,7 +296,7 @@ impl Reader<'_> {
             if let XrefEntry::Normal { offset, .. } = *entry {
                 let (object_id, mut object) = self
                     .read_object(offset as usize, None, &mut HashSet::new())
-                    .map_err(|e| error!("Object load error: {:?}", e))
+                    .map_err(|e| error!("Object load error: {e:?}"))
                     .ok()?;
                 if let Some(filter_func) = filter_func {
                     filter_func(object_id, &mut object)?;
@@ -400,12 +400,11 @@ impl Reader<'_> {
             .get(b"Length")
             .and_then(|value| self.document.dereference(value))
             .and_then(|(_id, obj)| obj.as_i64())
-            .map_err(|err| {
+            .inspect_err(|_err| {
                 error!(
                     "stream dictionary of '{} {} R' is missing the Length entry",
                     object_id.0, object_id.1
                 );
-                err
             })
     }
 
