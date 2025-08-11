@@ -568,21 +568,28 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
     let width = get_abbr(b"W", b"Width")?.as_i64()? as usize;
     let height = get_abbr(b"H", b"Height")?.as_i64()? as usize;
     let bpc = get_abbr(b"BPC", b"BitsPerComponent")?.as_i64()? as usize;
-    let colorspace = get_abbr(b"CS", b"ColorSpace")?.as_name()?;
-    let num_colors = match colorspace {
-        b"DeviceGray" | b"Gray" => 1,
-        b"DeviceRGB" | b"RGB" => 3,
-        b"DeviceRGBA" | b"RGBA" => 4,
-        b"DeviceCMYK" | b"CMYK" => 4,
-        b"Pattern" => {
-            log::warn!("Pattern colorspace is not allowed in inline images");
-            return Err(Error::InvalidInlineImage(String::from(
-                "Pattern colorspace is not allowed in inline images",
-            )));
-        }
+    let im = get_abbr(b"IM", b"ImageMask").and_then(|x| x.as_bool());
+    let num_colors = match im {
+        // If we have an image mask then we don't have a colorspace
+        Ok(true) => 1,
         _ => {
-            log::warn!("Colorspace of inline image not recognized / not yet implemented");
-            return Err(Error::Unimplemented("inline image colorspaces"));
+            let colorspace = get_abbr(b"CS", b"ColorSpace").unwrap().as_name()?;
+            match colorspace {
+                b"DeviceGray" | b"Gray" => 1,
+                b"DeviceRGB" | b"RGB" => 3,
+                b"DeviceRGBA" | b"RGBA" => 4,
+                b"DeviceCMYK" | b"CMYK" => 4,
+                b"Pattern" => {
+                    log::warn!("Pattern colorspace is not allowed in inline images");
+                    return Err(Error::InvalidInlineImage(String::from(
+                        "Pattern colorspace is not allowed in inline images",
+                    )));
+                }
+                _ => {
+                    log::warn!("Colorspace of inline image not recognized / not yet implemented");
+                    return Err(Error::Unimplemented("inline image colorspaces"));
+                }
+            }
         }
     };
 
