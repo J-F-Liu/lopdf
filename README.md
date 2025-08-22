@@ -665,3 +665,7 @@ let options = SaveOptions::builder()
 * Can I analyze existing PDFs to see if they use object streams?
 
   Yes! lopdf can read and parse object streams from existing PDFs. Use the `Document::load()` method to open any PDF, and lopdf will automatically handle object streams if present. See the examples directory for analysis tools.
+
+## License
+
+lopdf is available under the MIT license, with the exception of the Montserrat font.
