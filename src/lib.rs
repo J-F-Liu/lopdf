@@ -50,6 +50,7 @@ pub use reader::Reader;
 pub use save_options::{SaveOptions, SaveOptionsBuilder};
 pub use toc::Toc;
 
+pub use parser_aux::substr;
 pub use parser_aux::substring;
 
 pub use font::FontData;
