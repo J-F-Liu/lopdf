@@ -380,7 +380,7 @@ impl Reader<'_> {
                     // Group objects by their container stream for efficiency
                     let mut streams_to_process: std::collections::HashMap<u32, Vec<(u32, u16)>> = std::collections::HashMap::new();
                     for (obj_num, container_id, index) in object_streams {
-                        streams_to_process.entry(container_id).or_insert_with(Vec::new).push((obj_num, index));
+                        streams_to_process.entry(container_id).or_default().push((obj_num, index));
                     }
                     
                     // Process each object stream
