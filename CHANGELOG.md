@@ -1,4 +1,38 @@
 
+<a name="v0.38.0"></a>
+## [v0.38.0](https://github.com/J-F-Liu/lopdf/compare/v0.37.0...v0.38.0) (2025-08-26)
+
+### Add
+
+* Add enhanced PDF decryption support for encrypted documents with empty passwords
+* Add automatic decryption during document loading for better pdftk compatibility
+* Add raw object extraction before parsing to handle encrypted content
+* Add support for decrypting PDFs with compressed object streams
+* Add comprehensive test suite for PDF decryption functionality
+* Add `assets/encrypted.pdf` test file for decryption testing
+* Add examples demonstrating decryption capabilities (`test_decryption.rs`, `verify_decryption.rs`)
+
+### Enhance
+
+* Enhance `Reader::read()` to detect and handle encrypted PDFs automatically
+* Enhance document loading to attempt empty password authentication by default
+* Enhance object processing to decrypt objects after parsing
+* Enhance support for encrypted PDFs containing object streams
+
+### Fix
+
+* Fix encrypted object parsing by extracting raw bytes before decryption
+* Fix object stream handling in encrypted documents
+* Fix decryption workflow to match pdftk's approach
+
+### Implementation Details
+
+* Modified `src/reader.rs` to add `load_encrypted_document()` method
+* Added `extract_raw_object()` method for raw byte extraction
+* Added `parse_raw_object()` method for parsing extracted bytes
+* Store raw object bytes in `Reader::raw_objects` field for deferred decryption
+* Process compressed objects from object streams after decryption
+
 <a name="v0.37.0"></a>
 ## [v0.37.0](https://github.com/J-F-Liu/lopdf/compare/v0.36.0...v0.37.0) (2025-08-08)
 

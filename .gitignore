@@ -2,7 +2,6 @@ target
 Cargo.lock
 test*.pdf
 .idea
-*.pdf
 *log.txt
 specs
 .DS_Store
