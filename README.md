@@ -731,9 +731,47 @@ When loading an encrypted PDF, lopdf:
 ```rust
 use lopdf::Document;
 
+#[cfg(not(feature = "async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load an encrypted PDF - automatically attempts decryption
-    let doc = Document::load("encrypted.pdf")?;
+    let doc = Document::load("assets/encrypted.pdf")?;
+    
+    // Check encryption status
+    if doc.is_encrypted() {
+        println!("Document is encrypted");
+        
+        // Check if decryption was successful
+        if doc.encryption_state.is_some() {
+            println!("Successfully decrypted");
+            
+            // Now you can work with the document normally
+            let pages = doc.get_pages();
+            println!("Pages: {}", pages.len());
+            
+            // Extract text
+            let page_nums: Vec<u32> = pages.keys().cloned().collect();
+            let text = doc.extract_text(&page_nums)?;
+            println!("Text length: {} chars", text.len());
+            
+            // Access objects
+            for i in 1..=10 {
+                if let Ok(_) = doc.get_object((i, 0)) {
+                    println!("Object ({}, 0) accessible", i);
+                }
+            }
+        } else {
+            println!("Decryption failed - password required");
+        }
+    }
+    
+    Ok(())
+}
+
+#[cfg(feature = "async")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load an encrypted PDF - automatically attempts decryption
+    let doc = Document::load("assets/encrypted.pdf").await?;
     
     // Check encryption status
     if doc.is_encrypted() {
