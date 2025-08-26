@@ -404,6 +404,68 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
+* Decrypt PDF documents
+
+```rust
+use lopdf::Document;
+
+// Load and decrypt PDF documents with empty password
+#[cfg(not(feature = "async"))]
+{
+    // Load an encrypted PDF - automatically attempts decryption with empty password
+    let doc = Document::load("assets/encrypted.pdf").unwrap();
+    
+    // Check if the document is encrypted
+    if doc.is_encrypted() {
+        println!("Document is encrypted");
+        
+        // The document has been automatically decrypted if the password was empty
+        if doc.encryption_state.is_some() {
+            println!("Successfully decrypted with empty password");
+        }
+    }
+    
+    // Access decrypted content
+    let pages = doc.get_pages();
+    println!("Number of pages: {}", pages.len());
+    
+    // Extract text from decrypted document
+    let page_numbers: Vec<u32> = pages.keys().cloned().collect();
+    let text = doc.extract_text(&page_numbers).unwrap();
+    println!("Extracted {} characters of text", text.len());
+    
+    // Access individual objects
+    for i in 1..=10 {
+        if let Ok(obj) = doc.get_object((i, 0)) {
+            println!("Successfully accessed object ({}, 0)", i);
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+{
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("Failed to create runtime")
+        .block_on(async move {
+            // Async version
+            let doc = Document::load("assets/encrypted.pdf").await.unwrap();
+            
+            if doc.is_encrypted() {
+                println!("Document is encrypted");
+                if doc.encryption_state.is_some() {
+                    println!("Successfully decrypted with empty password");
+                }
+            }
+            
+            let pages = doc.get_pages();
+            let page_numbers: Vec<u32> = pages.keys().cloned().collect();
+            let text = doc.extract_text(&page_numbers).unwrap();
+            println!("Extracted {} characters of text", text.len());
+        });
+}
+```
+
 * Modify PDF document
 
 ```rust
@@ -643,6 +705,78 @@ let options = SaveOptions::builder()
     .compression_level(9)            // zlib level 0-9 (default: 6)
     .build();
 ```
+
+## PDF Decryption Support
+
+lopdf now includes enhanced support for reading encrypted PDF documents. The library can automatically decrypt PDFs that use empty passwords, which is common for many protected documents.
+
+### Key Features
+
+- **Automatic decryption**: PDFs encrypted with empty passwords are automatically decrypted on load
+- **Object stream support**: Handles encrypted PDFs containing compressed object streams
+- **Transparent access**: Once decrypted, all document methods work normally
+- **Preservation of structure**: Document structure and content remain intact after decryption
+
+### How It Works
+
+When loading an encrypted PDF, lopdf:
+1. Detects encryption via the `Encrypt` entry in the trailer
+2. Extracts raw object bytes before parsing
+3. Attempts authentication with an empty password
+4. Decrypts all objects if authentication succeeds
+5. Processes compressed objects from object streams
+
+### Example: Working with Encrypted PDFs
+
+```rust
+use lopdf::Document;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load an encrypted PDF - automatically attempts decryption
+    let doc = Document::load("encrypted.pdf")?;
+    
+    // Check encryption status
+    if doc.is_encrypted() {
+        println!("Document is encrypted");
+        
+        // Check if decryption was successful
+        if doc.encryption_state.is_some() {
+            println!("Successfully decrypted");
+            
+            // Now you can work with the document normally
+            let pages = doc.get_pages();
+            println!("Pages: {}", pages.len());
+            
+            // Extract text
+            let page_nums: Vec<u32> = pages.keys().cloned().collect();
+            let text = doc.extract_text(&page_nums)?;
+            println!("Text length: {} chars", text.len());
+            
+            // Access objects
+            for i in 1..=10 {
+                if let Ok(_) = doc.get_object((i, 0)) {
+                    println!("Object ({}, 0) accessible", i);
+                }
+            }
+        } else {
+            println!("Decryption failed - password required");
+        }
+    }
+    
+    Ok(())
+}
+```
+
+### Limitations
+
+- Currently only supports PDFs encrypted with empty passwords
+- Password-protected PDFs require manual authentication (use `authenticate_password` method)
+- Some encryption algorithms may not be fully supported
+
+For more examples, see:
+- [`examples/test_decryption.rs`](examples/test_decryption.rs) - Testing decryption functionality
+- [`examples/verify_decryption.rs`](examples/verify_decryption.rs) - Comprehensive decryption verification
+- [`tests/decryption.rs`](tests/decryption.rs) - Decryption test suite
 
 ## FAQ
 
