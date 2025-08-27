@@ -132,7 +132,7 @@ impl Document {
     ///
     /// // Create a new FontData instance with the font file.
     /// let font_name = "SomeFont".to_string();
-    /// let mut font_data = lopdf::FontData::new(&font_file, font_name);
+    /// let mut font_data = lopdf::FontData::new(&font_file, font_name.clone());
     ///
     /// // Customize the font data if needed.
     /// font_data
@@ -142,14 +142,19 @@ impl Document {
     ///
     /// // Create a new PDF document.
     /// let mut doc = lopdf::Document::with_version("1.5");
-    /// let page_id = doc.new_object_id();
     ///
     /// // Add the font to the document.
-    /// let resources_id = doc.add_font(page_id, font_data).unwrap();
+    /// let font_id = doc.add_font(font_data).unwrap();
     ///
-    /// // Now you can use `resources_id` to reference the font in your PDF content.
+    /// // Now you can use `font_id` to reference the font in your PDF content.
+    /// // For example:
+    /// let resources_id = doc.add_object(dictionary! {
+    ///  "Font" => dictionary! {
+    ///         font_name => font_id,
+    ///     },
+    /// });
     /// ```
-    pub fn add_font(&mut self, page_id: ObjectId, font_data: FontData) -> Result<ObjectId> {
+    pub fn add_font(&mut self, font_data: FontData) -> Result<ObjectId> {
         // Create embedded font stream
         let font_stream = Stream::new(
             dictionary! {
@@ -187,18 +192,6 @@ impl Document {
             "FontDescriptor" => Object::Reference(font_descriptor_id),
             "Encoding" => Object::Name(font_data.encoding.into_bytes()),
         });
-
-        // Access or create Resources of the target page
-        if let Ok(resources) = self.get_or_create_resources(page_id).and_then(Object::as_dict_mut) {
-            // If "Font" dictionary does not exist, create it
-            if !resources.has(b"Font") {
-                resources.set("Font", Dictionary::new());
-            }
-
-            // Insert the font into the "Font" dictionary
-            let fonts = resources.get_mut(b"Font").and_then(Object::as_dict_mut)?;
-            fonts.set(font_name, Object::Reference(font_id));
-        }
 
         Ok(font_id)
     }
@@ -333,7 +326,7 @@ pub mod tests {
         doc.set_object(page_id, dictionary! {});
 
         // Add font
-        let font_id = doc.add_font(page_id, font_data.clone()).unwrap();
+        let font_id = doc.add_font(font_data.clone()).unwrap();
 
         // Font dictionary must exist
         let font_obj = doc.get_object(font_id).unwrap();
@@ -360,11 +353,5 @@ pub mod tests {
         let font_file_ref = descriptor_obj.get(b"FontFile2").unwrap().as_reference().unwrap();
         let font_stream = doc.get_object(font_file_ref).unwrap().as_stream().unwrap();
         assert_eq!(font_stream.content, font_file);
-
-        // Check that font is registered in page resources
-        let resources = doc.get_or_create_resources(page_id).unwrap().as_dict().unwrap();
-        assert!(resources.has(b"Font"));
-        let fonts_dict = resources.get(b"Font").unwrap().as_dict().unwrap();
-        assert_eq!(fonts_dict.get(b"MyFont").unwrap(), &Object::Reference(font_id));
     }
 }
