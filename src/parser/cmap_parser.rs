@@ -2,7 +2,7 @@ use crate::cmap_section::{ArrayOfTargetStrings, CMapParseError, CMapSection, Cod
 use crate::parser::{comment, dict_dup, dictionary, eol, hex_char, name, NomResult, ParserInput};
 use nom::branch::alt;
 pub use nom::bytes::complete::tag;
-use nom::combinator::map;
+use nom::combinator::{map, opt};
 use nom::error::ParseError;
 use nom::multi::{fold_many0, fold_many1, fold_many_m_n, many1, many_m_n, separated_list1};
 use nom::sequence::{pair, preceded, separated_pair, terminated};
@@ -61,6 +61,7 @@ fn multispace1(input: ParserInput) -> NomResult<()> {
 
 fn cidinit_procset(input: ParserInput) -> NomResult<()> {
     (
+        opt(tag("\u{FEFF}".as_bytes())),
         multispace0,
         tag(&b"/CIDInit"[..]),
         space0,
@@ -995,5 +996,44 @@ end
         let res = cmap_stream(test_span(data));
         println!("{:#?}", res);
         assert!(res.is_ok())
+    }
+
+    #[test]
+    fn parse_cmap_byte_order_mark() {
+        let data = b"\xEF\xBB\xBF/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe)/Ordering (UCS)/Supplement 0>> def
+/CMapName /Adobe-Identity-UCS def /CMapType 2 def
+1 begincodespacerange
+<0003><0081>
+endcodespacerange
+23 beginbfrange
+<0025><0025><0042>
+<004F><004F><006C>
+<0052><0052><006F>
+<0046><0046><0063>
+<004E><004E><006B>
+<0048><0048><0065>
+<0047><0047><0064>
+<0003><0003><0020>
+<0049><0049><0066>
+<0055><0055><0072>
+<0051><0051><006E>
+<005A><005A><0077>
+<0044><0044><0061>
+<0053><0053><0070>
+<004C><004C><0069>
+<0057><0057><0074>
+<0012><0012><002F>
+<0029><0029><0046>
+<0081><0081><00FC>
+<0031><0031><004E>
+<0058><0058><0075>
+<004A><004A><0067>
+<0056><0056><0073>
+endbfrange
+endcmap CMapName currentdict /CMap defineresource pop end end";
+        assert!(cmap_stream(test_span(data)).is_ok())
     }
 }
