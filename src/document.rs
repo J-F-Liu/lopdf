@@ -263,9 +263,14 @@ impl Document {
             .and_then(|id| self.get_dictionary(id))
     }
 
-    /// Return true is PDF document is encrypted
+    /// Return true if PDF document is currently encrypted
     pub fn is_encrypted(&self) -> bool {
         self.get_encrypted().is_ok()
+    }
+
+    /// Return true if the document was originally encrypted when loaded
+    pub fn was_encrypted(&self) -> bool {
+        self.encryption_state.is_some()
     }
 
     /// Authenticate the provided owner password directly as bytes without sanitization

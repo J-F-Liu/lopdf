@@ -467,6 +467,12 @@ impl Reader<'_> {
                     }
 
                     self.document.encryption_state = Some(state);
+
+                    // Remove encryption markers since document is now decrypted
+                    if let Some(enc_ref) = encrypt_ref {
+                        self.document.objects.remove(&enc_ref);
+                    }
+                    self.document.trailer.remove(b"Encrypt");
                 }
                 Err(e) => {
                     warn!("Failed to setup encryption state: {:?}", e);
