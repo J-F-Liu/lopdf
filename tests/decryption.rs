@@ -1,4 +1,4 @@
-use lopdf::{Document, Object};
+use lopdf::{Document, Error, Object};
 
 #[cfg(not(feature = "async"))]
 #[test]
@@ -524,4 +524,380 @@ async fn test_decrypt_pdf_with_empty_password_async() {
     let page_numbers: Vec<u32> = pages.keys().cloned().collect();
     let text = loaded_doc.extract_text(&page_numbers).unwrap();
     assert!(text.contains("Hello, Async Encrypted World!"));
+}
+
+#[cfg(not(feature = "async"))]
+#[test]
+fn test_load_with_password_correct_password() {
+    // Create a simple PDF document
+    let mut doc = Document::with_version("1.5");
+
+    // Add an ID to the trailer (required for encryption)
+    let id1 = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    let id2 = vec![16u8, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    doc.trailer.set(
+        "ID",
+        Object::Array(vec![
+            Object::String(id1, lopdf::StringFormat::Literal),
+            Object::String(id2, lopdf::StringFormat::Literal),
+        ]),
+    );
+
+    // Create a simple page structure
+    let pages_id = doc.new_object_id();
+    let page_id = doc.new_object_id();
+    let content_id = doc.new_object_id();
+    let font_id = doc.new_object_id();
+    let resources_id = doc.new_object_id();
+
+    // Create catalog
+    let catalog_dict = lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => Object::Reference(pages_id)
+    };
+    let catalog_id = doc.add_object(catalog_dict);
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    // Create pages
+    let pages_dict = lopdf::dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => 1
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+
+    // Create resources
+    let resources_dict = lopdf::dictionary! {
+        "Font" => lopdf::dictionary! {
+            "F1" => Object::Reference(font_id)
+        }
+    };
+    doc.objects.insert(resources_id, Object::Dictionary(resources_dict));
+
+    // Create page
+    let page_dict = lopdf::dictionary! {
+        "Type" => "Page",
+        "Parent" => Object::Reference(pages_id),
+        "MediaBox" => vec![Object::Integer(0), Object::Integer(0), Object::Integer(612), Object::Integer(792)],
+        "Resources" => Object::Reference(resources_id),
+        "Contents" => Object::Reference(content_id)
+    };
+    doc.objects.insert(page_id, Object::Dictionary(page_dict));
+
+    // Create font
+    let font_dict = lopdf::dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica"
+    };
+    doc.objects.insert(font_id, Object::Dictionary(font_dict));
+
+    // Create content stream
+    let content = b"BT\n/F1 12 Tf\n100 700 Td\n(Password Protected Content!) Tj\nET\n";
+    let content_stream = lopdf::Stream::new(lopdf::dictionary! {}, content.to_vec());
+    doc.objects.insert(content_id, Object::Stream(content_stream));
+
+    // Encrypt the document with a NON-EMPTY password
+    let permissions = lopdf::Permissions::all();
+    let encryption_version = lopdf::EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "owner_secret",
+        user_password: "user_secret",  // Non-empty password!
+        key_length: 128,
+        permissions,
+    };
+
+    let encryption_state = lopdf::EncryptionState::try_from(encryption_version).unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    // Save encrypted document
+    let temp_dir = tempfile::tempdir().unwrap();
+    let encrypted_path = temp_dir.path().join("test_password_protected.pdf");
+    doc.save(&encrypted_path).unwrap();
+
+    // Test 1: Regular load() should fail to decrypt (no objects loaded because empty password doesn't work)
+    let loaded_without_password = Document::load(&encrypted_path).unwrap();
+    // The document is encrypted but empty password doesn't authenticate
+    // Objects should not be fully loaded/decrypted
+    assert!(loaded_without_password.is_encrypted());
+
+    // Test 2: load_with_password() with correct password should work
+    let loaded_with_password = Document::load_with_password(&encrypted_path, "user_secret").unwrap();
+    assert!(loaded_with_password.is_encrypted());
+
+    // Verify we can access the decrypted content
+    let pages = loaded_with_password.get_pages();
+    assert_eq!(pages.len(), 1, "Should have exactly one page");
+
+    // Extract text to verify decryption worked
+    let page_numbers: Vec<u32> = pages.keys().cloned().collect();
+    let text = loaded_with_password.extract_text(&page_numbers).unwrap();
+    assert!(text.contains("Password Protected Content!"), "Should be able to extract text: {}", text);
+}
+
+#[cfg(not(feature = "async"))]
+#[test]
+fn test_load_with_password_wrong_password() {
+    // Create a simple PDF document
+    let mut doc = Document::with_version("1.5");
+
+    // Add an ID to the trailer
+    let id1 = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    let id2 = vec![16u8, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    doc.trailer.set(
+        "ID",
+        Object::Array(vec![
+            Object::String(id1, lopdf::StringFormat::Literal),
+            Object::String(id2, lopdf::StringFormat::Literal),
+        ]),
+    );
+
+    // Minimal document structure
+    let catalog_dict = lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => Object::Reference((2, 0))
+    };
+    let catalog_id = doc.add_object(catalog_dict);
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    let pages_dict = lopdf::dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![],
+        "Count" => 0
+    };
+    doc.objects.insert((2, 0), Object::Dictionary(pages_dict));
+
+    // Encrypt with a specific password
+    let encryption_version = lopdf::EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "correct_owner",
+        user_password: "correct_user",
+        key_length: 128,
+        permissions: lopdf::Permissions::all(),
+    };
+
+    let encryption_state = lopdf::EncryptionState::try_from(encryption_version).unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    // Save
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("test_wrong_password.pdf");
+    doc.save(&path).unwrap();
+
+    // Try to load with wrong password - should fail
+    let result = Document::load_with_password(&path, "wrong_password");
+    assert!(result.is_err(), "Should fail with wrong password");
+
+    if let Err(Error::InvalidPassword) = result {
+        // Good - got the expected error
+    } else {
+        panic!("Expected InvalidPassword error, got: {:?}", result);
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[test]
+fn test_load_with_password_empty_password_when_required() {
+    // Create a simple PDF document
+    let mut doc = Document::with_version("1.5");
+
+    // Add ID
+    let id1 = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    let id2 = vec![16u8, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    doc.trailer.set(
+        "ID",
+        Object::Array(vec![
+            Object::String(id1, lopdf::StringFormat::Literal),
+            Object::String(id2, lopdf::StringFormat::Literal),
+        ]),
+    );
+
+    // Minimal document
+    let catalog_dict = lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => Object::Reference((2, 0))
+    };
+    let catalog_id = doc.add_object(catalog_dict);
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    let pages_dict = lopdf::dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![],
+        "Count" => 0
+    };
+    doc.objects.insert((2, 0), Object::Dictionary(pages_dict));
+
+    // Encrypt with NON-empty password
+    let encryption_version = lopdf::EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "secret",
+        user_password: "secret",
+        key_length: 128,
+        permissions: lopdf::Permissions::all(),
+    };
+
+    let encryption_state = lopdf::EncryptionState::try_from(encryption_version).unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    // Save
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("test_empty_password.pdf");
+    doc.save(&path).unwrap();
+
+    // Try to load with empty password when document requires a real password
+    // This should fail with InvalidPassword
+    let result = Document::load_with_password(&path, "");
+    assert!(result.is_err(), "Should fail when empty password doesn't work");
+
+    if let Err(Error::InvalidPassword) = result {
+        // Good - got the expected error
+    } else {
+        panic!("Expected InvalidPassword error, got: {:?}", result);
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[test]
+fn test_load_mem_with_password() {
+    // Create a simple PDF document
+    let mut doc = Document::with_version("1.5");
+
+    // Add ID
+    let id1 = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    let id2 = vec![16u8, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    doc.trailer.set(
+        "ID",
+        Object::Array(vec![
+            Object::String(id1, lopdf::StringFormat::Literal),
+            Object::String(id2, lopdf::StringFormat::Literal),
+        ]),
+    );
+
+    // Create a simple page structure
+    let pages_id = doc.new_object_id();
+    let page_id = doc.new_object_id();
+    let content_id = doc.new_object_id();
+
+    let catalog_dict = lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => Object::Reference(pages_id)
+    };
+    let catalog_id = doc.add_object(catalog_dict);
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    let pages_dict = lopdf::dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => 1
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+
+    let page_dict = lopdf::dictionary! {
+        "Type" => "Page",
+        "Parent" => Object::Reference(pages_id),
+        "MediaBox" => vec![Object::Integer(0), Object::Integer(0), Object::Integer(612), Object::Integer(792)],
+        "Contents" => Object::Reference(content_id)
+    };
+    doc.objects.insert(page_id, Object::Dictionary(page_dict));
+
+    let content = b"BT\n/F1 12 Tf\n100 700 Td\n(Memory Loaded!) Tj\nET\n";
+    let content_stream = lopdf::Stream::new(lopdf::dictionary! {}, content.to_vec());
+    doc.objects.insert(content_id, Object::Stream(content_stream));
+
+    // Encrypt with password
+    let encryption_version = lopdf::EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "mem_owner",
+        user_password: "mem_user",
+        key_length: 128,
+        permissions: lopdf::Permissions::all(),
+    };
+
+    let encryption_state = lopdf::EncryptionState::try_from(encryption_version).unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    // Save to memory buffer
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer).unwrap();
+
+    // Load from memory with password
+    let loaded_doc = Document::load_mem_with_password(&buffer, "mem_user").unwrap();
+    assert!(loaded_doc.is_encrypted());
+
+    // Verify content is accessible
+    let pages = loaded_doc.get_pages();
+    assert_eq!(pages.len(), 1);
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn test_load_with_password_async() {
+    // Create a simple PDF document
+    let mut doc = Document::with_version("1.5");
+
+    // Add ID
+    let id1 = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    let id2 = vec![16u8, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    doc.trailer.set(
+        "ID",
+        Object::Array(vec![
+            Object::String(id1, lopdf::StringFormat::Literal),
+            Object::String(id2, lopdf::StringFormat::Literal),
+        ]),
+    );
+
+    // Create minimal structure
+    let pages_id = doc.new_object_id();
+    let page_id = doc.new_object_id();
+    let content_id = doc.new_object_id();
+
+    let catalog_dict = lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => Object::Reference(pages_id)
+    };
+    let catalog_id = doc.add_object(catalog_dict);
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    let pages_dict = lopdf::dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => 1
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+
+    let page_dict = lopdf::dictionary! {
+        "Type" => "Page",
+        "Parent" => Object::Reference(pages_id),
+        "MediaBox" => vec![Object::Integer(0), Object::Integer(0), Object::Integer(612), Object::Integer(792)],
+        "Contents" => Object::Reference(content_id)
+    };
+    doc.objects.insert(page_id, Object::Dictionary(page_dict));
+
+    let content = b"BT\n/F1 12 Tf\n100 700 Td\n(Async Password Protected!) Tj\nET\n";
+    let content_stream = lopdf::Stream::new(lopdf::dictionary! {}, content.to_vec());
+    doc.objects.insert(content_id, Object::Stream(content_stream));
+
+    // Encrypt
+    let encryption_version = lopdf::EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "async_owner",
+        user_password: "async_user",
+        key_length: 128,
+        permissions: lopdf::Permissions::all(),
+    };
+
+    let encryption_state = lopdf::EncryptionState::try_from(encryption_version).unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    // Save
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("test_async_password.pdf");
+    doc.save(&path).unwrap();
+
+    // Load with password asynchronously
+    let loaded_doc = Document::load_with_password(&path, "async_user").await.unwrap();
+    assert!(loaded_doc.is_encrypted());
+
+    let pages = loaded_doc.get_pages();
+    assert_eq!(pages.len(), 1);
 }

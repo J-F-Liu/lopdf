@@ -34,24 +34,38 @@ impl Document {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
         let file = File::open(path)?;
         let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, None)
+        Self::load_internal(file, capacity, None, None)
+    }
+
+    /// Load a PDF document from a specified file path with a password for encrypted PDFs.
+    #[inline]
+    pub fn load_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<Document> {
+        let file = File::open(path)?;
+        let capacity = Some(file.metadata()?.len() as usize);
+        Self::load_internal(file, capacity, None, Some(password.to_string()))
     }
 
     #[inline]
     pub fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
         let file = File::open(path)?;
         let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, Some(filter_func))
+        Self::load_internal(file, capacity, Some(filter_func), None)
     }
 
     /// Load a PDF document from an arbitrary source.
     #[inline]
     pub fn load_from<R: Read>(source: R) -> Result<Document> {
-        Self::load_internal(source, None, None)
+        Self::load_internal(source, None, None, None)
+    }
+
+    /// Load a PDF document from an arbitrary source with a password for encrypted PDFs.
+    #[inline]
+    pub fn load_from_with_password<R: Read>(source: R, password: &str) -> Result<Document> {
+        Self::load_internal(source, None, None, Some(password.to_string()))
     }
 
     fn load_internal<R: Read>(
-        mut source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>,
+        mut source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>, password: Option<String>,
     ) -> Result<Document> {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
@@ -61,6 +75,7 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
+            password,
         }
         .read(filter_func)
     }
@@ -68,6 +83,18 @@ impl Document {
     /// Load a PDF document from a memory slice.
     pub fn load_mem(buffer: &[u8]) -> Result<Document> {
         buffer.try_into()
+    }
+
+    /// Load a PDF document from a memory slice with a password for encrypted PDFs.
+    pub fn load_mem_with_password(buffer: &[u8], password: &str) -> Result<Document> {
+        Reader {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: Some(password.to_string()),
+        }
+        .read(None)
     }
 }
 
@@ -77,18 +104,26 @@ impl Document {
         let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity, None).await
+        Self::load_internal(file, capacity, None, None).await
+    }
+
+    /// Load a PDF document from a specified file path with a password for encrypted PDFs.
+    pub async fn load_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<Document> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_internal(file, capacity, None, Some(password.to_string())).await
     }
 
     pub async fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
         let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity, Some(filter_func)).await
+        Self::load_internal(file, capacity, Some(filter_func), None).await
     }
 
     async fn load_internal<R: AsyncRead>(
-        source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>,
+        source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>, password: Option<String>,
     ) -> Result<Document> {
         pin!(source);
 
@@ -100,6 +135,7 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
+            password,
         }
         .read(filter_func)
     }
@@ -119,6 +155,7 @@ impl TryInto<Document> for &[u8] {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
+            password: None,
         }
         .read(None)
     }
@@ -149,6 +186,7 @@ impl IncrementalDocument {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
+            password: None,
         }
         .read(None)?;
 
@@ -189,6 +227,7 @@ impl IncrementalDocument {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
+            password: None,
         }
         .read(None)?;
 
@@ -210,6 +249,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
+            password: None,
         }
         .read(None)?;
 
@@ -222,6 +262,7 @@ pub struct Reader<'a> {
     pub document: Document,
     pub encryption_state: Option<EncryptionState>,
     pub raw_objects: BTreeMap<ObjectId, Vec<u8>>, // Store raw bytes for encrypted objects
+    pub password: Option<String>, // Password for encrypted PDFs
 }
 
 /// Maximum allowed embedding of literal strings.
@@ -350,15 +391,31 @@ impl Reader<'_> {
             }
         }
         
-        // Try to authenticate with empty password
-        if self.document.authenticate_password("").is_ok() {
-            match EncryptionState::decode(&self.document, "") {
+        // Try to authenticate - first with empty password, then with provided password
+        let password_to_use: Option<String> = if self.document.authenticate_password("").is_ok() {
+            Some(String::new())
+        } else if let Some(ref pwd) = self.password {
+            if self.document.authenticate_password(pwd).is_ok() {
+                Some(pwd.clone())
+            } else {
+                warn!("Invalid password provided for encrypted PDF");
+                return Err(Error::InvalidPassword);
+            }
+        } else {
+            warn!("PDF is encrypted and requires a password");
+            // No password provided and empty password didn't work - return document as-is
+            // This maintains backwards compatibility (objects won't be loaded)
+            return Ok(());
+        };
+
+        if let Some(password) = password_to_use {
+            match EncryptionState::decode(&self.document, &password) {
                 Ok(state) => {
                     // Now decrypt and parse all other objects
                     let encrypt_ref = self.document.trailer.get(b"Encrypt")
                         .ok()
                         .and_then(|o| o.as_reference().ok());
-                    
+
                     for (obj_id, raw_bytes) in &self.raw_objects {
                         // Skip the encryption dictionary
                         if let Some(enc_ref) = encrypt_ref {
@@ -366,7 +423,7 @@ impl Reader<'_> {
                                 continue;
                             }
                         }
-                        
+
                         // Parse the raw object
                         if let Ok((id, mut obj)) = self.parse_raw_object(raw_bytes) {
                             // Decrypt the parsed object
@@ -374,25 +431,25 @@ impl Reader<'_> {
                             self.document.objects.insert(id, obj);
                         }
                     }
-                    
+
                     // Now process compressed objects from object streams
-                    
+
                     // Group objects by their container stream for efficiency
                     let mut streams_to_process: std::collections::HashMap<u32, Vec<(u32, u16)>> = std::collections::HashMap::new();
                     for (obj_num, container_id, index) in object_streams {
                         streams_to_process.entry(container_id).or_default().push((obj_num, index));
                     }
-                    
+
                     // Process each object stream
                     for (container_id, objects_in_stream) in streams_to_process {
-                        
+
                         // Get the container stream
                         if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0)) {
                             if let Ok(stream) = container_obj.as_stream_mut() {
                                 // Parse the object stream
                                 match ObjectStream::new(stream) {
                                     Ok(object_stream) => {
-                                        
+
                                         // Extract the objects we need
                                         for (obj_num, _index) in objects_in_stream {
                                             let obj_id = (obj_num, 0);
@@ -408,17 +465,15 @@ impl Reader<'_> {
                             }
                         }
                     }
-                    
+
                     self.document.encryption_state = Some(state);
                 }
                 Err(e) => {
                     warn!("Failed to setup encryption state: {:?}", e);
                 }
             }
-        } else {
-            warn!("PDF is encrypted and requires a password");
         }
-        
+
         Ok(())
     }
     

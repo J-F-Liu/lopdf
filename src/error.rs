@@ -62,6 +62,9 @@ pub enum Error {
     /// PDF document is not encrypted.
     #[error("PDF document is not encrypted")]
     NotEncrypted,
+    /// Invalid password provided for encrypted PDF.
+    #[error("invalid password for encrypted PDF")]
+    InvalidPassword,
     /// Missing xref entry.
     #[error("missing xref entry")]
     MissingXrefEntry,
