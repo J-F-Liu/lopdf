@@ -4,7 +4,7 @@ use nom::branch::alt;
 pub use nom::bytes::complete::tag;
 use nom::combinator::{map, opt};
 use nom::error::ParseError;
-use nom::multi::{fold_many0, fold_many1, fold_many_m_n, many1, many_m_n, separated_list1};
+use nom::multi::{fold_many0, fold_many1, fold_many_m_n, many0, many1, many_m_n, separated_list1};
 use nom::sequence::{pair, preceded, separated_pair, terminated};
 use nom::Parser;
 use nom::{
@@ -177,7 +177,9 @@ fn bf_char_section(input: ParserInput) -> NomResult<CMapSection> {
     let begin_section = (digit1, space1, tag(&b"beginbfchar"[..]), multispace1);
     let end_section = (tag(&b"endbfchar"[..]), multispace1);
     let bf_char_line = delimited(space0, separated_pair(source_code, space0, target_string), multispace1);
-    let (rest_of_input, bf_char_mappings) = delimited(begin_section, many1(bf_char_line), end_section).parse(input)?;
+    // Some real-world ToUnicode CMaps contain sections like `0 beginbfchar ... endbfchar`.
+    // Accept empty sections to avoid failing extraction (specifically calling extract_text)
+    let (rest_of_input, bf_char_mappings) = delimited(begin_section, many0(bf_char_line), end_section).parse(input)?;
     Ok((rest_of_input, CMapSection::BfChar(bf_char_mappings)))
 }
 
@@ -190,7 +192,9 @@ fn target_string(input: ParserInput) -> NomResult<Vec<u16>> {
 fn bf_range_section(input: ParserInput) -> NomResult<CMapSection> {
     let begin_section = (digit1, space1, tag(&b"beginbfrange"[..]), multispace1);
     let end_section = (tag(&b"endbfrange"[..]), multispace1);
-    let (rest_of_input, bf_range_mappings) = delimited(begin_section, many1(bf_range_line), end_section).parse(input)?;
+    // Some real-world ToUnicode CMaps contain sections like `0 beginbfrange ... endbfrange`.
+    // Accept empty sections to avoid failing extraction (specifically calling extract_text)
+    let (rest_of_input, bf_range_mappings) = delimited(begin_section, many0(bf_range_line), end_section).parse(input)?;
     Ok((rest_of_input, CMapSection::BfRange(bf_range_mappings)))
 }
 
