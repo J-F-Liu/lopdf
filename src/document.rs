@@ -699,7 +699,15 @@ impl Document {
         let mut images = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
             let resources = self.get_dict_in_dict(page, b"Resources")?;
-            let xobject = self.get_dict_in_dict(resources, b"XObject")?;
+            let xobject = match self.get_dict_in_dict(resources, b"XObject") {
+                Ok(xobject) => xobject,
+                Err(err) => match err {
+                    // XObject is optional, no images found
+                    Error::DictKey(_) => return Ok(Vec::default()),
+                    _ => Err(err)?,
+                },
+            };
+
             for (_, xvalue) in xobject.iter() {
                 let id = xvalue.as_reference()?;
                 let xvalue = self.get_object(id)?;
