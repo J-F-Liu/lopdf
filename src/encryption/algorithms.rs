@@ -103,6 +103,13 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         // documents with higher values for V seem to have this field).
         if let Some(length) = length {
             match version {
+                // Although "Optional" and/or not required for V1 it appears in some documents
+                // with a default value of 40.
+                1 => {
+                    if length != 40 {
+                        return Err(DecryptionError::InvalidKeyLength)?;
+                    }
+                },
                 // The length of the file encryption key shall be a multiple of 8 in the range 40
                 // to and including 128.
                 2..=3 => {
