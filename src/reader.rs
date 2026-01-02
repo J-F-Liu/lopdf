@@ -23,7 +23,7 @@ use crate::error::{ParseError, XrefError};
 use crate::object_stream::ObjectStream;
 use crate::parser::{self, ParserInput};
 use crate::xref::XrefEntry;
-use crate::{Document, Error, IncrementalDocument, Object, ObjectId, Result};
+use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
 
@@ -361,10 +361,35 @@ pub const MAX_BRACKET: usize = 100;
 pub struct PdfMetadata {
     /// Document title from Info dictionary
     pub title: Option<String>,
+    /// Document author from Info dictionary
+    pub author: Option<String>,
+    /// Document subject from Info dictionary
+    pub subject: Option<String>,
+    /// Document keywords from Info dictionary
+    pub keywords: Option<String>,
+    /// Application that created the document
+    pub creator: Option<String>,
+    /// Application that produced the document
+    pub producer: Option<String>,
+    /// Document creation date (PDF date format: D:YYYYMMDDHHmmSSOHH'mm')
+    pub creation_date: Option<String>,
+    /// Document modification date (PDF date format: D:YYYYMMDDHHmmSSOHH'mm')
+    pub modification_date: Option<String>,
     /// Number of pages in the document
     pub page_count: u32,
     /// PDF version
     pub version: String,
+}
+
+struct InfoMetadata {
+    title: Option<String>,
+    author: Option<String>,
+    subject: Option<String>,
+    keywords: Option<String>,
+    creator: Option<String>,
+    producer: Option<String>,
+    creation_date: Option<String>,
+    modification_date: Option<String>,
 }
 
 impl Reader<'_> {
@@ -436,55 +461,119 @@ impl Reader<'_> {
         self.document.reference_table = xref;
         self.document.trailer = trailer.clone();
 
-        let title = self.extract_title()?;
+        let info_metadata = self.extract_info_metadata()?;
         let page_count = self.extract_page_count()?;
 
         Ok(PdfMetadata {
-            title,
+            title: info_metadata.title,
+            author: info_metadata.author,
+            subject: info_metadata.subject,
+            keywords: info_metadata.keywords,
+            creator: info_metadata.creator,
+            producer: info_metadata.producer,
+            creation_date: info_metadata.creation_date,
+            modification_date: info_metadata.modification_date,
             page_count,
             version,
         })
     }
 
-    fn extract_title(&self) -> Result<Option<String>> {
+    fn extract_info_metadata(&self) -> Result<InfoMetadata> {
         let info_ref = match self.document.trailer.get(b"Info") {
             Ok(obj) => obj.as_reference().ok(),
-            Err(_) => return Ok(None),
+            Err(_) => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
         };
 
         let info_id = match info_ref {
             Some(id) => id,
-            None => return Ok(None),
+            None => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
         };
 
         let mut already_seen = HashSet::new();
         let info_obj = match self.get_object(info_id, &mut already_seen) {
             Ok(obj) => obj,
-            Err(_) => return Ok(None),
+            Err(_) => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
         };
 
         let info_dict = match info_obj.as_dict() {
             Ok(dict) => dict,
-            Err(_) => return Ok(None),
+            Err(_) => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
         };
 
-        match info_dict.get(b"Title") {
-            Ok(title_obj) => match title_obj {
+        Ok(InfoMetadata {
+            title: Self::extract_string_field(info_dict, b"Title"),
+            author: Self::extract_string_field(info_dict, b"Author"),
+            subject: Self::extract_string_field(info_dict, b"Subject"),
+            keywords: Self::extract_string_field(info_dict, b"Keywords"),
+            creator: Self::extract_string_field(info_dict, b"Creator"),
+            producer: Self::extract_string_field(info_dict, b"Producer"),
+            creation_date: Self::extract_string_field(info_dict, b"CreationDate"),
+            modification_date: Self::extract_string_field(info_dict, b"ModDate"),
+        })
+    }
+
+    fn extract_string_field(dict: &Dictionary, key: &[u8]) -> Option<String> {
+        match dict.get(key) {
+            Ok(obj) => match obj {
                 Object::String(bytes, _) => {
-                    let title = if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+                    let s = if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
                         let utf16_bytes: Vec<u16> = bytes[2..]
                             .chunks_exact(2)
                             .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
                             .collect();
                         String::from_utf16_lossy(&utf16_bytes)
                     } else {
-                        String::from_utf8_lossy(bytes).to_string()
+                        String::from_utf8_lossy(&bytes).to_string()
                     };
-                    Ok(Some(title))
+                    Some(s)
                 }
-                _ => Ok(None),
+                _ => None,
             },
-            Err(_) => Ok(None),
+            Err(_) => None,
         }
     }
 
