@@ -23,7 +23,7 @@ use crate::error::{ParseError, XrefError};
 use crate::object_stream::ObjectStream;
 use crate::parser::{self, ParserInput};
 use crate::xref::XrefEntry;
-use crate::{Document, Error, IncrementalDocument, Object, ObjectId, Result};
+use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
 
@@ -96,6 +96,48 @@ impl Document {
         }
         .read(None)
     }
+
+    /// Load PDF metadata (title and page count) without loading the entire document.
+    /// This is much faster for large PDFs when you only need basic information.
+    #[inline]
+    pub fn load_metadata<P: AsRef<Path>>(path: P) -> Result<PdfMetadata> {
+        let file = File::open(path)?;
+        let capacity = Some(file.metadata()?.len() as usize);
+        Self::load_metadata_internal(file, capacity)
+    }
+
+    /// Load PDF metadata from an arbitrary source without loading the entire document.
+    #[inline]
+    pub fn load_metadata_from<R: Read>(source: R) -> Result<PdfMetadata> {
+        Self::load_metadata_internal(source, None)
+    }
+
+    /// Load PDF metadata from a memory slice without loading the entire document.
+    #[inline]
+    pub fn load_metadata_mem(buffer: &[u8]) -> Result<PdfMetadata> {
+        Reader {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: None,
+        }
+        .read_metadata()
+    }
+
+    fn load_metadata_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<PdfMetadata> {
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
+        source.read_to_end(&mut buffer)?;
+
+        Reader {
+            buffer: &buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: None,
+        }
+        .read_metadata()
+    }
 }
 
 #[cfg(feature = "async")]
@@ -143,6 +185,51 @@ impl Document {
     /// Load a PDF document from a memory slice.
     pub fn load_mem(buffer: &[u8]) -> Result<Document> {
         buffer.try_into()
+    }
+
+    /// Load PDF metadata (title and page count) without loading the entire document.
+    /// This is much faster for large PDFs when you only need basic information.
+    #[inline]
+    pub async fn load_metadata<P: AsRef<Path>>(path: P) -> Result<PdfMetadata> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_metadata_internal(file, capacity).await
+    }
+
+    /// Load PDF metadata from an arbitrary source without loading the entire document.
+    #[inline]
+    pub async fn load_metadata_from<R: AsyncRead>(source: R) -> Result<PdfMetadata> {
+        Self::load_metadata_internal(source, None).await
+    }
+
+    /// Load PDF metadata from a memory slice without loading the entire document.
+    #[inline]
+    pub fn load_metadata_mem(buffer: &[u8]) -> Result<PdfMetadata> {
+        Reader {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: None,
+        }
+        .read_metadata()
+    }
+
+    async fn load_metadata_internal<R: AsyncRead>(source: R, capacity: Option<usize>) -> Result<PdfMetadata> {
+        pin!(source);
+
+        let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
+        source.read_to_end(&mut buffer).await?;
+
+        Reader {
+            buffer: &buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: None,
+        }
+        .read_metadata()
     }
 }
 
@@ -262,13 +349,307 @@ pub struct Reader<'a> {
     pub document: Document,
     pub encryption_state: Option<EncryptionState>,
     pub raw_objects: BTreeMap<ObjectId, Vec<u8>>, // Store raw bytes for encrypted objects
-    pub password: Option<String>, // Password for encrypted PDFs
+    pub password: Option<String>,                 // Password for encrypted PDFs
 }
 
 /// Maximum allowed embedding of literal strings.
 pub const MAX_BRACKET: usize = 100;
 
+/// PDF metadata extracted without loading the entire document.
+/// This is useful for quickly getting basic information about large PDFs.
+#[derive(Debug, Clone)]
+pub struct PdfMetadata {
+    /// Document title from Info dictionary
+    pub title: Option<String>,
+    /// Document author from Info dictionary
+    pub author: Option<String>,
+    /// Document subject from Info dictionary
+    pub subject: Option<String>,
+    /// Document keywords from Info dictionary
+    pub keywords: Option<String>,
+    /// Application that created the document
+    pub creator: Option<String>,
+    /// Application that produced the document
+    pub producer: Option<String>,
+    /// Document creation date (PDF date format: D:YYYYMMDDHHmmSSOHH'mm')
+    pub creation_date: Option<String>,
+    /// Document modification date (PDF date format: D:YYYYMMDDHHmmSSOHH'mm')
+    pub modification_date: Option<String>,
+    /// Number of pages in the document
+    pub page_count: u32,
+    /// PDF version
+    pub version: String,
+}
+
+struct InfoMetadata {
+    title: Option<String>,
+    author: Option<String>,
+    subject: Option<String>,
+    keywords: Option<String>,
+    creator: Option<String>,
+    producer: Option<String>,
+    creation_date: Option<String>,
+    modification_date: Option<String>,
+}
+
 impl Reader<'_> {
+    /// Read metadata (title and page count) without loading the entire document.
+    /// This is much faster for large PDFs when you only need basic information.
+    ///
+    /// Note: This method does not support encrypted PDFs. For encrypted PDFs,
+    /// you must use `Document::load_with_password()` and then access the metadata.
+    pub fn read_metadata(mut self) -> Result<PdfMetadata> {
+        let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
+        self.buffer = &self.buffer[offset..];
+
+        let version =
+            parser::header(ParserInput::new_extra(self.buffer, "header")).ok_or(ParseError::InvalidFileHeader)?;
+
+        let xref_start = Self::get_xref_start(self.buffer)?;
+        if xref_start > self.buffer.len() {
+            return Err(Error::Xref(XrefError::Start));
+        }
+
+        let (mut xref, mut trailer) =
+            parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[xref_start..], "xref"), &self)?;
+
+        // Read previous Xrefs of linearized or incremental updated document.
+        let mut already_seen = HashSet::new();
+        let mut prev_xref_start = trailer.remove(b"Prev");
+        while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
+            if already_seen.contains(&prev) {
+                break;
+            }
+            already_seen.insert(prev);
+            if prev < 0 || prev as usize > self.buffer.len() {
+                return Err(Error::Xref(XrefError::PrevStart));
+            }
+
+            let (prev_xref, prev_trailer) =
+                parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[prev as usize..], ""), &self)?;
+            xref.merge(prev_xref);
+
+            // Read xref stream in hybrid-reference file
+            let prev_xref_stream_start = trailer.remove(b"XRefStm");
+            if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64().ok()) {
+                if prev < 0 || prev as usize > self.buffer.len() {
+                    return Err(Error::Xref(XrefError::StreamStart));
+                }
+
+                let (prev_xref, _) =
+                    parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[prev as usize..], ""), &self)?;
+                xref.merge(prev_xref);
+            }
+
+            prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
+        }
+        let xref_entry_count = xref.max_id().checked_add(1).ok_or(ParseError::InvalidXref)?;
+        if xref.size != xref_entry_count {
+            warn!(
+                "Size entry of trailer dictionary is {}, correct value is {}.",
+                xref.size, xref_entry_count
+            );
+            xref.size = xref_entry_count;
+        }
+
+        if trailer.get(b"Encrypt").is_ok() {
+            return Err(Error::Unimplemented(
+                "Metadata extraction for encrypted PDFs is not supported. Use Document::load_with_password() instead.",
+            ));
+        }
+
+        self.document.reference_table = xref;
+        self.document.trailer = trailer.clone();
+
+        let info_metadata = self.extract_info_metadata()?;
+        let page_count = self.extract_page_count()?;
+
+        Ok(PdfMetadata {
+            title: info_metadata.title,
+            author: info_metadata.author,
+            subject: info_metadata.subject,
+            keywords: info_metadata.keywords,
+            creator: info_metadata.creator,
+            producer: info_metadata.producer,
+            creation_date: info_metadata.creation_date,
+            modification_date: info_metadata.modification_date,
+            page_count,
+            version,
+        })
+    }
+
+    fn extract_info_metadata(&self) -> Result<InfoMetadata> {
+        let info_ref = match self.document.trailer.get(b"Info") {
+            Ok(obj) => obj.as_reference().ok(),
+            Err(_) => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
+        };
+
+        let info_id = match info_ref {
+            Some(id) => id,
+            None => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
+        };
+
+        let mut already_seen = HashSet::new();
+        let info_obj = match self.get_object(info_id, &mut already_seen) {
+            Ok(obj) => obj,
+            Err(_) => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
+        };
+
+        let info_dict = match info_obj.as_dict() {
+            Ok(dict) => dict,
+            Err(_) => {
+                return Ok(InfoMetadata {
+                    title: None,
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    creator: None,
+                    producer: None,
+                    creation_date: None,
+                    modification_date: None,
+                });
+            }
+        };
+
+        Ok(InfoMetadata {
+            title: Self::extract_string_field(info_dict, b"Title"),
+            author: Self::extract_string_field(info_dict, b"Author"),
+            subject: Self::extract_string_field(info_dict, b"Subject"),
+            keywords: Self::extract_string_field(info_dict, b"Keywords"),
+            creator: Self::extract_string_field(info_dict, b"Creator"),
+            producer: Self::extract_string_field(info_dict, b"Producer"),
+            creation_date: Self::extract_string_field(info_dict, b"CreationDate"),
+            modification_date: Self::extract_string_field(info_dict, b"ModDate"),
+        })
+    }
+
+    fn extract_string_field(dict: &Dictionary, key: &[u8]) -> Option<String> {
+        match dict.get(key) {
+            Ok(obj) => match obj {
+                Object::String(bytes, _) => {
+                    let s = if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+                        let utf16_bytes: Vec<u16> = bytes[2..]
+                            .chunks_exact(2)
+                            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+                            .collect();
+                        String::from_utf16_lossy(&utf16_bytes)
+                    } else {
+                        String::from_utf8_lossy(&bytes).to_string()
+                    };
+                    Some(s)
+                }
+                _ => None,
+            },
+            Err(_) => None,
+        }
+    }
+
+    fn extract_page_count(&self) -> Result<u32> {
+        let root_ref = match self.document.trailer.get(b"Root").and_then(Object::as_reference) {
+            Ok(id) => id,
+            Err(_) => return Ok(0),
+        };
+
+        let mut already_seen = HashSet::new();
+        let catalog_obj = match self.get_object(root_ref, &mut already_seen) {
+            Ok(obj) => obj,
+            Err(_) => return Ok(0),
+        };
+
+        let catalog_dict = match catalog_obj.as_dict() {
+            Ok(dict) => dict,
+            Err(_) => return Ok(0),
+        };
+
+        let pages_ref = match catalog_dict.get(b"Pages").and_then(Object::as_reference) {
+            Ok(id) => id,
+            Err(_) => return Ok(0),
+        };
+
+        self.get_pages_tree_count(pages_ref, &mut HashSet::new())
+            .or_else(|_| Ok(0))
+    }
+
+    fn get_pages_tree_count(&self, pages_id: ObjectId, seen: &mut HashSet<ObjectId>) -> Result<u32> {
+        if seen.contains(&pages_id) {
+            return Err(Error::ReferenceCycle(pages_id));
+        }
+        seen.insert(pages_id);
+
+        let mut already_seen = HashSet::new();
+        let pages_obj = match self.get_object(pages_id, &mut already_seen) {
+            Ok(obj) => obj,
+            Err(_) => return Ok(0),
+        };
+
+        let pages_dict = match pages_obj.as_dict() {
+            Ok(dict) => dict,
+            Err(_) => return Ok(0),
+        };
+
+        match pages_dict.get_type() {
+            Ok(type_name) if type_name == b"Page" => Ok(1),
+            Ok(type_name) if type_name == b"Pages" => {
+                if let Ok(count_obj) = pages_dict.get(b"Count") {
+                    if let Ok(count) = count_obj.as_i64() {
+                        if count >= 0 {
+                            return Ok(count as u32);
+                        }
+                    }
+                }
+
+                let kids = match pages_dict.get(b"Kids").and_then(Object::as_array) {
+                    Ok(arr) => arr,
+                    Err(_) => return Ok(0),
+                };
+
+                let mut total = 0u32;
+                for kid in kids.iter() {
+                    if let Ok(kid_ref) = kid.as_reference() {
+                        if let Ok(count) = self.get_pages_tree_count(kid_ref, seen) {
+                            total += count;
+                        }
+                    }
+                }
+                Ok(total)
+            }
+            _ => Ok(1),
+        }
+    }
+
     /// Read whole document.
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
         let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
@@ -345,7 +726,7 @@ impl Reader<'_> {
 
         // Check if encrypted
         let is_encrypted = self.document.trailer.get(b"Encrypt").is_ok();
-        
+
         if is_encrypted {
             // For encrypted PDFs, use a special loading strategy
             self.load_encrypted_document(filter_func)?;
@@ -353,16 +734,22 @@ impl Reader<'_> {
             // For non-encrypted PDFs, use the normal loading
             self.load_objects_raw(filter_func)?;
         }
-        
+
         Ok(self.document)
     }
-    
+
     fn load_encrypted_document(&mut self, _filter_func: Option<FilterFunc>) -> Result<()> {
         // First, extract all raw object bytes without parsing
-        let entries: Vec<_> = self.document.reference_table.entries.iter().map(|(k, v)| (*k, v.clone())).collect();
-        
+        let entries: Vec<_> = self
+            .document
+            .reference_table
+            .entries
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+
         let mut object_streams = Vec::new();
-        
+
         for (obj_num, entry) in entries {
             match entry {
                 XrefEntry::Normal { offset, .. } => {
@@ -379,7 +766,7 @@ impl Reader<'_> {
                 }
             }
         }
-        
+
         // Now setup encryption state
         if let Ok(encrypt_ref) = self.document.trailer.get(b"Encrypt").and_then(|o| o.as_reference()) {
             // Parse just the encryption dictionary
@@ -390,7 +777,7 @@ impl Reader<'_> {
                 }
             }
         }
-        
+
         // Try to authenticate - first with empty password, then with provided password
         let password_to_use: Option<String> = if self.document.authenticate_password("").is_ok() {
             Some(String::new())
@@ -412,7 +799,10 @@ impl Reader<'_> {
             match EncryptionState::decode(&self.document, &password) {
                 Ok(state) => {
                     // Now decrypt and parse all other objects
-                    let encrypt_ref = self.document.trailer.get(b"Encrypt")
+                    let encrypt_ref = self
+                        .document
+                        .trailer
+                        .get(b"Encrypt")
                         .ok()
                         .and_then(|o| o.as_reference().ok());
 
@@ -435,21 +825,23 @@ impl Reader<'_> {
                     // Now process compressed objects from object streams
 
                     // Group objects by their container stream for efficiency
-                    let mut streams_to_process: std::collections::HashMap<u32, Vec<(u32, u16)>> = std::collections::HashMap::new();
+                    let mut streams_to_process: std::collections::HashMap<u32, Vec<(u32, u16)>> =
+                        std::collections::HashMap::new();
                     for (obj_num, container_id, index) in object_streams {
-                        streams_to_process.entry(container_id).or_default().push((obj_num, index));
+                        streams_to_process
+                            .entry(container_id)
+                            .or_default()
+                            .push((obj_num, index));
                     }
 
                     // Process each object stream
                     for (container_id, objects_in_stream) in streams_to_process {
-
                         // Get the container stream
                         if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0)) {
                             if let Ok(stream) = container_obj.as_stream_mut() {
                                 // Parse the object stream
                                 match ObjectStream::new(stream) {
                                     Ok(object_stream) => {
-
                                         // Extract the objects we need
                                         for (obj_num, _index) in objects_in_stream {
                                             let obj_id = (obj_num, 0);
@@ -482,7 +874,7 @@ impl Reader<'_> {
 
         Ok(())
     }
-    
+
     fn parse_raw_object(&self, raw_bytes: &[u8]) -> Result<(ObjectId, Object)> {
         // Parse the raw bytes as an indirect object
         parser::indirect_object(
@@ -493,7 +885,7 @@ impl Reader<'_> {
             &mut HashSet::new(),
         )
     }
-    
+
     fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
         let is_encrypted = self.document.trailer.get(b"Encrypt").is_ok();
         let zero_length_streams = Mutex::new(vec![]);
@@ -547,7 +939,7 @@ impl Reader<'_> {
                 None
             }
         };
-        
+
         #[cfg(feature = "rayon")]
         {
             self.document.objects = self
@@ -568,7 +960,7 @@ impl Reader<'_> {
                 .filter_map(entries_filter_map)
                 .collect();
         }
-        
+
         // Only add entries, but never replace entries
         for (id, entry) in object_streams.into_inner().unwrap() {
             self.document.objects.entry(id).or_insert(entry);
@@ -577,7 +969,7 @@ impl Reader<'_> {
         for object_id in zero_length_streams.into_inner().unwrap() {
             let _ = self.read_stream_content(object_id);
         }
-        
+
         Ok(())
     }
 
@@ -631,12 +1023,46 @@ impl Reader<'_> {
         }
     }
 
+    /// Load a compressed object from an object stream (for lightweight metadata extraction)
+    fn get_compressed_object(&self, id: ObjectId) -> Result<Object> {
+        let entry = self.document.reference_table.get(id.0).ok_or(Error::MissingXrefEntry)?;
+
+        let container_id = match entry {
+            XrefEntry::Compressed { container, .. } => *container,
+            _ => return Err(Error::MissingXrefEntry),
+        };
+
+        // Load the container stream object
+        let container_id = (container_id, 0);
+        let mut already_seen = HashSet::new();
+        let container_obj = self.get_object(container_id, &mut already_seen)?;
+
+        let mut container_stream = container_obj.as_stream()?.clone();
+
+        // Parse the object stream
+        let object_stream = ObjectStream::new(&mut container_stream)?;
+
+        // Extract the specific object we need
+        object_stream
+            .objects
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| Error::MissingXrefEntry)
+    }
+
     pub fn get_object(&self, id: ObjectId, already_seen: &mut HashSet<ObjectId>) -> Result<Object> {
         if already_seen.contains(&id) {
             warn!("reference cycle detected resolving object {} {}", id.0, id.1);
             return Err(Error::ReferenceCycle(id));
         }
         already_seen.insert(id);
+
+        if let Some(entry) = self.document.reference_table.get(id.0) {
+            if matches!(entry, XrefEntry::Compressed { .. }) {
+                return self.get_compressed_object(id);
+            }
+        }
+
         let offset = self.get_offset(id)?;
         // read_object now handles decryption internally
         let (_, obj) = self.read_object(offset as usize, Some(id), already_seen)?;
@@ -648,16 +1074,16 @@ impl Reader<'_> {
         if offset > self.buffer.len() {
             return Err(Error::InvalidOffset(offset));
         }
-        
+
         // Find object header (e.g., "19 0 obj")
         let slice = &self.buffer[offset..];
-        
+
         // Parse object ID
         let mut pos = 0;
         while pos < slice.len() && slice[pos].is_ascii_whitespace() {
             pos += 1;
         }
-        
+
         // Get object number
         let num_start = pos;
         while pos < slice.len() && slice[pos].is_ascii_digit() {
@@ -667,12 +1093,12 @@ impl Reader<'_> {
             .ok()
             .and_then(|s| s.parse().ok())
             .ok_or(Error::Parse(ParseError::InvalidXref))?;
-        
+
         // Skip whitespace
         while pos < slice.len() && slice[pos].is_ascii_whitespace() {
             pos += 1;
         }
-        
+
         // Get generation number
         let gen_start = pos;
         while pos < slice.len() && slice[pos].is_ascii_digit() {
@@ -682,7 +1108,7 @@ impl Reader<'_> {
             .ok()
             .and_then(|s| s.parse().ok())
             .ok_or(Error::Parse(ParseError::InvalidXref))?;
-        
+
         // Skip to "obj"
         while pos < slice.len() && slice[pos].is_ascii_whitespace() {
             pos += 1;
@@ -691,7 +1117,7 @@ impl Reader<'_> {
             return Err(Error::Parse(ParseError::InvalidXref));
         }
         pos += 3;
-        
+
         // Find "endobj"
         let endobj_pattern = b"endobj";
         let mut end_pos = pos;
@@ -702,17 +1128,17 @@ impl Reader<'_> {
             }
             end_pos += 1;
         }
-        
+
         if end_pos > slice.len() {
             return Err(Error::Parse(ParseError::InvalidXref));
         }
-        
+
         // Extract raw object bytes (including header and trailer)
         let raw_bytes = slice[0..end_pos].to_vec();
-        
+
         Ok(((obj_num, obj_gen), raw_bytes))
     }
-    
+
     fn read_object(
         &self, offset: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
     ) -> Result<(ObjectId, Object)> {
