@@ -749,25 +749,11 @@ impl Reader<'_> {
     }
 
     fn search_substring(buffer: &[u8], pattern: &[u8], start_pos: usize) -> Option<usize> {
-        let mut seek_pos = start_pos;
-        let mut index = 0;
-
-        while seek_pos < buffer.len() && index < pattern.len() {
-            if buffer[seek_pos] == pattern[index] {
-                index += 1;
-            } else if index > 0 {
-                seek_pos -= index;
-                index = 0;
-            }
-            seek_pos += 1;
-
-            if index == pattern.len() {
-                let res = seek_pos - index;
-                return Self::search_substring(buffer, pattern, res + 1).or(Some(res));
-            }
-        }
-
-        None
+        buffer
+            .get(start_pos..)?
+            .windows(pattern.len())
+            .rposition(|window| window == pattern)
+            .map(|pos| start_pos + pos)
     }
 }
 
@@ -908,4 +894,23 @@ startxref
     let doc = Document::load_mem(doc.as_bytes()).unwrap();
     let pages = doc.get_pages().keys().cloned().collect::<Vec<_>>();
     assert_eq!("Hello World!\n", doc.extract_text(&pages).unwrap());
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn search_substring_finds_last_occurrence() {
+    assert_eq!(Reader::search_substring(b"hello world", b"xyz", 0), None);
+    assert_eq!(Reader::search_substring(b"hello world", b"world", 0), Some(6));
+
+    let buffer = b"%%EOF\ntest%%EOF\nend";
+    assert_eq!(Reader::search_substring(buffer, b"%%EOF", 0), Some(10));
+    assert_eq!(Reader::search_substring(buffer, b"%%EOF", 6), Some(10));
+    assert_eq!(Reader::search_substring(buffer, b"%%EOF", 15), None);
+    assert_eq!(Reader::search_substring(b"%%EOF", b"%%EOF", 0), Some(0));
+
+    let buffer_with_many_percents = b"%%%PDF-1.3%%%comment%%%more%%EOF";
+    assert_eq!(
+        Reader::search_substring(buffer_with_many_percents, b"%%EOF", 0),
+        Some(27)
+    );
 }
