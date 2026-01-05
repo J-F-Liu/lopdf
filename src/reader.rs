@@ -567,7 +567,7 @@ impl Reader<'_> {
                             .collect();
                         String::from_utf16_lossy(&utf16_bytes)
                     } else {
-                        String::from_utf8_lossy(&bytes).to_string()
+                        String::from_utf8_lossy(bytes).to_string()
                     };
                     Some(s)
                 }
@@ -599,8 +599,7 @@ impl Reader<'_> {
             Err(_) => return Ok(0),
         };
 
-        self.get_pages_tree_count(pages_ref, &mut HashSet::new())
-            .or_else(|_| Ok(0))
+        self.get_pages_tree_count(pages_ref, &mut HashSet::new()).or(Ok(0))
     }
 
     fn get_pages_tree_count(&self, pages_id: ObjectId, seen: &mut HashSet<ObjectId>) -> Result<u32> {
@@ -1043,11 +1042,7 @@ impl Reader<'_> {
         let object_stream = ObjectStream::new(&mut container_stream)?;
 
         // Extract the specific object we need
-        object_stream
-            .objects
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| Error::MissingXrefEntry)
+        object_stream.objects.get(&id).cloned().ok_or(Error::MissingXrefEntry)
     }
 
     pub fn get_object(&self, id: ObjectId, already_seen: &mut HashSet<ObjectId>) -> Result<Object> {
