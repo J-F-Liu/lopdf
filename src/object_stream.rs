@@ -1,5 +1,5 @@
 use crate::parser::{self, ParserInput};
-use crate::{dictionary, Document, Error, Object, ObjectId, Result, Stream};
+use crate::{Document, Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
 use std::num::TryFromIntError;
 use std::str::FromStr;
