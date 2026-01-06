@@ -103,13 +103,27 @@ impl Document {
     pub fn load_metadata<P: AsRef<Path>>(path: P) -> Result<PdfMetadata> {
         let file = File::open(path)?;
         let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_metadata_internal(file, capacity)
+        Self::load_metadata_internal(file, capacity, None)
+    }
+
+    /// Load PDF metadata from a file path with a password for encrypted PDFs.
+    #[inline]
+    pub fn load_metadata_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<PdfMetadata> {
+        let file = File::open(path)?;
+        let capacity = Some(file.metadata()?.len() as usize);
+        Self::load_metadata_internal(file, capacity, Some(password.to_string()))
     }
 
     /// Load PDF metadata from an arbitrary source without loading the entire document.
     #[inline]
     pub fn load_metadata_from<R: Read>(source: R) -> Result<PdfMetadata> {
-        Self::load_metadata_internal(source, None)
+        Self::load_metadata_internal(source, None, None)
+    }
+
+    /// Load PDF metadata from an arbitrary source with a password for encrypted PDFs.
+    #[inline]
+    pub fn load_metadata_from_with_password<R: Read>(source: R, password: &str) -> Result<PdfMetadata> {
+        Self::load_metadata_internal(source, None, Some(password.to_string()))
     }
 
     /// Load PDF metadata from a memory slice without loading the entire document.
@@ -125,7 +139,22 @@ impl Document {
         .read_metadata()
     }
 
-    fn load_metadata_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<PdfMetadata> {
+    /// Load PDF metadata from a memory slice with a password for encrypted PDFs.
+    #[inline]
+    pub fn load_metadata_mem_with_password(buffer: &[u8], password: &str) -> Result<PdfMetadata> {
+        Reader {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: Some(password.to_string()),
+        }
+        .read_metadata()
+    }
+
+    fn load_metadata_internal<R: Read>(
+        mut source: R, capacity: Option<usize>, password: Option<String>,
+    ) -> Result<PdfMetadata> {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
@@ -134,7 +163,7 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password: None,
+            password,
         }
         .read_metadata()
     }
@@ -194,13 +223,28 @@ impl Document {
         let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
-        Self::load_metadata_internal(file, capacity).await
+        Self::load_metadata_internal(file, capacity, None).await
+    }
+
+    /// Load PDF metadata from a file path with a password for encrypted PDFs.
+    #[inline]
+    pub async fn load_metadata_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<PdfMetadata> {
+        let file = File::open(path).await?;
+        let metadata = file.metadata().await?;
+        let capacity = Some(metadata.len() as usize);
+        Self::load_metadata_internal(file, capacity, Some(password.to_string())).await
     }
 
     /// Load PDF metadata from an arbitrary source without loading the entire document.
     #[inline]
     pub async fn load_metadata_from<R: AsyncRead>(source: R) -> Result<PdfMetadata> {
-        Self::load_metadata_internal(source, None).await
+        Self::load_metadata_internal(source, None, None).await
+    }
+
+    /// Load PDF metadata from an arbitrary source with a password for encrypted PDFs.
+    #[inline]
+    pub async fn load_metadata_from_with_password<R: AsyncRead>(source: R, password: &str) -> Result<PdfMetadata> {
+        Self::load_metadata_internal(source, None, Some(password.to_string())).await
     }
 
     /// Load PDF metadata from a memory slice without loading the entire document.
@@ -216,7 +260,22 @@ impl Document {
         .read_metadata()
     }
 
-    async fn load_metadata_internal<R: AsyncRead>(source: R, capacity: Option<usize>) -> Result<PdfMetadata> {
+    /// Load PDF metadata from a memory slice with a password for encrypted PDFs.
+    #[inline]
+    pub fn load_metadata_mem_with_password(buffer: &[u8], password: &str) -> Result<PdfMetadata> {
+        Reader {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: Some(password.to_string()),
+        }
+        .read_metadata()
+    }
+
+    async fn load_metadata_internal<R: AsyncRead>(
+        source: R, capacity: Option<usize>, password: Option<String>,
+    ) -> Result<PdfMetadata> {
         pin!(source);
 
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
@@ -227,7 +286,7 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password: None,
+            password,
         }
         .read_metadata()
     }
@@ -396,8 +455,7 @@ impl Reader<'_> {
     /// Read metadata (title and page count) without loading the entire document.
     /// This is much faster for large PDFs when you only need basic information.
     ///
-    /// Note: This method does not support encrypted PDFs. For encrypted PDFs,
-    /// you must use `Document::load_with_password()` and then access the metadata.
+    /// For encrypted PDFs, use `Document::load_metadata_with_password()` instead.
     pub fn read_metadata(mut self) -> Result<PdfMetadata> {
         let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
         self.buffer = &self.buffer[offset..];
@@ -413,7 +471,6 @@ impl Reader<'_> {
         let (mut xref, mut trailer) =
             parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[xref_start..], "xref"), &self)?;
 
-        // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
         let mut prev_xref_start = trailer.remove(b"Prev");
         while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
@@ -429,7 +486,6 @@ impl Reader<'_> {
                 parser::xref_and_trailer(ParserInput::new_extra(&self.buffer[prev as usize..], ""), &self)?;
             xref.merge(prev_xref);
 
-            // Read xref stream in hybrid-reference file
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
             if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64().ok()) {
                 if prev < 0 || prev as usize > self.buffer.len() {
@@ -452,14 +508,12 @@ impl Reader<'_> {
             xref.size = xref_entry_count;
         }
 
-        if trailer.get(b"Encrypt").is_ok() {
-            return Err(Error::Unimplemented(
-                "Metadata extraction for encrypted PDFs is not supported. Use Document::load_with_password() instead.",
-            ));
-        }
-
         self.document.reference_table = xref;
         self.document.trailer = trailer.clone();
+
+        if self.document.trailer.get(b"Encrypt").is_ok() {
+            self.setup_encryption_for_metadata()?;
+        }
 
         let info_metadata = self.extract_info_metadata()?;
         let page_count = self.extract_page_count()?;
@@ -766,109 +820,66 @@ impl Reader<'_> {
             }
         }
 
-        // Now setup encryption state
-        if let Ok(encrypt_ref) = self.document.trailer.get(b"Encrypt").and_then(|o| o.as_reference()) {
-            // Parse just the encryption dictionary
-            if let Some(raw_bytes) = self.raw_objects.get(&encrypt_ref) {
-                // Parse the encryption dictionary (it's never encrypted)
-                if let Ok((_, obj)) = self.parse_raw_object(raw_bytes) {
-                    self.document.objects.insert(encrypt_ref, obj);
-                }
-            }
+        self.parse_encryption_dictionary()?;
+
+        if self.authenticate_and_setup_encryption(false)?.is_none() {
+            return Ok(());
         }
 
-        // Try to authenticate - first with empty password, then with provided password
-        let password_to_use: Option<String> = if self.document.authenticate_password("").is_ok() {
-            Some(String::new())
-        } else if let Some(ref pwd) = self.password {
-            if self.document.authenticate_password(pwd).is_ok() {
-                Some(pwd.clone())
-            } else {
-                warn!("Invalid password provided for encrypted PDF");
-                return Err(Error::InvalidPassword);
+        if let Some(ref state) = self.encryption_state {
+            let encrypt_ref = self
+                .document
+                .trailer
+                .get(b"Encrypt")
+                .ok()
+                .and_then(|o| o.as_reference().ok());
+
+            for (obj_id, raw_bytes) in &self.raw_objects {
+                if let Some(enc_ref) = encrypt_ref {
+                    if *obj_id == enc_ref {
+                        continue;
+                    }
+                }
+
+                if let Ok((id, mut obj)) = self.parse_raw_object(raw_bytes) {
+                    let _ = encryption::decrypt_object(state, *obj_id, &mut obj);
+                    self.document.objects.insert(id, obj);
+                }
             }
-        } else {
-            warn!("PDF is encrypted and requires a password");
-            // No password provided and empty password didn't work - return document as-is
-            // This maintains backwards compatibility (objects won't be loaded)
-            return Ok(());
-        };
 
-        if let Some(password) = password_to_use {
-            match EncryptionState::decode(&self.document, &password) {
-                Ok(state) => {
-                    // Now decrypt and parse all other objects
-                    let encrypt_ref = self
-                        .document
-                        .trailer
-                        .get(b"Encrypt")
-                        .ok()
-                        .and_then(|o| o.as_reference().ok());
+            let mut streams_to_process: std::collections::HashMap<u32, Vec<(u32, u16)>> =
+                std::collections::HashMap::new();
+            for (obj_num, container_id, index) in object_streams {
+                streams_to_process
+                    .entry(container_id)
+                    .or_default()
+                    .push((obj_num, index));
+            }
 
-                    for (obj_id, raw_bytes) in &self.raw_objects {
-                        // Skip the encryption dictionary
-                        if let Some(enc_ref) = encrypt_ref {
-                            if *obj_id == enc_ref {
-                                continue;
-                            }
-                        }
-
-                        // Parse the raw object
-                        if let Ok((id, mut obj)) = self.parse_raw_object(raw_bytes) {
-                            // Decrypt the parsed object
-                            let _ = encryption::decrypt_object(&state, *obj_id, &mut obj);
-                            self.document.objects.insert(id, obj);
-                        }
-                    }
-
-                    // Now process compressed objects from object streams
-
-                    // Group objects by their container stream for efficiency
-                    let mut streams_to_process: std::collections::HashMap<u32, Vec<(u32, u16)>> =
-                        std::collections::HashMap::new();
-                    for (obj_num, container_id, index) in object_streams {
-                        streams_to_process
-                            .entry(container_id)
-                            .or_default()
-                            .push((obj_num, index));
-                    }
-
-                    // Process each object stream
-                    for (container_id, objects_in_stream) in streams_to_process {
-                        // Get the container stream
-                        if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0)) {
-                            if let Ok(stream) = container_obj.as_stream_mut() {
-                                // Parse the object stream
-                                match ObjectStream::new(stream) {
-                                    Ok(object_stream) => {
-                                        // Extract the objects we need
-                                        for (obj_num, _index) in objects_in_stream {
-                                            let obj_id = (obj_num, 0);
-                                            if let Some(obj) = object_stream.objects.get(&obj_id) {
-                                                self.document.objects.insert(obj_id, obj.clone());
-                                            }
-                                        }
-                                    }
-                                    Err(_e) => {
-                                        // Silently skip unparseable object streams
+            for (container_id, objects_in_stream) in streams_to_process {
+                if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0)) {
+                    if let Ok(stream) = container_obj.as_stream_mut() {
+                        match ObjectStream::new(stream) {
+                            Ok(object_stream) => {
+                                for (obj_num, _index) in objects_in_stream {
+                                    let obj_id = (obj_num, 0);
+                                    if let Some(obj) = object_stream.objects.get(&obj_id) {
+                                        self.document.objects.insert(obj_id, obj.clone());
                                     }
                                 }
                             }
+                            Err(_e) => {}
                         }
                     }
-
-                    self.document.encryption_state = Some(state);
-
-                    // Remove encryption markers since document is now decrypted
-                    if let Some(enc_ref) = encrypt_ref {
-                        self.document.objects.remove(&enc_ref);
-                    }
-                    self.document.trailer.remove(b"Encrypt");
-                }
-                Err(e) => {
-                    warn!("Failed to setup encryption state: {:?}", e);
                 }
             }
+
+            self.document.encryption_state = Some(state.clone());
+
+            if let Some(enc_ref) = encrypt_ref {
+                self.document.objects.remove(&enc_ref);
+            }
+            self.document.trailer.remove(b"Encrypt");
         }
 
         Ok(())
@@ -1031,17 +1042,11 @@ impl Reader<'_> {
             _ => return Err(Error::MissingXrefEntry),
         };
 
-        // Load the container stream object
         let container_id = (container_id, 0);
         let mut already_seen = HashSet::new();
         let container_obj = self.get_object(container_id, &mut already_seen)?;
-
         let mut container_stream = container_obj.as_stream()?.clone();
-
-        // Parse the object stream
         let object_stream = ObjectStream::new(&mut container_stream)?;
-
-        // Extract the specific object we need
         object_stream.objects.get(&id).cloned().ok_or(Error::MissingXrefEntry)
     }
 
@@ -1059,10 +1064,73 @@ impl Reader<'_> {
         }
 
         let offset = self.get_offset(id)?;
-        // read_object now handles decryption internally
-        let (_, obj) = self.read_object(offset as usize, Some(id), already_seen)?;
+        let (_, mut obj) = self.read_object(offset as usize, Some(id), already_seen)?;
+
+        if let Some(ref state) = self.encryption_state {
+            let encrypt_ref = self
+                .document
+                .trailer
+                .get(b"Encrypt")
+                .ok()
+                .and_then(|o| o.as_reference().ok());
+            if let Some(enc_ref) = encrypt_ref {
+                if id != enc_ref {
+                    encryption::decrypt_object(state, id, &mut obj).map_err(Error::Decryption)?;
+                }
+            }
+        }
 
         Ok(obj)
+    }
+
+    fn parse_encryption_dictionary(&mut self) -> Result<()> {
+        if let Ok(encrypt_ref) = self.document.trailer.get(b"Encrypt").and_then(|o| o.as_reference()) {
+            if self.raw_objects.is_empty() {
+                let offset = self.get_offset(encrypt_ref)?;
+                let (_, encrypt_obj) = self.read_object(offset as usize, Some(encrypt_ref), &mut HashSet::new())?;
+                self.document.objects.insert(encrypt_ref, encrypt_obj);
+            } else if let Some(raw_bytes) = self.raw_objects.get(&encrypt_ref) {
+                if let Ok((_, obj)) = self.parse_raw_object(raw_bytes) {
+                    self.document.objects.insert(encrypt_ref, obj);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn authenticate_and_setup_encryption(&mut self, require_password: bool) -> Result<Option<String>> {
+        let password_to_use: Option<String> = if self.document.authenticate_password("").is_ok() {
+            Some(String::new())
+        } else if let Some(ref pwd) = self.password {
+            if self.document.authenticate_password(pwd).is_ok() {
+                Some(pwd.clone())
+            } else if require_password {
+                return Err(Error::InvalidPassword);
+            } else {
+                warn!("Invalid password provided for encrypted PDF");
+                return Err(Error::InvalidPassword);
+            }
+        } else if require_password {
+            return Err(Error::Unimplemented(
+                "PDF is encrypted and requires a password. Use Document::load_metadata_with_password() instead.",
+            ));
+        } else {
+            warn!("PDF is encrypted and requires a password");
+            return Ok(None);
+        };
+
+        if let Some(ref password) = password_to_use {
+            let state = EncryptionState::decode(&self.document, password)?;
+            self.encryption_state = Some(state);
+        }
+
+        Ok(password_to_use)
+    }
+
+    fn setup_encryption_for_metadata(&mut self) -> Result<()> {
+        self.parse_encryption_dictionary()?;
+        self.authenticate_and_setup_encryption(true)?;
+        Ok(())
     }
 
     fn extract_raw_object(&mut self, offset: usize) -> Result<(ObjectId, Vec<u8>)> {
