@@ -51,6 +51,7 @@ fn test_metadata_extraction_annotation_demo() {
     assert!(metadata.page_count > 0);
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_metadata_extraction_encrypted_empty_password() {
     let mut doc = Document::with_version("1.5");
@@ -116,6 +117,7 @@ fn test_metadata_extraction_encrypted_empty_password() {
     assert_eq!(metadata.page_count, 1);
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_metadata_extraction_encrypted_with_password() {
     let mut doc = Document::with_version("1.5");
@@ -185,6 +187,7 @@ fn test_metadata_extraction_encrypted_with_password() {
     assert_eq!(metadata_mem.page_count, 1);
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_metadata_extraction_encrypted_wrong_password() {
     let mut doc = Document::with_version("1.5");
