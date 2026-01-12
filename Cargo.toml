@@ -13,7 +13,7 @@ license = "MIT"
 name = "lopdf"
 readme = "README.md"
 repository = "https://github.com/J-F-Liu/lopdf.git"
-version = "0.38.0"
+version = "0.39.0"
 rust-version = "1.85"
 
 [dependencies]
