@@ -81,6 +81,7 @@ impl Encoding<'_> {
                     .collect();
                 Ok(UTF_16BE.decode(&utf16_str).0.to_string())
             }
+            Self::SimpleEncoding(b"WinAnsiEncoding") => Ok(bytes_to_string(&WIN_ANSI_ENCODING, bytes)),
             Self::SimpleEncoding(_) => Err(Error::CharacterEncoding),
         }
     }
@@ -89,6 +90,7 @@ impl Encoding<'_> {
         match self {
             Self::OneByteEncoding(map) => string_to_bytes(map, text),
             Self::SimpleEncoding(b"UniGB-UCS2-H") | Self::SimpleEncoding(b"UniGB-UTF16-H") => encode_utf16_be(text),
+            Self::SimpleEncoding(b"WinAnsiEncoding") => string_to_bytes(&WIN_ANSI_ENCODING, text),
             Self::UnicodeMapEncoding(unicode_map) => {
                 let mut result_bytes = Vec::new();
 
@@ -177,5 +179,26 @@ mod tests {
         let result = Encoding::UnicodeMapEncoding(cmap).bytes_to_string(&bytes);
 
         assert_eq!(result.unwrap(), "\u{0024}");
+    }
+
+    #[test]
+    fn winansi_bytes_to_string() {
+        // 0xe9 = é in WinAnsi, 0xfc = ü, 0xdf = ß
+        let bytes = [0x41, 0xe9, 0x42, 0xfc, 0xdf]; // AéBüß
+        let result = Encoding::SimpleEncoding(b"WinAnsiEncoding")
+            .bytes_to_string(&bytes)
+            .expect("WinAnsi decode should succeed");
+        assert_eq!(result, "AéBüß");
+    }
+
+    #[test]
+    fn winansi_string_to_bytes() {
+        let text = "Sébastien 0,019€ ü ÄÖÜ ß";
+        let bytes = Encoding::SimpleEncoding(b"WinAnsiEncoding").string_to_bytes(text);
+        // Round-trip: decode the bytes back via the same encoding
+        let decoded = Encoding::OneByteEncoding(&WIN_ANSI_ENCODING)
+            .bytes_to_string(&bytes)
+            .expect("WinAnsi decode should succeed");
+        assert_eq!(decoded, text);
     }
 }
