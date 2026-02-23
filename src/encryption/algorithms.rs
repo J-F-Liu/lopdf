@@ -144,7 +144,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             .map_err(|_| DecryptionError::InvalidType)?;
 
         // Get the owner value and owner encrypted blobs.
-        let owner_value = encrypted.get(b"O")
+        let mut owner_value = encrypted.get(b"O")
             .map_err(|_| DecryptionError::MissingOwnerPassword)?
             .as_str()
             .map_err(|_| DecryptionError::InvalidType)?
@@ -156,8 +156,13 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         }
 
         // The owner value is 48 bytes long if the value of R is 5 or greater.
-        if revision >= 5 && owner_value.len() != 48 {
-            return Err(DecryptionError::InvalidHashLength)?;
+        // Some PDF writers pad /O with trailing zeros beyond 48 bytes; truncate
+        // to the spec-required length so these documents are accepted.
+        if revision >= 5 {
+            if owner_value.len() < 48 {
+                return Err(DecryptionError::InvalidHashLength)?;
+            }
+            owner_value.truncate(48);
         }
 
         let owner_encrypted = encrypted.get(b"OE")
@@ -173,7 +178,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         }
 
         // Get the user value and user encrypted blobs.
-        let user_value = encrypted.get(b"U")
+        let mut user_value = encrypted.get(b"U")
             .map_err(|_| DecryptionError::MissingUserPassword)?
             .as_str()
             .map_err(|_| DecryptionError::InvalidType)?
@@ -185,8 +190,13 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         }
 
         // The user value is 48 bytes long if the value of R is 5 or greater.
-        if revision >= 5 && user_value.len() != 48 {
-            return Err(DecryptionError::InvalidHashLength)?;
+        // Some PDF writers pad /U with trailing zeros beyond 48 bytes; truncate
+        // to the spec-required length so these documents are accepted.
+        if revision >= 5 {
+            if user_value.len() < 48 {
+                return Err(DecryptionError::InvalidHashLength)?;
+            }
+            user_value.truncate(48);
         }
 
         let user_encrypted = encrypted.get(b"UE")
@@ -1495,5 +1505,80 @@ mod tests {
         // Assert that the file encryption key is equal for the user password.
         let key = algorithm.compute_file_encryption_key_r6(&user_password).unwrap();
         assert_eq!(&file_encryption_key[..], key);
+    }
+
+    /// Some PDF writers (e.g. Adobe) pad /O and /U to 127 bytes with trailing
+    /// zeros instead of the spec-required 48. Verify that `try_from` accepts
+    /// these and truncates to the correct 48-byte length.
+    #[test]
+    fn r6_padded_owner_user_values_accepted() {
+        use crate::{dictionary, Document, Object, StringFormat};
+
+        let mut doc = Document::with_version("2.0");
+
+        // Build valid 48-byte /O and /U (contents don't matter for parsing).
+        let o_48 = vec![0xAAu8; 48];
+        let u_48 = vec![0xBBu8; 48];
+
+        // Pad to 127 bytes with trailing zeros — mimics real-world Adobe PDFs.
+        let mut o_127 = o_48.clone();
+        o_127.resize(127, 0u8);
+        let mut u_127 = u_48.clone();
+        u_127.resize(127, 0u8);
+
+        let encrypt_dict = dictionary! {
+            "Filter" => "Standard",
+            "V" => Object::Integer(5),
+            "R" => Object::Integer(6),
+            "Length" => Object::Integer(256),
+            "O" => Object::String(o_127, StringFormat::Literal),
+            "OE" => Object::String(vec![0xCCu8; 32], StringFormat::Literal),
+            "U" => Object::String(u_127, StringFormat::Literal),
+            "UE" => Object::String(vec![0xDDu8; 32], StringFormat::Literal),
+            "P" => Object::Integer(-3388),
+            "Perms" => Object::String(vec![0xEEu8; 16], StringFormat::Literal)
+        };
+
+        let encrypt_id = doc.add_object(encrypt_dict);
+        doc.trailer.set("Encrypt", Object::Reference(encrypt_id));
+
+        let algo = PasswordAlgorithm::try_from(&doc)
+            .expect("should accept padded /O and /U longer than 48 bytes");
+
+        // Verify the values were truncated to the spec-required 48 bytes.
+        assert_eq!(algo.owner_value.len(), 48);
+        assert_eq!(algo.user_value.len(), 48);
+        assert_eq!(&algo.owner_value, &o_48);
+        assert_eq!(&algo.user_value, &u_48);
+    }
+
+    /// Verify that /O and /U values shorter than 48 bytes are still rejected
+    /// for R >= 5.
+    #[test]
+    fn r6_short_owner_user_values_rejected() {
+        use crate::{dictionary, Document, Object, StringFormat};
+
+        let mut doc = Document::with_version("2.0");
+
+        let encrypt_dict = dictionary! {
+            "Filter" => "Standard",
+            "V" => Object::Integer(5),
+            "R" => Object::Integer(6),
+            "Length" => Object::Integer(256),
+            "O" => Object::String(vec![0xAAu8; 47], StringFormat::Literal),
+            "OE" => Object::String(vec![0xCCu8; 32], StringFormat::Literal),
+            "U" => Object::String(vec![0xBBu8; 48], StringFormat::Literal),
+            "UE" => Object::String(vec![0xDDu8; 32], StringFormat::Literal),
+            "P" => Object::Integer(-3388),
+            "Perms" => Object::String(vec![0xEEu8; 16], StringFormat::Literal)
+        };
+
+        let encrypt_id = doc.add_object(encrypt_dict);
+        doc.trailer.set("Encrypt", Object::Reference(encrypt_id));
+
+        assert!(
+            PasswordAlgorithm::try_from(&doc).is_err(),
+            "should reject /O shorter than 48 bytes"
+        );
     }
 }
