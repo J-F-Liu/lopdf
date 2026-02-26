@@ -1223,7 +1223,7 @@ impl Reader<'_> {
         let seek_pos = buffer.len() - cmp::min(buffer.len(), 512);
         Self::search_substring(buffer, b"%%EOF", seek_pos)
             .and_then(|eof_pos| if eof_pos > 25 { Some(eof_pos) } else { None })
-            .and_then(|eof_pos| Self::search_substring(buffer, b"startxref", eof_pos - 25))
+            .and_then(|eof_pos| Self::search_substring(&buffer[..eof_pos], b"startxref", eof_pos - 25))
             .ok_or(Error::Xref(XrefError::Start))
             .and_then(|xref_pos| {
                 if xref_pos <= buffer.len() {
@@ -1402,4 +1402,30 @@ fn search_substring_finds_last_occurrence() {
         Reader::search_substring(buffer_with_many_percents, b"%%EOF", 0),
         Some(27)
     );
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn get_xref_start_ignores_startxref_past_eof() {
+    // Simulate a PDF with two revisions where the second has a corrupted %%EOF.
+    // The valid %%EOF is at a known position; a second startxref appears after it
+    // but belongs to the corrupted revision. get_xref_start must pick the
+    // startxref *before* the valid %%EOF.
+    let mut buf = Vec::new();
+    // Padding so the buffer is large enough
+    buf.extend_from_slice(&[b' '; 200]);
+    // First (correct) startxref + xref offset + valid %%EOF
+    let xref_offset = 100usize;
+    let startxref_block = format!("startxref\n{}\n%%EOF\n", xref_offset);
+    let _startxref_pos = buf.len();
+    buf.extend_from_slice(startxref_block.as_bytes());
+    // Second (corrupted) revision: another startxref pointing elsewhere, with %%EO\0
+    let bad_block = format!("startxref\n999\n%%EO\x00\n");
+    buf.extend_from_slice(bad_block.as_bytes());
+
+    let result = Reader::get_xref_start(&buf).unwrap();
+    // Should find the xref_offset from the first startxref (before valid %%EOF)
+    assert_eq!(result, xref_offset);
+    // Verify it did NOT pick up 999 from the corrupted revision
+    assert_ne!(result, 999);
 }
