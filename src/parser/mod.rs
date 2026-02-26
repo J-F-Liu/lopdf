@@ -558,9 +558,33 @@ fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
 fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     let (input, stream_dict) = inner_dictionary.parse(input)?;
     let (input, _) = pair(tag(&b"ID"[..]), content_space).parse(input)?;
-    let (_, (input, stream)) = convert_result(image_data_stream(input, stream_dict), input, ErrorKind::Fail)?;
-    let (input, _) = (content_space, tag(&b"EI"[..]), content_space).parse(input)?;
-    Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
+    match image_data_stream(input, stream_dict) {
+        Ok((input, stream)) => {
+            let (input, _) = (content_space, tag(&b"EI"[..]), content_space).parse(input)?;
+            Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
+        }
+        Err(e) => {
+            // Skip to EI marker so the rest of the content stream can still be parsed.
+            log::warn!("Skipping unparseable inline image: {e}");
+            let bytes = input.fragment();
+            // EI must appear after whitespace to distinguish from data bytes.
+            let ei_pos = bytes.windows(4)
+                .position(|w| (w[0] == b' ' || w[0] == b'\n' || w[0] == b'\r')
+                    && w[1] == b'E' && w[2] == b'I'
+                    && (w[3] == b' ' || w[3] == b'\n' || w[3] == b'\r'))
+                .ok_or_else(|| {
+                    let err: NomError = nom::error::Error::from_error_kind(input, ErrorKind::Fail);
+                    nom::Err::Failure(err)
+                })?;
+            let (input, _) = take(ei_pos + 3).parse(input)
+                .map_err(|_: nom::Err<()>| {
+                    let err: NomError = nom::error::Error::from_error_kind(input, ErrorKind::Fail);
+                    nom::Err::Failure(err)
+                })?;
+            let (input, _) = content_space(input)?;
+            Ok((input, (vec![], String::from("BI"))))
+        }
+    }
 }
 
 fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Result<(ParserInput, Stream)> {
@@ -792,8 +816,26 @@ startxref
     }
 
     #[test]
+    fn inline_image_unknown_colorspace_skipped() {
+        // Inline image with an unrecognized colorspace ("ICCBased" is not handled).
+        // The parser should skip it and still parse the surrounding operations.
+        let input = b"q 100 100 moveto
+BI /W 2 /H 2 /CS /ICCBased /BPC 8
+ID
+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+EI
+(Hello) Tj Q";
+        let out = content(test_span(input)).unwrap();
+        // Should have: q, moveto, BI (skipped), Tj, Q = 5 operations
+        let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+        assert!(ops.contains(&"q"), "missing q, got: {:?}", ops);
+        assert!(ops.contains(&"Tj"), "missing Tj, got: {:?}", ops);
+        assert!(ops.contains(&"Q"), "missing Q, got: {:?}", ops);
+    }
+
+    #[test]
     fn inline_image() {
-        env_logger::init();
+        let _ = env_logger::try_init();
         let input = b"BI /W 4 /H 4 /CS /RGB /BPC 8
 ID
 00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz
