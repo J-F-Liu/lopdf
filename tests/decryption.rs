@@ -1,4 +1,4 @@
-use lopdf::{Document, Error, Object};
+use lopdf::{Document, Object};
 
 #[cfg(not(feature = "async"))]
 #[test]
@@ -625,12 +625,18 @@ fn test_load_with_password_correct_password() {
     // Extract text to verify decryption worked
     let page_numbers: Vec<u32> = pages.keys().cloned().collect();
     let text = loaded_with_password.extract_text(&page_numbers).unwrap();
-    assert!(text.contains("Password Protected Content!"), "Should be able to extract text: {}", text);
+    assert!(
+        text.contains("Password Protected Content!"),
+        "Should be able to extract text: {}",
+        text
+    );
 }
 
 #[cfg(not(feature = "async"))]
 #[test]
 fn test_load_with_password_wrong_password() {
+    use lopdf::Error;
+
     // Create a simple PDF document
     let mut doc = Document::with_version("1.5");
 
@@ -691,6 +697,8 @@ fn test_load_with_password_wrong_password() {
 #[cfg(not(feature = "async"))]
 #[test]
 fn test_load_with_password_empty_password_when_required() {
+    use lopdf::Error;
+
     // Create a simple PDF document
     let mut doc = Document::with_version("1.5");
 
@@ -1325,12 +1333,12 @@ fn test_encrypt_decrypt_multipage_roundtrip() {
     let pages_id = doc.new_object_id();
     let mut page_ids = Vec::new();
     let mut content_ids = Vec::new();
-    
-    for i in 0..5 {
+
+    for _ in 0..5 {
         page_ids.push(doc.new_object_id());
         content_ids.push(doc.new_object_id());
     }
-    
+
     let font_id = doc.new_object_id();
     let resources_id = doc.new_object_id();
 
