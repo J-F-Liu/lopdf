@@ -3,7 +3,7 @@ use crate::encodings;
 use crate::{Document, Error, Object};
 use crate::encryption::Permissions;
 use md5::{Digest as _, Md5};
-use rand::Rng as _;
+use rand::RngExt as _;
 use sha2::{Sha256, Sha384, Sha512};
 use super::DecryptionError;
 use super::rc4::Rc4;
@@ -1259,7 +1259,7 @@ mod tests {
     use crate::Permissions;
     use crate::creator::tests::create_document;
     use crate::encryption::PasswordAlgorithm;
-    use rand::Rng as _;
+    use rand::RngExt as _;
 
     #[test]
     fn authenticate_password_r2() {

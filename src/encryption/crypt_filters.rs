@@ -1,7 +1,7 @@
 use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use crate::ObjectId;
 use md5::{Digest as _, Md5};
-use rand::Rng as _;
+use rand::RngExt as _;
 use super::DecryptionError;
 use super::pkcs5::Pkcs5;
 use super::rc4::Rc4;
