@@ -31,12 +31,12 @@ image = { version = "0.25", optional = true }
 indexmap = "2.2.3"
 itoa = "1.0"
 jiff = { version = "0.2", optional = true }
-getrandom = "0.3"
+getrandom = "0.4"
 log = "0.4"
 md-5 = "0.10"
 nom = "8.0"
 nom_locate = "5.0"
-rand = { version = "0.9" }
+rand = { version = "0.10" }
 rangemap = "1.5"
 rayon = { version = "1.6", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }

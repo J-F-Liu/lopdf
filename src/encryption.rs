@@ -860,7 +860,7 @@ mod tests {
     use crate::{EncryptionState, EncryptionVersion, Permissions};
     use crate::creator::tests::create_document;
     use crate::encryption::{CryptFilter, Aes128CryptFilter, Aes256CryptFilter};
-    use rand::Rng as _;
+    use rand::RngExt as _;
     use super::rc4::Rc4;
     use std::collections::BTreeMap;
     use std::sync::Arc;
