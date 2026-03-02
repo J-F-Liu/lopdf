@@ -158,7 +158,7 @@ fn pdf2text<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool, password: 
     let text = get_pdf_text(&doc)?;
     if !text.errors.is_empty() {
         eprintln!("{path:?} has {} errors:", text.errors.len());
-        for error in &text.errors[..10] {
+        for error in &text.errors[..text.errors.len().min(10)] {
             eprintln!("{error:?}");
         }
     }

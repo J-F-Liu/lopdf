@@ -110,7 +110,7 @@ fn pdf2toc<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool) -> Result<(
     let toc = doc.get_toc().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
     if !toc.errors.is_empty() {
         eprintln!("{path:?} has {} errors:", toc.errors.len());
-        for error in &toc.errors[..10] {
+        for error in &toc.errors[..toc.errors.len().min(10)] {
             eprintln!("{error:?}");
         }
     }
