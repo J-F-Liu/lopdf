@@ -949,7 +949,7 @@ impl Reader<'_> {
                                 .objects
                                 .into_iter()
                                 .filter(|((obj_num, _), _)| {
-                                    compressed_obj_containers.get(obj_num) == Some(&container_id)
+                                    compressed_obj_containers.get(obj_num).map_or(true, |&c| c == container_id)
                                 })
                                 .filter_map(|(object_id, mut object)| filter_func(object_id, &mut object))
                                 .collect();
@@ -957,7 +957,7 @@ impl Reader<'_> {
                         } else {
                             object_streams.extend(
                                 obj_stream.objects.into_iter().filter(|((obj_num, _), _)| {
-                                    compressed_obj_containers.get(obj_num) == Some(&container_id)
+                                    compressed_obj_containers.get(obj_num).map_or(true, |&c| c == container_id)
                                 }),
                             );
                         }
