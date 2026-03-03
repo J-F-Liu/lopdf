@@ -901,6 +901,23 @@ impl Reader<'_> {
         let zero_length_streams = Mutex::new(vec![]);
         let object_streams = Mutex::new(vec![]);
 
+        // Build a map of which container each compressed object belongs to
+        // according to the xref. This prevents stale ObjStm copies (e.g., from
+        // linearization first-page sections) from overriding the correct version.
+        let compressed_obj_containers: BTreeMap<u32, u32> = self
+            .document
+            .reference_table
+            .entries
+            .iter()
+            .filter_map(|(&id, entry)| {
+                if let XrefEntry::Compressed { container, .. } = entry {
+                    Some((id, *container))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         let entries_filter_map = |(_, entry): (&_, &_)| {
             if let XrefEntry::Normal { offset, .. } = *entry {
                 // read_object now handles decryption internally
@@ -925,18 +942,24 @@ impl Reader<'_> {
                 if let Ok(ref mut stream) = object.as_stream_mut() {
                     if stream.dict.has_type(b"ObjStm") && !is_encrypted {
                         let obj_stream = ObjectStream::new(stream).ok()?;
+                        let container_id = object_id.0;
                         let mut object_streams = object_streams.lock().unwrap();
-                        // TODO: Is insert and replace intended behavior?
-                        // See https://github.com/J-F-Liu/lopdf/issues/160 for more info
                         if let Some(filter_func) = filter_func {
                             let objects: BTreeMap<(u32, u16), Object> = obj_stream
                                 .objects
                                 .into_iter()
+                                .filter(|((obj_num, _), _)| {
+                                    compressed_obj_containers.get(obj_num) == Some(&container_id)
+                                })
                                 .filter_map(|(object_id, mut object)| filter_func(object_id, &mut object))
                                 .collect();
                             object_streams.extend(objects);
                         } else {
-                            object_streams.extend(obj_stream.objects);
+                            object_streams.extend(
+                                obj_stream.objects.into_iter().filter(|((obj_num, _), _)| {
+                                    compressed_obj_containers.get(obj_num) == Some(&container_id)
+                                }),
+                            );
                         }
                     } else if stream.content.is_empty() {
                         let mut zero_length_streams = zero_length_streams.lock().unwrap();
