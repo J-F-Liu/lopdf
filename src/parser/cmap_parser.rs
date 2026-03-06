@@ -110,8 +110,9 @@ fn cmap_metadata(input: ParserInput) -> NomResult<()> {
 fn cid_system_info(input: ParserInput) -> NomResult<()> {
     // Note: Can array of CIDSystemInfo occur here?
     // Normally in cmap this can be an array, but can it be also if this is a ToUnicode cmap?
+    // Some PDFs omit the leading slash on CIDSystemInfo.
     (
-        tag(&b"/CIDSystemInfo"[..]),
+        alt((tag(&b"/CIDSystemInfo"[..]), tag(&b"CIDSystemInfo"[..]))),
         multispace0,
         alt((dictionary, dict_dup)),
         multispace1,
@@ -121,11 +122,11 @@ fn cid_system_info(input: ParserInput) -> NomResult<()> {
 }
 
 fn cmap_name(input: ParserInput) -> NomResult<()> {
-    (tag(&b"/CMapName"[..]), space0, name, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
+    (alt((tag(&b"/CMapName"[..]), tag(&b"CMapName"[..]))), space0, name, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
 }
 
 fn cmap_type(input: ParserInput) -> NomResult<()> {
-    (tag(&b"/CMapType"[..]), space1, digit1, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
+    (alt((tag(&b"/CMapType"[..]), tag(&b"CMapType"[..]))), space1, digit1, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
 }
 
 fn cmap_codespace_and_mappings(input: ParserInput) -> NomResult<Vec<CMapSection>> {
@@ -382,6 +383,17 @@ end def
     }
 
     #[test]
+    fn parse_cid_system_info_without_slash() {
+        let data = b"CIDSystemInfo <<
+/Registry (Adobe)
+/Ordering (UCS)
+/Supplement 0
+>> def
+";
+        assert!(cid_system_info(test_span(data)).is_ok())
+    }
+
+    #[test]
     fn parse_cmap_name() {
         let data = b"/CMapName /Adobe-Identity-UCS def\n";
         assert!(cmap_name(test_span(data)).is_ok())
@@ -394,8 +406,20 @@ end def
     }
 
     #[test]
+    fn parse_cmap_name_without_slash() {
+        let data = b"CMapName /Adobe-Identity-UCS def\n";
+        assert!(cmap_name(test_span(data)).is_ok())
+    }
+
+    #[test]
     fn parse_cmap_type() {
         let data = b"/CMapType 2 def\n";
+        assert!(cmap_type(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_cmap_type_without_slash() {
+        let data = b"CMapType 2 def\n";
         assert!(cmap_type(test_span(data)).is_ok())
     }
 
@@ -1037,6 +1061,27 @@ endcodespacerange
 <004A><004A><0067>
 <0056><0056><0073>
 endbfrange
+endcmap CMapName currentdict /CMap defineresource pop end end";
+        assert!(cmap_stream(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_cmap_without_slash_on_cidsysteminfo() {
+        // CIDSystemInfo without leading slash
+        let data = b"/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+CIDSystemInfo
+<< /Registry (Adobe)
+/Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfchar
+<0001> <0001>
+endbfchar
 endcmap CMapName currentdict /CMap defineresource pop end end";
         assert!(cmap_stream(test_span(data)).is_ok())
     }
