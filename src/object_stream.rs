@@ -80,7 +80,16 @@ impl ObjectStream {
                 warn!("out-of-bounds offset in object stream");
                 return None;
             }
-            let object = parser::direct_object(ParserInput::new_extra(&stream.content[offset..], "direct object"))?;
+            // Skip leading whitespace — some PDFs emit newlines before objects in ObjStm
+            let mut start = offset;
+            while start < stream.content.len() && stream.content[start].is_ascii_whitespace() {
+                start += 1;
+            }
+            if start >= stream.content.len() {
+                warn!("only whitespace after offset in object stream");
+                return None;
+            }
+            let object = parser::direct_object(ParserInput::new_extra(&stream.content[start..], "direct object"))?;
 
             Some(((id, 0), object))
         };
