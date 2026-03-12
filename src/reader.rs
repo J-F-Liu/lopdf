@@ -24,6 +24,7 @@ use crate::object_stream::ObjectStream;
 use crate::parser::{self, ParserInput};
 use crate::xref::XrefEntry;
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
+use crate::common_data_structures;
 
 type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
 
@@ -613,18 +614,9 @@ impl Reader<'_> {
     fn extract_string_field(dict: &Dictionary, key: &[u8]) -> Option<String> {
         match dict.get(key) {
             Ok(obj) => match obj {
-                Object::String(bytes, _) => {
-                    let s = if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-                        let utf16_bytes: Vec<u16> = bytes[2..]
-                            .chunks_exact(2)
-                            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
-                            .collect();
-                        String::from_utf16_lossy(&utf16_bytes)
-                    } else {
-                        String::from_utf8_lossy(bytes).to_string()
-                    };
-                    Some(s)
-                }
+                Object::String(_bytes, _) => {
+		    Some(common_data_structures::decode_text_string(obj).unwrap())
+		}
                 _ => None,
             },
             Err(_) => None,
