@@ -615,7 +615,7 @@ impl Reader<'_> {
         match dict.get(key) {
             Ok(obj) => match obj {
                 Object::String(_bytes, _) => {
-		    Some(common_data_structures::decode_text_string(obj).unwrap())
+		    common_data_structures::decode_text_string(obj).ok()
 		}
                 _ => None,
             },
