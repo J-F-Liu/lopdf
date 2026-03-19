@@ -409,15 +409,28 @@ fn _indirect_object<'a>(
     Ok((object_id, object))
 }
 
-pub fn header(input: ParserInput) -> Option<String> {
-    strip_nom(map_res(
-        delimited(
-            tag(&b"%PDF-"[..]),
+pub fn header(input: ParserInput, strict: bool) -> Option<String> {
+    // Parse version digits (e.g. "1.7") separately from any trailing bytes
+    // before the newline.  Some PDF generators (e.g. ImageMill) place binary
+    // marker bytes on the header line which would fail UTF-8 validation.
+    // In strict mode we reject such trailing bytes; in lenient mode we skip them.
+    let (_, (version_raw, trailing)) = delimited(
+        tag(&b"%PDF-"[..]),
+        pair(
+            take_while(|c: u8| c.is_ascii_digit() || c == b'.'),
             take_while(|c: u8| !b"\r\n".contains(&c)),
-            pair(eol, many0_count(comment)),
         ),
-        |v: ParserInput| str::from_utf8(&v).map(Into::into),
-    ).parse(input))
+        pair(eol, many0_count(comment)),
+    )
+    .parse(input)
+    .ok()?;
+
+    if strict && !trailing.is_empty() {
+        return None;
+    }
+
+    let version = str::from_utf8(&version_raw).ok()?.to_string();
+    Some(version)
 }
 
 pub fn binary_mark(input: ParserInput) -> Option<Vec<u8>> {
@@ -800,6 +813,49 @@ startxref
             Some(num) => assert_eq!(num, 153804),
             None => panic!("could not parse number in startxref"),
         }
+    }
+
+    #[test]
+    fn header_standard() {
+        // Standard header with proper EOL
+        let input = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n";
+        assert_eq!(header(test_span(input), false), Some("1.7".to_string()));
+    }
+
+    #[test]
+    fn header_with_binary_bytes_on_same_line() {
+        // Some generators (e.g. ImageMill) place binary marker bytes on the
+        // header line without a separating newline or '%' prefix.
+        let input = b"%PDF-1.3 \xb0\x9f\x92\x9c\x9f\xd4\xe0\xce\xd0\xd0\xd0\r1 0 obj\r";
+        assert_eq!(header(test_span(input), false), Some("1.3".to_string()));
+    }
+
+    #[test]
+    fn header_with_binary_bytes_strict_rejects() {
+        // In strict mode, binary bytes on the header line should cause a
+        // parse failure (the raw bytes are not valid UTF-8).
+        let input = b"%PDF-1.3 \xb0\x9f\x92\x9c\x9f\xd4\xe0\xce\xd0\xd0\xd0\r1 0 obj\r";
+        assert_eq!(header(test_span(input), true), None);
+    }
+
+    #[test]
+    fn header_cr_line_ending() {
+        // CR-only line ending (common in older PDFs)
+        let input = b"%PDF-1.3\r%\xe2\xe3\xcf\xd3\r";
+        assert_eq!(header(test_span(input), false), Some("1.3".to_string()));
+    }
+
+    #[test]
+    fn header_crlf_line_ending() {
+        // CRLF line ending (common on Windows-generated PDFs)
+        let input = b"%PDF-1.7\r\n%\xe2\xe3\xcf\xd3\r\n";
+        assert_eq!(header(test_span(input), false), Some("1.7".to_string()));
+    }
+
+    #[test]
+    fn header_pdf_2_0() {
+        let input = b"%PDF-2.0\n%\xe2\xe3\xcf\xd3\n";
+        assert_eq!(header(test_span(input), false), Some("2.0".to_string()));
     }
 
     #[test]
