@@ -1,4 +1,15 @@
 
+## [Unreleased]
+
+### Add
+
+* Add `LoadOptions` struct with `password`, `filter`, and `strict` fields for extensible loading configuration
+* Add `load_with_options`, `load_from_with_options`, and `load_mem_with_options` methods (sync + async)
+
+### Deprecate
+
+* Deprecate `load_filtered`, `load_from_with_password`, `load_mem_with_password` in favor of `_with_options` variants
+
 <a name="v0.38.0"></a>
 ## [v0.38.0](https://github.com/J-F-Liu/lopdf/compare/v0.37.0...v0.38.0) (2025-08-26)
 
