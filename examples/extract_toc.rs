@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::Parser;
-use lopdf::{Document, Object};
+use lopdf::{Document, LoadOptions, Object};
 use serde_json;
 use shellexpand;
 
@@ -89,13 +89,14 @@ fn filter_func(object_id: (u32, u16), object: &mut Object) -> Option<((u32, u16)
 
 #[cfg(not(feature = "async"))]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
-    Document::load_filtered(path, filter_func).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+    Document::load_with_options(path, LoadOptions::with_filter(filter_func))
+        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
 }
 
 #[cfg(feature = "async")]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
     Ok(Builder::new_current_thread().build().unwrap().block_on(async move {
-        Document::load_filtered(path, filter_func)
+        Document::load_with_options(path, LoadOptions::with_filter(filter_func))
             .await
             .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
     })?)

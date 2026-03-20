@@ -26,6 +26,7 @@ mod processor;
 mod toc;
 mod writer;
 
+mod load_options;
 mod object_stream;
 mod parser;
 mod parser_aux;
@@ -46,6 +47,7 @@ pub use error::{Error, Result};
 pub use incremental_document::IncrementalDocument;
 pub use object_stream::{ObjectStream, ObjectStreamBuilder, ObjectStreamConfig};
 pub use outlines::Outline;
+pub use load_options::{FilterFunc, LoadOptions};
 pub use reader::{Reader, PdfMetadata};
 pub use save_options::{SaveOptions, SaveOptionsBuilder};
 pub use toc::Toc;

@@ -20,54 +20,61 @@ use tokio::pin;
 
 use crate::encryption::{self, EncryptionState};
 use crate::error::{ParseError, XrefError};
+use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser::{self, ParserInput};
 use crate::xref::XrefEntry;
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 use crate::common_data_structures;
 
-type FilterFunc = fn((u32, u16), &mut Object) -> Option<((u32, u16), Object)>;
-
 #[cfg(not(feature = "async"))]
 impl Document {
     /// Load a PDF document from a specified file path.
     #[inline]
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
+        Self::load_with_options(path, LoadOptions::default())
+    }
+
+    /// Load a PDF document from a specified file path with the given options.
+    #[inline]
+    pub fn load_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<Document> {
         let file = File::open(path)?;
         let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, None, None)
+        Self::load_internal(file, capacity, options)
     }
 
     /// Load a PDF document from a specified file path with a password for encrypted PDFs.
     #[inline]
     pub fn load_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<Document> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, None, Some(password.to_string()))
+        Self::load_with_options(path, LoadOptions::with_password(password))
     }
 
+    #[deprecated(since = "0.41.0", note = "Use load_with_options instead")]
     #[inline]
     pub fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, Some(filter_func), None)
+        Self::load_with_options(path, LoadOptions::with_filter(filter_func))
     }
 
     /// Load a PDF document from an arbitrary source.
     #[inline]
     pub fn load_from<R: Read>(source: R) -> Result<Document> {
-        Self::load_internal(source, None, None, None)
+        Self::load_from_with_options(source, LoadOptions::default())
+    }
+
+    /// Load a PDF document from an arbitrary source with the given options.
+    #[inline]
+    pub fn load_from_with_options<R: Read>(source: R, options: LoadOptions) -> Result<Document> {
+        Self::load_internal(source, None, options)
     }
 
     /// Load a PDF document from an arbitrary source with a password for encrypted PDFs.
+    #[deprecated(since = "0.41.0", note = "Use load_from_with_options instead")]
     #[inline]
     pub fn load_from_with_password<R: Read>(source: R, password: &str) -> Result<Document> {
-        Self::load_internal(source, None, None, Some(password.to_string()))
+        Self::load_from_with_options(source, LoadOptions::with_password(password))
     }
 
-    fn load_internal<R: Read>(
-        mut source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>, password: Option<String>,
-    ) -> Result<Document> {
+    fn load_internal<R: Read>(mut source: R, capacity: Option<usize>, options: LoadOptions) -> Result<Document> {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
@@ -76,26 +83,34 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password,
+            password: options.password,
+            strict: options.strict,
         }
-        .read(filter_func)
+        .read(options.filter)
     }
 
     /// Load a PDF document from a memory slice.
     pub fn load_mem(buffer: &[u8]) -> Result<Document> {
-        buffer.try_into()
+        Self::load_mem_with_options(buffer, LoadOptions::default())
     }
 
-    /// Load a PDF document from a memory slice with a password for encrypted PDFs.
-    pub fn load_mem_with_password(buffer: &[u8], password: &str) -> Result<Document> {
+    /// Load a PDF document from a memory slice with the given options.
+    pub fn load_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<Document> {
         Reader {
             buffer,
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password: Some(password.to_string()),
+            password: options.password,
+            strict: options.strict,
         }
-        .read(None)
+        .read(options.filter)
+    }
+
+    /// Load a PDF document from a memory slice with a password for encrypted PDFs.
+    #[deprecated(since = "0.41.0", note = "Use load_mem_with_options instead")]
+    pub fn load_mem_with_password(buffer: &[u8], password: &str) -> Result<Document> {
+        Self::load_mem_with_options(buffer, LoadOptions::with_password(password))
     }
 
     /// Load PDF metadata (title and page count) without loading the entire document.
@@ -136,6 +151,7 @@ impl Document {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: None,
+            strict: false,
         }
         .read_metadata()
     }
@@ -149,6 +165,7 @@ impl Document {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: Some(password.to_string()),
+            strict: false,
         }
         .read_metadata()
     }
@@ -165,6 +182,7 @@ impl Document {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password,
+            strict: false,
         }
         .read_metadata()
     }
@@ -173,30 +191,28 @@ impl Document {
 #[cfg(feature = "async")]
 impl Document {
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Document> {
+        Self::load_with_options(path, LoadOptions::default()).await
+    }
+
+    /// Load a PDF document from a specified file path with the given options.
+    pub async fn load_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<Document> {
         let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity, None, None).await
+        Self::load_internal(file, capacity, options).await
     }
 
     /// Load a PDF document from a specified file path with a password for encrypted PDFs.
     pub async fn load_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<Document> {
-        let file = File::open(path).await?;
-        let metadata = file.metadata().await?;
-        let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity, None, Some(password.to_string())).await
+        Self::load_with_options(path, LoadOptions::with_password(password)).await
     }
 
+    #[deprecated(since = "0.41.0", note = "Use load_with_options instead")]
     pub async fn load_filtered<P: AsRef<Path>>(path: P, filter_func: FilterFunc) -> Result<Document> {
-        let file = File::open(path).await?;
-        let metadata = file.metadata().await?;
-        let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity, Some(filter_func), None).await
+        Self::load_with_options(path, LoadOptions::with_filter(filter_func)).await
     }
 
-    async fn load_internal<R: AsyncRead>(
-        source: R, capacity: Option<usize>, filter_func: Option<FilterFunc>, password: Option<String>,
-    ) -> Result<Document> {
+    async fn load_internal<R: AsyncRead>(source: R, capacity: Option<usize>, options: LoadOptions) -> Result<Document> {
         pin!(source);
 
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
@@ -207,14 +223,28 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password,
+            password: options.password,
+            strict: options.strict,
         }
-        .read(filter_func)
+        .read(options.filter)
     }
 
     /// Load a PDF document from a memory slice.
     pub fn load_mem(buffer: &[u8]) -> Result<Document> {
-        buffer.try_into()
+        Self::load_mem_with_options(buffer, LoadOptions::default())
+    }
+
+    /// Load a PDF document from a memory slice with the given options.
+    pub fn load_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<Document> {
+        Reader {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: options.password,
+            strict: options.strict,
+        }
+        .read(options.filter)
     }
 
     /// Load PDF metadata (title and page count) without loading the entire document.
@@ -257,6 +287,7 @@ impl Document {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: None,
+            strict: false,
         }
         .read_metadata()
     }
@@ -270,6 +301,7 @@ impl Document {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: Some(password.to_string()),
+            strict: false,
         }
         .read_metadata()
     }
@@ -288,6 +320,7 @@ impl Document {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password,
+            strict: false,
         }
         .read_metadata()
     }
@@ -303,6 +336,7 @@ impl TryInto<Document> for &[u8] {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: None,
+            strict: false,
         }
         .read(None)
     }
@@ -334,6 +368,7 @@ impl IncrementalDocument {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: None,
+            strict: false,
         }
         .read(None)?;
 
@@ -375,6 +410,7 @@ impl IncrementalDocument {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: None,
+            strict: false,
         }
         .read(None)?;
 
@@ -397,6 +433,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
             encryption_state: None,
             raw_objects: BTreeMap::new(),
             password: None,
+            strict: false,
         }
         .read(None)?;
 
@@ -410,6 +447,7 @@ pub struct Reader<'a> {
     pub encryption_state: Option<EncryptionState>,
     pub raw_objects: BTreeMap<ObjectId, Vec<u8>>, // Store raw bytes for encrypted objects
     pub password: Option<String>,                 // Password for encrypted PDFs
+    pub strict: bool,                             // Reject non-conforming PDFs when true
 }
 
 /// Maximum allowed embedding of literal strings.
