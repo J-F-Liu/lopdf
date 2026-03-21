@@ -678,7 +678,11 @@ impl Stream {
 
     pub fn decompressed_content(&self) -> Result<Vec<u8>> {
         let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict).ok();
-        let filters = self.filters()?;
+        let filters = match self.filters() {
+            Ok(f) => f,
+            // No /Filter key means the stream is uncompressed
+            Err(_) => return Ok(self.content.clone()),
+        };
 
         let mut input = self.content.as_slice();
         let mut output = vec![];
@@ -888,5 +892,20 @@ mod test {
         // Normal zlib should fail, but our fallback should recover
         let result = Stream::decompress_zlib(&compressed, None).unwrap();
         assert_eq!(result, original);
+    }
+
+    #[test]
+    fn test_uncompressed_stream_returns_raw_content() {
+        use crate::Dictionary;
+
+        // A stream with no /Filter should return its raw content from decompressed_content()
+        let content = b"/FullPage Do
+".to_vec();
+        let mut dict = Dictionary::new();
+        dict.set("Length", content.len() as i64);
+        let stream = Stream::new(dict, content.clone());
+
+        let result = stream.decompressed_content().expect("should succeed for uncompressed stream");
+        assert_eq!(result, content);
     }
 }
