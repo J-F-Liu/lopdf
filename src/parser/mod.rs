@@ -458,7 +458,7 @@ fn xref(input: ParserInput) -> NomResult<Xref> {
     );
 
     delimited(
-        pair(tag(&b"xref"[..]), eol),
+        pair(tag(&b"xref"[..]), preceded(opt(tag(&b" "[..])), eol)),
         fold_many1(
             xref_section,
             || -> Xref { Xref::new(0, XrefType::CrossReferenceTable) },
@@ -512,7 +512,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
 
 pub fn xref_start(input: ParserInput) -> Option<i64> {
     strip_nom(delimited(
-        pair(tag(&b"startxref"[..]), eol),
+        pair(tag(&b"startxref"[..]), preceded(opt(tag(&b" "[..])), eol)),
         trim_spaces(integer),
         (eol, tag(&b"%%EOF"[..]), space),
     ).parse(input))
@@ -902,5 +902,25 @@ EI";
             &out.0[0].as_stream().unwrap().content,
             b"00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz"
         )
+    }
+
+    #[test]
+    fn xref_trailing_space_after_keyword() {
+        // Some PDF generators emit "xref \n" with a trailing space.
+        let input = b"xref \n0 3\n0000000000 65535 f \n0000000017 00000 n \n0000000081 00000 n \ntrailer\n<</Size 3/Root 1 0 R>>\nstartxref\n175\n%%EOF\n";
+        match xref(test_span(input)) {
+            Ok((_, re)) => assert_eq!(re.entries.len(), 2),
+            Err(err) => panic!("xref with trailing space should parse: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn startxref_trailing_space_after_keyword() {
+        // Some PDF generators emit "startxref \n" with a trailing space.
+        let input = b"startxref \n135738\n%%EOF\n";
+        match xref_start(test_span(input)) {
+            Some(num) => assert_eq!(num, 135738),
+            None => panic!("startxref with trailing space should parse"),
+        }
     }
 }
