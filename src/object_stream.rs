@@ -1,4 +1,4 @@
-use crate::parser::{self, ParserInput};
+use crate::parser;
 use crate::{Document, Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
 use std::num::TryFromIntError;
@@ -89,7 +89,7 @@ impl ObjectStream {
                 warn!("only whitespace after offset in object stream");
                 return None;
             }
-            let object = parser::direct_object(ParserInput::new_extra(&stream.content[start..], "direct object"))?;
+            let object = parser::direct_object(&stream.content[start..])?;
 
             Some(((id, 0), object))
         };
