@@ -6,7 +6,6 @@ use crate::{
     encodings::Encoding,
     error::ParseError,
     object::Object::Name,
-    parser::ParserInput,
     xref::{Xref, XrefEntry, XrefType},
     Error, Result,
 };
@@ -19,7 +18,7 @@ use std::{
 impl Content<Vec<Operation>> {
     /// Decode content operations.
     pub fn decode(data: &[u8]) -> Result<Self> {
-        parser::content(ParserInput::new_extra(data, "content operations"))
+        parser::content(data)
             .ok_or(ParseError::InvalidContentStream.into())
     }
 }

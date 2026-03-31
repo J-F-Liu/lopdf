@@ -17,11 +17,10 @@ use nom::error::{ErrorKind, ParseError};
 use nom::multi::{fold_many0, fold_many1, many0, many0_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
 use nom::{AsBytes, AsChar, Input, IResult, Parser};
-use nom_locate::LocatedSpan;
 
 pub(crate) mod cmap_parser;
 
-pub(crate) type ParserInput<'a> = LocatedSpan<&'a [u8], &'a str>;
+pub(crate) type ParserInput<'a> = &'a [u8];
 // Change this to something else that implements ParseError to get a
 // different error type out of nom.
 pub(crate) type NomError<'a> = nom::error::Error<ParserInput<'a>>;
@@ -199,7 +198,7 @@ fn inner_literal_string(depth: usize) -> impl Fn(ParserInput) -> NomResult<Vec<u
 fn nested_literal_string(depth: usize) -> impl Fn(ParserInput) -> NomResult<Vec<u8>> {
     move |input| {
         if depth == 0 {
-            map(verify(tag(&b"too deep"[..]), |_| false), |_| vec![]).parse(input)
+            map(verify(tag(&b"too deep"[..]), |_: &[u8]| false), |_| vec![]).parse(input)
         } else {
             map(
                 delimited(tag(&b"("[..]), inner_literal_string(depth - 1), tag(&b")"[..])),
@@ -519,8 +518,8 @@ pub fn xref_start(input: ParserInput) -> Option<i64> {
 }
 
 fn trim_spaces<'a, O>(
-    p: impl Parser<ParserInput<'a>, Output = O, Error = nom::error::Error<LocatedSpan<&'a [u8], &'a str>>>,
-) -> impl Parser<ParserInput<'a>, Output = O, Error = nom::error::Error<LocatedSpan<&'a [u8], &'a str>>> {
+    p: impl Parser<ParserInput<'a>, Output = O, Error = NomError<'a>>,
+) -> impl Parser<ParserInput<'a>, Output = O, Error = NomError<'a>> {
     delimited(many0(tag(" ")), p, many0(tag(" ")))
 }
 
@@ -579,7 +578,7 @@ fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
         Err(e) => {
             // Skip to EI marker so the rest of the content stream can still be parsed.
             log::warn!("Skipping unparseable inline image: {e}");
-            let bytes = input.fragment();
+            let bytes = input;
             // EI must appear after whitespace to distinguish from data bytes.
             let ei_pos = bytes.windows(4)
                 .position(|w| (w[0] == b' ' || w[0] == b'\n' || w[0] == b'\r')
@@ -673,7 +672,7 @@ mod tests {
     use super::*;
 
     fn test_span(s: &'_ [u8]) -> ParserInput<'_> {
-        LocatedSpan::new_extra(s, "test")
+        s
     }
 
     fn tstrip<O>(r: NomResult<O>) -> Option<O> {

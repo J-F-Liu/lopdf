@@ -220,13 +220,13 @@ mod tests {
     use super::*;
 
     fn test_span(s: &'_ [u8]) -> ParserInput<'_> {
-        ParserInput::new_extra(s, "")
+        s
     }
     #[test]
     fn parse_1byte_source_code() {
         let data = b"<0A>";
         let (rem, res) = source_code(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(res, (0x0a, 1));
     }
 
@@ -234,7 +234,7 @@ mod tests {
     fn parse_source_code() {
         let data = b"<080F>";
         let (rem, res) = source_code(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(res, (0x080f, 2));
     }
 
@@ -254,7 +254,7 @@ mod tests {
     fn parse_code_range_pair() {
         let data = b"<080F> <08FF> ";
         let (rem, res) = code_range_pair(test_span(data)).unwrap();
-        assert_eq!(*rem, b" ");
+        assert_eq!(rem, b" ");
         assert_eq!(res, (0x080f, 0x08ff, 2));
     }
 
@@ -263,7 +263,7 @@ mod tests {
         let data = b"<080F><08FF>";
 
         let (rem, res) = code_range_pair(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(res, (0x080f, 0x08ff, 2));
     }
 
@@ -277,14 +277,14 @@ mod tests {
     fn parse_bfrange_line() {
         let data = b"<080f> <08ff> <09000110>\n";
         let (rem, res) = bf_range_line(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(res, ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]]));
     }
     #[test]
     fn parse_bfrange_line_without_spaces() {
         let data = b"<080f><08ff><09000110>\n";
         let (rem, res) = bf_range_line(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(res, ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110]]));
     }
 
@@ -292,7 +292,7 @@ mod tests {
     fn parse_bfrange_line_array() {
         let data = b"<080f> <08ff> [ <09000110> <08fe> ] \n";
         let (rem, res) = bf_range_line(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(res, ((0x080f, 0x08ff, 2), vec![vec![0x0900, 0x0110], vec![0x08fe]]));
     }
     #[test]
@@ -307,7 +307,7 @@ mod tests {
             <0000> <FFFF> \n\
         endcodespacerange\n";
         let (rem, res) = codespace_range_section(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(res, CMapSection::CsRange(vec![(0x0000, 0xffff, 2)]));
     }
 
@@ -320,7 +320,7 @@ mod tests {
         endbfrange\n";
 
         let (rem, res) = bf_range_section(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(
             res,
             CMapSection::BfRange(vec![
@@ -340,7 +340,7 @@ mod tests {
             <20> <0020>\n\
         endbfchar\n";
         let (rem, res) = bf_char_section(test_span(data)).unwrap();
-        assert_eq!(*rem, b"");
+        assert_eq!(rem, b"");
         assert_eq!(
             res,
             CMapSection::BfChar(vec![
