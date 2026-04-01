@@ -113,10 +113,10 @@ fn real(input: ParserInput) -> NomResult<f32> {
 
 pub(crate) fn hex_char(input: ParserInput) -> NomResult<u8> {
     map_res(
-        verify(take(2usize), |h: &ParserInput| {
+        verify(take(2usize), |h: ParserInput| {
             h.as_bytes().iter().copied().all(AsChar::is_hex_digit)
         }),
-        |x: ParserInput| u8::from_str_radix(str::from_utf8(&x).unwrap(), 16),
+        |x: ParserInput| u8::from_str_radix(str::from_utf8(x).unwrap(), 16),
     ).parse(input)
 }
 
@@ -124,7 +124,7 @@ fn oct_char(input: ParserInput) -> NomResult<u8> {
     map_res(
         take_while_m_n(1, 3, AsChar::is_oct_digit),
         // Spec requires us to ignore any overflow.
-        |x: ParserInput| u16::from_str_radix(str::from_utf8(&x).unwrap(), 8).map(|o| o as u8),
+        |x: ParserInput| u16::from_str_radix(str::from_utf8(x).unwrap(), 8).map(|o| o as u8),
     ).parse(input)
 }
 
@@ -219,7 +219,7 @@ fn literal_string(input: ParserInput) -> NomResult<Vec<u8>> {
 #[inline]
 fn hex_digit(input: ParserInput) -> NomResult<u8> {
     map_opt(take(1usize), |c: ParserInput| {
-        str::from_utf8(&c).ok().and_then(|c| u8::from_str_radix(c, 16).ok())
+        str::from_utf8(c).ok().and_then(|c| u8::from_str_radix(c, 16).ok())
     }).parse(input)
 }
 
@@ -331,7 +331,7 @@ fn stream<'a>(input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSe
 
 fn unsigned_int<I: FromStr>(input: ParserInput) -> NomResult<I> {
     map_res(digit1, |digits: ParserInput| {
-        I::from_str(str::from_utf8(&digits).unwrap())
+        I::from_str(str::from_utf8(digits).unwrap())
     }).parse(input)
 }
 
@@ -428,7 +428,7 @@ pub fn header(input: ParserInput, strict: bool) -> Option<String> {
         return None;
     }
 
-    let version = str::from_utf8(&version_raw).ok()?.to_string();
+    let version = str::from_utf8(version_raw).ok()?.to_string();
     Some(version)
 }
 
@@ -532,7 +532,7 @@ fn content_space(input: ParserInput) -> NomResult<()> {
 fn operator(input: ParserInput) -> NomResult<String> {
     map_res(
         take_while1(|c: u8| c.is_ascii_alphabetic() || b"*'\"".contains(&c)),
-        |op: ParserInput| str::from_utf8(&op).map(Into::into),
+        |op: ParserInput| str::from_utf8(op).map(Into::into),
     ).parse(input)
 }
 
