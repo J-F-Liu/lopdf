@@ -1,6 +1,7 @@
 use lopdf::Document;
 use std::time::Instant;
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn page_count_meta_data_performance_test() {
     let document_path = "tests/regression/test.pdf";
@@ -18,6 +19,7 @@ fn page_count_meta_data_performance_test() {
     assert!(elapsed_time.as_millis() < 100, "Expected load in <100ms, got {}ms", elapsed_time.as_millis());
 }
 
+#[cfg(not(feature = "async"))]
 #[test]
 fn page_count_performance_test() {
     let document_path = "tests/regression/test.pdf";
