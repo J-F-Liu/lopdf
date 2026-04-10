@@ -1,6 +1,6 @@
 use crate::encodings;
-use crate::encodings::cmap::ToUnicodeCMap;
 use crate::encodings::Encoding;
+use crate::encodings::cmap::ToUnicodeCMap;
 use crate::error::DecompressError;
 use crate::{Document, Error, Result};
 use indexmap::IndexMap;
@@ -433,9 +433,7 @@ impl Dictionary {
             }
             Ok(name) => Ok(Encoding::SimpleEncoding(name)),
             Err(err) => {
-                warn!(
-                    "Could not parse the encoding, error: {err:#?}\nFont: {self:#?}\nTrying to retrieve ToUnicode."
-                );
+                warn!("Could not parse the encoding, error: {err:#?}\nFont: {self:#?}\nTrying to retrieve ToUnicode.");
                 let stream = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream);
                 if let Ok(stream) = stream {
                     return self.get_encoding_from_to_unicode_cmap(stream);
@@ -660,8 +658,8 @@ impl Stream {
     }
 
     pub fn compress(&mut self) -> Result<()> {
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::prelude::*;
 
         if self.dict.get(b"Filter").is_err() {
@@ -701,7 +699,7 @@ impl Stream {
     }
 
     fn decompress_lzw(input: &[u8], params: Option<&Dictionary>) -> Result<Vec<u8>> {
-        use weezl::{decode::Decoder, BitOrder};
+        use weezl::{BitOrder, decode::Decoder};
         const MIN_BITS: u8 = 9;
 
         let early_change = params
@@ -844,7 +842,7 @@ impl Stream {
 
 #[cfg(test)]
 mod test {
-    use crate::{error::DecompressError, Error};
+    use crate::{Error, error::DecompressError};
 
     use super::Stream;
 
@@ -871,8 +869,8 @@ mod test {
 
     #[test]
     fn test_decompress_zlib_corrupt_checksum() {
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::Write;
 
         let original = b"BT /F1 12 Tf (Hello World) Tj ET";
@@ -900,12 +898,15 @@ mod test {
 
         // A stream with no /Filter should return its raw content from decompressed_content()
         let content = b"/FullPage Do
-".to_vec();
+"
+        .to_vec();
         let mut dict = Dictionary::new();
         dict.set("Length", content.len() as i64);
         let stream = Stream::new(dict, content.clone());
 
-        let result = stream.decompressed_content().expect("should succeed for uncompressed stream");
+        let result = stream
+            .decompressed_content()
+            .expect("should succeed for uncompressed stream");
         assert_eq!(result, content);
     }
 }

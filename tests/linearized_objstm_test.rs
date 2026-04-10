@@ -65,7 +65,16 @@ fn build_conflicting_objstm_pdf() -> Vec<u8> {
     let off_7 = buf.len();
 
     let mut xref_data = Vec::new();
-    let offsets = [0u32, off_1 as u32, off_2 as u32, 0, off_4 as u32, off_5 as u32, off_6 as u32, off_7 as u32];
+    let offsets = [
+        0u32,
+        off_1 as u32,
+        off_2 as u32,
+        0,
+        off_4 as u32,
+        off_5 as u32,
+        off_6 as u32,
+        off_7 as u32,
+    ];
 
     // Object 0: Free
     xref_data.extend_from_slice(&[0, 0, 0, 0, 0]);

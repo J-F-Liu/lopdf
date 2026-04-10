@@ -98,7 +98,7 @@ impl ObjectStream {
         #[cfg(not(feature = "rayon"))]
         let objects = numbers[..len].chunks(2).filter_map(chunks_filter_map).collect();
 
-        Ok(ObjectStream { 
+        Ok(ObjectStream {
             objects,
             max_objects: 100,
             compression_level: 6,
@@ -117,7 +117,9 @@ impl ObjectStream {
     pub fn add_object(&mut self, id: ObjectId, obj: Object) -> Result<()> {
         // Check if object can be added to stream
         if matches!(obj, Object::Stream(_)) {
-            return Err(Error::InvalidObjectStream("Stream objects cannot be stored in object streams".into()));
+            return Err(Error::InvalidObjectStream(
+                "Stream objects cannot be stored in object streams".into(),
+            ));
         }
 
         // Check capacity
@@ -150,11 +152,11 @@ impl ObjectStream {
         // First build the offset table to know its size
         let mut offset_entries = Vec::new();
         let mut current_offset = 0;
-        
+
         for ((obj_num, _gen), obj) in &sorted_objects {
             // Store the object number and its offset
             offset_entries.push(format!("{obj_num} {current_offset}"));
-            
+
             // Calculate size of this object's serialization
             let mut obj_bytes = Vec::new();
             crate::writer::Writer::write_object(&mut obj_bytes, obj)?;
@@ -163,11 +165,11 @@ impl ObjectStream {
 
         // Build the complete offset table with proper spacing
         let offset_table = offset_entries.join(" ") + " ";
-        
+
         // Now build the final content
         let mut content = Vec::new();
         content.extend_from_slice(offset_table.as_bytes());
-        
+
         // Add serialized objects with space separators
         for ((_, _), obj) in &sorted_objects {
             let mut obj_bytes = Vec::new();
@@ -182,29 +184,29 @@ impl ObjectStream {
     /// Convert to a Stream object ready for insertion into a PDF
     pub fn to_stream_object(&self) -> Result<Stream> {
         let content = self.build_stream_content()?;
-        
+
         // Calculate where the first object starts
         // We need to find the size of the offset table
         let mut sorted_objects: Vec<_> = self.objects.iter().collect();
         sorted_objects.sort_by_key(|(id, _)| *id);
-        
+
         // Build the offset entries to calculate exact size
         let mut offset_entries = Vec::new();
         let mut current_offset = 0;
-        
+
         for ((obj_num, _gen), obj) in &sorted_objects {
             offset_entries.push(format!("{obj_num} {current_offset}"));
-            
+
             // Calculate size of this object's serialization
             let mut obj_bytes = Vec::new();
             crate::writer::Writer::write_object(&mut obj_bytes, obj)?;
             current_offset += obj_bytes.len() + 1; // +1 for space separator
         }
-        
+
         // The offset table is joined with spaces and has a trailing space
         let offset_table = offset_entries.join(" ") + " ";
         let first_offset = offset_table.len();
-        
+
         let dict = dictionary! {
             "Type" => "ObjStm",
             "N" => self.objects.len() as i64,
@@ -212,25 +214,25 @@ impl ObjectStream {
         };
 
         let mut stream = Stream::new(dict, content);
-        
+
         // Apply compression - object streams should always be compressed
         if self.compression_level > 0 {
             // Force compression by setting Filter directly
-            use flate2::write::ZlibEncoder;
             use flate2::Compression;
+            use flate2::write::ZlibEncoder;
             use std::io::prelude::*;
-            
+
             let compression = match self.compression_level {
                 0 => Compression::none(),
                 1..=3 => Compression::fast(),
                 4..=6 => Compression::default(),
                 _ => Compression::best(),
             };
-            
+
             let mut encoder = ZlibEncoder::new(Vec::new(), compression);
             encoder.write_all(&stream.content)?;
             let compressed = encoder.finish()?;
-            
+
             stream.dict.set("Filter", "FlateDecode");
             stream.set_content(compressed);
         }
@@ -244,19 +246,19 @@ impl ObjectStream {
         if matches!(obj, Object::Stream(_)) {
             return false;
         }
-        
+
         // Rule 2: Objects with non-zero generation cannot be compressed
         if id.1 != 0 {
             return false;
         }
-        
+
         // Rule 3: Only encryption dictionary cannot be compressed from trailer references
         if let Ok(Object::Reference(encrypt_ref)) = doc.trailer.get(b"Encrypt") {
             if id == *encrypt_ref {
                 return false;
             }
         }
-        
+
         // Rule 4: Specific object types that cannot be compressed
         if let Object::Dictionary(dict) = obj {
             if let Ok(type_obj) = dict.get(b"Type") {
@@ -265,7 +267,7 @@ impl ObjectStream {
                         // Cross-reference streams and object streams cannot be compressed
                         b"XRef" => return false,
                         b"ObjStm" => return false,
-                        
+
                         // Catalog can only be excluded in linearized PDFs
                         b"Catalog" => {
                             // Check if PDF is linearized
@@ -273,21 +275,21 @@ impl ObjectStream {
                                 return false;
                             }
                         }
-                        
+
                         // Page, Pages, and all other types CAN be compressed
                         _ => {}
                     }
                 }
             }
         }
-        
+
         // Default: Allow compression
         true
     }
-    
+
     /// Check if a PDF document is linearized
     fn is_linearized(doc: &Document) -> bool {
-        // In a linearized PDF, the first object after the header should be a 
+        // In a linearized PDF, the first object after the header should be a
         // linearization dictionary with /Linearized entry
         // For simplicity, we check if any object has a /Linearized entry
         for obj in doc.objects.values() {

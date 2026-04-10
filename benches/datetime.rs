@@ -2,8 +2,8 @@
 extern crate test;
 use test::Bencher;
 
-use lopdf::Object;
 use chrono::prelude::{Local, Timelike};
+use lopdf::Object;
 
 #[bench]
 fn create_and_parse_datetime(b: &mut Bencher) {

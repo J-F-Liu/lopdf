@@ -1,5 +1,5 @@
-use lopdf::xobject;
 use lopdf::Document;
+use lopdf::xobject;
 use std::fmt::Write;
 use std::io::{Error, ErrorKind};
 use std::path::Path;

@@ -2,7 +2,7 @@ use super::Object;
 
 #[cfg(feature = "chrono")]
 mod chrono_impl {
-    use crate::{datetime::convert_utc_offset, Object};
+    use crate::{Object, datetime::convert_utc_offset};
     use chrono::prelude::*;
 
     impl From<DateTime<Local>> for Object {
@@ -39,7 +39,7 @@ mod chrono_impl {
 
 #[cfg(feature = "jiff")]
 mod jiff_impl {
-    use crate::{datetime::convert_utc_offset, Object};
+    use crate::{Object, datetime::convert_utc_offset};
     use jiff::{Timestamp, Zoned};
 
     impl From<Zoned> for Object {
@@ -70,16 +70,14 @@ mod jiff_impl {
             // CAPITAL Z signifies that local time is equal to UT. If no UT information is
             // specified, the relationship of the specified time to UT shall be considered GMT."
             //
-            // 1. Try parsing the full date and time with the `%#z` specifier to parse the timezone
-            //    as a `Zoned` object.
-            // 2. Try parsing the full date and time with the 'Z' suffix as a `DateTime` interpreted
-            //    to be in the UTC timezone.
-            // 3. Try parsing the date and time without the seconds specified with the `%#z`
-            //    specifier to parse the timezone as a `Zoned` object.
-            // 4. Try parsing the date and time without the seconds specified with the 'Z' as a
-            //    `DateTime` interpreted to be in the UTC timezone.
-            // 5. Try parsing the date with no time as a `Date` interpreted to be in the GMT
+            // 1. Try parsing the full date and time with the `%#z` specifier to parse the timezone as a `Zoned` object.
+            // 2. Try parsing the full date and time with the 'Z' suffix as a `DateTime` interpreted to be in the UTC
             //    timezone.
+            // 3. Try parsing the date and time without the seconds specified with the `%#z` specifier to parse the
+            //    timezone as a `Zoned` object.
+            // 4. Try parsing the date and time without the seconds specified with the 'Z' as a `DateTime` interpreted
+            //    to be in the UTC timezone.
+            // 5. Try parsing the date with no time as a `Date` interpreted to be in the GMT timezone.
             //
             // In all cases we return a `Zoned` object here to preserve the timezone.
             Zoned::strptime("%Y%m%d%H%M%S%#z", &value.0)
@@ -94,7 +92,7 @@ mod jiff_impl {
 #[cfg(feature = "time")]
 mod time_impl {
     use crate::Object;
-    use time::{format_description::FormatItem, OffsetDateTime, Time};
+    use time::{OffsetDateTime, Time, format_description::FormatItem};
 
     impl From<Time> for Object {
         fn from(date: Time) -> Self {

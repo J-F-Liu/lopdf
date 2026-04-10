@@ -36,7 +36,10 @@ mod sync_tests {
     fn load_options_debug_masks_password() {
         let opts = LoadOptions::with_password("supersecret");
         let debug = format!("{:?}", opts);
-        assert!(!debug.contains("supersecret"), "password should be masked in Debug output");
+        assert!(
+            !debug.contains("supersecret"),
+            "password should be masked in Debug output"
+        );
         assert!(debug.contains("***"), "masked password should show ***");
     }
 
@@ -58,11 +61,8 @@ mod sync_tests {
     #[test]
     fn load_from_with_options_default_matches_load_from() {
         let doc1 = Document::load_from(File::open("assets/example.pdf").unwrap()).unwrap();
-        let doc2 = Document::load_from_with_options(
-            File::open("assets/example.pdf").unwrap(),
-            LoadOptions::default(),
-        )
-        .unwrap();
+        let doc2 = Document::load_from_with_options(File::open("assets/example.pdf").unwrap(), LoadOptions::default())
+            .unwrap();
         assert_eq!(doc1.version, doc2.version);
         assert_eq!(doc1.objects.len(), doc2.objects.len());
     }
@@ -151,11 +151,7 @@ mod sync_tests {
 
     #[test]
     fn load_with_options_password_on_encrypted_pdf() {
-        let doc = Document::load_with_options(
-            "assets/encrypted.pdf",
-            LoadOptions::with_password(""),
-        )
-        .unwrap();
+        let doc = Document::load_with_options("assets/encrypted.pdf", LoadOptions::with_password("")).unwrap();
         assert!(!doc.is_encrypted());
         assert!(doc.encryption_state.is_some());
         let pages = doc.get_pages();
@@ -195,7 +191,10 @@ mod sync_tests {
         let buf = b"%PDF-1.3 \xb0\x9f\x92\x9c\r%%EOF\r";
         let result = Document::load_mem_with_options(
             buf,
-            LoadOptions { strict: true, ..Default::default() },
+            LoadOptions {
+                strict: true,
+                ..Default::default()
+            },
         );
         let err = result.unwrap_err().to_string();
         assert!(

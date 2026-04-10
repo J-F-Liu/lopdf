@@ -74,7 +74,7 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
         _ => {
             return Err(Error::Unimplemented(
                 "The image crate supports a new color type, but lopdf has not been updated yet",
-            ))
+            ));
         }
     };
 
@@ -139,7 +139,7 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
             _ => {
                 return Err(Error::Unimplemented(
                     "The image library supports a new color type, but lopdf has not been updated yet",
-                ))
+                ));
             }
         };
 

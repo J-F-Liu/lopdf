@@ -141,7 +141,7 @@ impl ToUnicodeCMap {
             }
         }
         cmap.reverse_map = Some(rev_map);
-        
+
         Ok(cmap)
     }
 

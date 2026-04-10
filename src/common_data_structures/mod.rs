@@ -1,6 +1,6 @@
 use crate::{
-    encodings::{self, bytes_to_string},
     Error, Object, Result, StringFormat,
+    encodings::{self, bytes_to_string},
 };
 
 /// Creates a text string.
@@ -46,8 +46,7 @@ pub fn decode_text_string(obj: &Object) -> Result<String> {
 #[cfg(test)]
 mod test {
     use crate::{
-        common_data_structures::decode_text_string, encodings, text_string, writer::Writer,
-        Object, StringFormat,
+        Object, StringFormat, common_data_structures::decode_text_string, encodings, text_string, writer::Writer,
     };
 
     #[test]

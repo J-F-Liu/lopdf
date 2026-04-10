@@ -6,7 +6,7 @@ use lopdf::{Document, EncryptionState, EncryptionVersion, Permissions};
 #[cfg(not(feature = "async"))]
 fn main() {
     println!("=== PDF Decryption Verification ===\n");
-    
+
     // Test 1: Load an encrypted PDF from assets
     println!("Test 1: Loading encrypted PDF from assets/encrypted.pdf");
     match Document::load("assets/encrypted.pdf") {
@@ -15,7 +15,7 @@ fn main() {
             println!("  - Is encrypted: {}", doc.is_encrypted());
             println!("  - Number of pages: {}", doc.get_pages().len());
             println!("  - Has encryption state: {}", doc.encryption_state.is_some());
-            
+
             // Try to extract text
             let pages = doc.get_pages();
             let page_nums: Vec<u32> = pages.keys().cloned().collect();
@@ -29,15 +29,15 @@ fn main() {
         }
         Err(e) => println!("✗ Failed to load encrypted PDF: {:?}", e),
     }
-    
+
     println!();
-    
+
     // Test 2: Create and encrypt a new PDF, then verify it can be loaded
     println!("Test 2: Creating, encrypting, and re-loading a PDF");
-    
+
     // Create a simple PDF
     let mut doc = Document::with_version("1.5");
-    
+
     // Add ID (required for encryption)
     doc.trailer.set(
         "ID",
@@ -46,20 +46,23 @@ fn main() {
             lopdf::Object::String(vec![2u8; 16], lopdf::StringFormat::Literal),
         ]),
     );
-    
+
     // Add minimal structure
     let catalog = doc.add_object(lopdf::dictionary! {
         "Type" => "Catalog",
         "Pages" => lopdf::Object::Reference((2, 0))
     });
     doc.trailer.set("Root", lopdf::Object::Reference(catalog));
-    
-    doc.objects.insert((2, 0), lopdf::Object::Dictionary(lopdf::dictionary! {
-        "Type" => "Pages",
-        "Count" => 0,
-        "Kids" => Vec::<lopdf::Object>::new()
-    }));
-    
+
+    doc.objects.insert(
+        (2, 0),
+        lopdf::Object::Dictionary(lopdf::dictionary! {
+            "Type" => "Pages",
+            "Count" => 0,
+            "Kids" => Vec::<lopdf::Object>::new()
+        }),
+    );
+
     // Encrypt the document
     let encryption_version = EncryptionVersion::V2 {
         document: &doc,
@@ -68,18 +71,18 @@ fn main() {
         key_length: 128,
         permissions: Permissions::all(),
     };
-    
+
     match EncryptionState::try_from(encryption_version) {
         Ok(state) => {
             doc.encrypt(&state).unwrap();
             println!("✓ Document encrypted successfully");
-            
+
             // Save to temporary location
             let temp_dir = tempfile::tempdir().unwrap();
             let path = temp_dir.path().join("test_encrypted.pdf");
             doc.save(&path).unwrap();
             println!("✓ Encrypted document saved");
-            
+
             // Try to load it back
             match Document::load(&path) {
                 Ok(loaded_doc) => {
@@ -92,28 +95,31 @@ fn main() {
         }
         Err(e) => println!("✗ Failed to create encryption state: {:?}", e),
     }
-    
+
     println!();
-    
+
     // Test 3: Verify object access in encrypted PDF
     println!("Test 3: Verifying object access in encrypted PDF");
     if let Ok(doc) = Document::load("assets/encrypted.pdf") {
         let mut accessible_objects = 0;
         let mut total_checked = 0;
-        
+
         for i in 1..=20 {
             total_checked += 1;
             if doc.get_object((i, 0)).is_ok() {
                 accessible_objects += 1;
             }
         }
-        
+
         println!("✓ Object access test completed");
         println!("  - Objects checked: {}", total_checked);
         println!("  - Objects accessible: {}", accessible_objects);
-        println!("  - Success rate: {:.1}%", (accessible_objects as f64 / total_checked as f64) * 100.0);
+        println!(
+            "  - Success rate: {:.1}%",
+            (accessible_objects as f64 / total_checked as f64) * 100.0
+        );
     }
-    
+
     println!("\n=== All decryption tests completed ===");
 }
 
@@ -121,7 +127,7 @@ fn main() {
 #[tokio::main]
 async fn main() {
     println!("=== PDF Decryption Verification (Async) ===\n");
-    
+
     // Test 1: Load an encrypted PDF from assets
     println!("Test 1: Loading encrypted PDF from assets/encrypted.pdf");
     match Document::load("assets/encrypted.pdf").await {
@@ -130,7 +136,7 @@ async fn main() {
             println!("  - Is encrypted: {}", doc.is_encrypted());
             println!("  - Number of pages: {}", doc.get_pages().len());
             println!("  - Has encryption state: {}", doc.encryption_state.is_some());
-            
+
             // Try to extract text
             let pages = doc.get_pages();
             let page_nums: Vec<u32> = pages.keys().cloned().collect();
@@ -144,15 +150,15 @@ async fn main() {
         }
         Err(e) => println!("✗ Failed to load encrypted PDF: {:?}", e),
     }
-    
+
     println!();
-    
+
     // Test 2: Create and encrypt a new PDF, then verify it can be loaded
     println!("Test 2: Creating, encrypting, and re-loading a PDF");
-    
+
     // Create a simple PDF
     let mut doc = Document::with_version("1.5");
-    
+
     // Add ID (required for encryption)
     doc.trailer.set(
         "ID",
@@ -161,20 +167,23 @@ async fn main() {
             lopdf::Object::String(vec![2u8; 16], lopdf::StringFormat::Literal),
         ]),
     );
-    
+
     // Add minimal structure
     let catalog = doc.add_object(lopdf::dictionary! {
         "Type" => "Catalog",
         "Pages" => lopdf::Object::Reference((2, 0))
     });
     doc.trailer.set("Root", lopdf::Object::Reference(catalog));
-    
-    doc.objects.insert((2, 0), lopdf::Object::Dictionary(lopdf::dictionary! {
-        "Type" => "Pages",
-        "Count" => 0,
-        "Kids" => Vec::<lopdf::Object>::new()
-    }));
-    
+
+    doc.objects.insert(
+        (2, 0),
+        lopdf::Object::Dictionary(lopdf::dictionary! {
+            "Type" => "Pages",
+            "Count" => 0,
+            "Kids" => Vec::<lopdf::Object>::new()
+        }),
+    );
+
     // Encrypt the document
     let encryption_version = EncryptionVersion::V2 {
         document: &doc,
@@ -183,18 +192,18 @@ async fn main() {
         key_length: 128,
         permissions: Permissions::all(),
     };
-    
+
     match EncryptionState::try_from(encryption_version) {
         Ok(state) => {
             doc.encrypt(&state).unwrap();
             println!("✓ Document encrypted successfully");
-            
+
             // Save to temporary location
             let temp_dir = tempfile::tempdir().unwrap();
             let path = temp_dir.path().join("test_encrypted.pdf");
             doc.save(&path).unwrap();
             println!("✓ Encrypted document saved");
-            
+
             // Try to load it back
             match Document::load(&path).await {
                 Ok(loaded_doc) => {
@@ -207,27 +216,30 @@ async fn main() {
         }
         Err(e) => println!("✗ Failed to create encryption state: {:?}", e),
     }
-    
+
     println!();
-    
+
     // Test 3: Verify object access in encrypted PDF
     println!("Test 3: Verifying object access in encrypted PDF");
     if let Ok(doc) = Document::load("assets/encrypted.pdf").await {
         let mut accessible_objects = 0;
         let mut total_checked = 0;
-        
+
         for i in 1..=20 {
             total_checked += 1;
             if doc.get_object((i, 0)).is_ok() {
                 accessible_objects += 1;
             }
         }
-        
+
         println!("✓ Object access test completed");
         println!("  - Objects checked: {}", total_checked);
         println!("  - Objects accessible: {}", accessible_objects);
-        println!("  - Success rate: {:.1}%", (accessible_objects as f64 / total_checked as f64) * 100.0);
+        println!(
+            "  - Success rate: {:.1}%",
+            (accessible_objects as f64 / total_checked as f64) * 100.0
+        );
     }
-    
+
     println!("\n=== All decryption tests completed ===");
 }

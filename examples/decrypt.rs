@@ -4,7 +4,10 @@ use lopdf::Document;
 fn main() {
     // Collect command line arguments: input_file angle output_file
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() >= 3, "Not enough arguments: input_file output_file <password>");
+    assert!(
+        args.len() >= 3,
+        "Not enough arguments: input_file output_file <password>"
+    );
     let input_file = &args[1];
     let output_file = &args[2];
     let password = if args.len() >= 4 { &args[3] } else { "" };
@@ -31,7 +34,10 @@ fn main() {
 async fn main() {
     // Collect command line arguments: input_file angle output_file
     let args: Vec<String> = std::env::args().collect();
-    assert!(args.len() >= 3, "Not enough arguments: input_file output_file <password>");
+    assert!(
+        args.len() >= 3,
+        "Not enough arguments: input_file output_file <password>"
+    );
     let input_file = &args[1];
     let output_file = &args[2];
     let password = if args.len() >= 4 { &args[3] } else { "" };

@@ -1,5 +1,5 @@
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Document, Object, Stream, StringFormat};
+use lopdf::{Document, Object, Stream, StringFormat, dictionary};
 
 #[test]
 fn unicode_can_be_written_to_pdf_and_read() {

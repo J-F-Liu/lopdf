@@ -11,29 +11,31 @@ fn main() {
             return;
         }
     };
-    
+
     println!("Document loaded successfully!");
     println!("Is encrypted: {}", doc.is_encrypted());
-    
+
     // Try to get pages
     let pages = doc.get_pages();
     println!("Number of pages: {}", pages.len());
-    
+
     // Try to extract text
     if pages.len() > 0 {
         let page_numbers: Vec<u32> = pages.keys().cloned().collect();
         match doc.extract_text(&page_numbers) {
             Ok(text) => {
                 println!("Text extraction successful!");
-                println!("Text preview (first 200 chars): {}", 
-                    text.chars().take(200).collect::<String>());
+                println!(
+                    "Text preview (first 200 chars): {}",
+                    text.chars().take(200).collect::<String>()
+                );
             }
             Err(e) => {
                 println!("Text extraction failed: {:?}", e);
             }
         }
     }
-    
+
     // Check if we can access objects
     println!("\nChecking object access:");
     let max_check = 10;
@@ -42,7 +44,7 @@ fn main() {
             println!("  Object ({}, 0) found", i);
         }
     }
-    
+
     // Check trailer
     println!("\nTrailer entries:");
     if let Ok(root) = doc.trailer.get(b"Root") {
@@ -68,29 +70,31 @@ async fn main() {
             return;
         }
     };
-    
+
     println!("Document loaded successfully!");
     println!("Is encrypted: {}", doc.is_encrypted());
-    
+
     // Try to get pages
     let pages = doc.get_pages();
     println!("Number of pages: {}", pages.len());
-    
+
     // Try to extract text
     if pages.len() > 0 {
         let page_numbers: Vec<u32> = pages.keys().cloned().collect();
         match doc.extract_text(&page_numbers) {
             Ok(text) => {
                 println!("Text extraction successful!");
-                println!("Text preview (first 200 chars): {}", 
-                    text.chars().take(200).collect::<String>());
+                println!(
+                    "Text preview (first 200 chars): {}",
+                    text.chars().take(200).collect::<String>()
+                );
             }
             Err(e) => {
                 println!("Text extraction failed: {:?}", e);
             }
         }
     }
-    
+
     // Check if we can access objects
     println!("\nChecking object access:");
     let max_check = 10;
@@ -99,7 +103,7 @@ async fn main() {
             println!("  Object ({}, 0) found", i);
         }
     }
-    
+
     // Check trailer
     println!("\nTrailer entries:");
     if let Ok(root) = doc.trailer.get(b"Root") {

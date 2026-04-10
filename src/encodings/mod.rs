@@ -2,13 +2,13 @@ pub mod cmap;
 mod glyphnames;
 mod mappings;
 
+pub use self::mappings::*;
 use crate::Error;
 use crate::Result;
+use crate::parser_aux::substr;
 use cmap::ToUnicodeCMap;
 use encoding_rs::UTF_16BE;
 use log::debug;
-use crate::parser_aux::substr;
-pub use self::mappings::*;
 
 pub fn bytes_to_string(encoding: &CodedCharacterSet, bytes: &[u8]) -> String {
     let code_points = bytes

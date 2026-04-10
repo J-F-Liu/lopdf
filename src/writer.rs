@@ -5,7 +5,7 @@ use std::vec;
 
 use super::Object::*;
 use super::{Dictionary, Document, Object, Stream, StringFormat};
-use crate::{xref::*, IncrementalDocument};
+use crate::{IncrementalDocument, xref::*};
 
 impl Document {
     /// Save PDF document to specified file path.
@@ -86,7 +86,7 @@ impl Document {
     fn save_with_object_streams<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
         use crate::ObjectStream;
         use std::collections::HashMap;
-        
+
         let mut target = CountingWrite {
             inner: target,
             bytes_written: 0,
@@ -123,14 +123,16 @@ impl Document {
                     }
                 }
             }
-            
+
             if generation == 0 && ObjectStream::can_be_compressed((id, generation), object, self) {
                 // Object can be compressed
                 // Find or create an object stream for it
                 let stream_index = object_streams.len().saturating_sub(1);
-                
-                if object_streams.is_empty() || 
-                   object_streams[stream_index].object_count() >= options.object_stream_config.max_objects_per_stream {
+
+                if object_streams.is_empty()
+                    || object_streams[stream_index].object_count()
+                        >= options.object_stream_config.max_objects_per_stream
+                {
                     // Create new object stream
                     let new_stream = ObjectStream::builder()
                         .max_objects(options.object_stream_config.max_objects_per_stream)
@@ -138,9 +140,11 @@ impl Document {
                         .build();
                     object_streams.push(new_stream);
                 }
-                
+
                 let stream_index = object_streams.len() - 1;
-                object_streams[stream_index].add_object((id, generation), object.clone()).ok();
+                object_streams[stream_index]
+                    .add_object((id, generation), object.clone())
+                    .ok();
                 object_to_stream_map.insert((id, generation), stream_index);
             } else {
                 // Object must be written directly
@@ -158,18 +162,21 @@ impl Document {
         for obj_stream in object_streams.into_iter() {
             let stream_id = self.max_id + 1 + stream_count;
             let stream_obj = obj_stream.to_stream_object().map_err(std::io::Error::other)?;
-            
+
             // Record compressed objects in xref
             // Must use the same sort order as build_stream_content()
             let mut sorted_objects: Vec<_> = obj_stream.objects.keys().cloned().collect();
             sorted_objects.sort_by_key(|id| *id);
             for (index_in_stream, (obj_id, _gen)) in sorted_objects.iter().enumerate() {
-                xref.insert(*obj_id, XrefEntry::Compressed {
-                    container: stream_id,
-                    index: index_in_stream as u16,
-                });
+                xref.insert(
+                    *obj_id,
+                    XrefEntry::Compressed {
+                        container: stream_id,
+                        index: index_in_stream as u16,
+                    },
+                );
             }
-            
+
             // Write the object stream
             Writer::write_indirect_object(&mut target, stream_id, 0, &Object::Stream(stream_obj), &mut xref)?;
             stream_count += 1;

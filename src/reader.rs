@@ -18,6 +18,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 #[cfg(feature = "async")]
 use tokio::pin;
 
+use crate::common_data_structures;
 use crate::encryption::{self, EncryptionState};
 use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
@@ -25,7 +26,6 @@ use crate::object_stream::ObjectStream;
 use crate::parser;
 use crate::xref::XrefEntry;
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
-use crate::common_data_structures;
 
 #[cfg(not(feature = "async"))]
 impl Document {
@@ -499,16 +499,14 @@ impl Reader<'_> {
         let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
         self.buffer = &self.buffer[offset..];
 
-        let version =
-            parser::header(self.buffer, self.strict).ok_or(ParseError::InvalidFileHeader)?;
+        let version = parser::header(self.buffer, self.strict).ok_or(ParseError::InvalidFileHeader)?;
 
         let xref_start = Self::get_xref_start(self.buffer)?;
         if xref_start > self.buffer.len() {
             return Err(Error::Xref(XrefError::Start));
         }
 
-        let (mut xref, mut trailer) =
-            parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
 
         let mut already_seen = HashSet::new();
         let mut prev_xref_start = trailer.remove(b"Prev");
@@ -521,8 +519,7 @@ impl Reader<'_> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, prev_trailer) =
-                parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
             xref.merge(prev_xref);
 
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
@@ -531,8 +528,7 @@ impl Reader<'_> {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
 
-                let (prev_xref, _) =
-                    parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
                 xref.merge(prev_xref);
             }
 
@@ -652,9 +648,7 @@ impl Reader<'_> {
     fn extract_string_field(dict: &Dictionary, key: &[u8]) -> Option<String> {
         match dict.get(key) {
             Ok(obj) => match obj {
-                Object::String(_bytes, _) => {
-		    common_data_structures::decode_text_string(obj).ok()
-		}
+                Object::String(_bytes, _) => common_data_structures::decode_text_string(obj).ok(),
                 _ => None,
             },
             Err(_) => None,
@@ -740,14 +734,12 @@ impl Reader<'_> {
 
         // The document structure can be expressed in PEG as:
         //   document <- header indirect_object* xref trailer xref_start
-        let version =
-            parser::header(self.buffer, self.strict).ok_or(ParseError::InvalidFileHeader)?;
+        let version = parser::header(self.buffer, self.strict).ok_or(ParseError::InvalidFileHeader)?;
 
-        //The binary_mark is in line 2 after the pdf version. If at other line number, then will be declared as invalid pdf.
+        //The binary_mark is in line 2 after the pdf version. If at other line number, then will be declared as invalid
+        // pdf.
         if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n') {
-            if let Some(binary_mark) =
-                parser::binary_mark(&self.buffer[pos + 1..])
-            {
+            if let Some(binary_mark) = parser::binary_mark(&self.buffer[pos + 1..]) {
                 if binary_mark.iter().all(|&byte| byte >= 128) {
                     self.document.binary_mark = binary_mark;
                 }
@@ -760,8 +752,7 @@ impl Reader<'_> {
         }
         self.document.xref_start = xref_start;
 
-        let (mut xref, mut trailer) =
-            parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
@@ -775,8 +766,7 @@ impl Reader<'_> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, prev_trailer) =
-                parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
             xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
@@ -786,8 +776,7 @@ impl Reader<'_> {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
 
-                let (prev_xref, _) =
-                    parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
                 xref.merge(prev_xref);
             }
 
@@ -917,13 +906,7 @@ impl Reader<'_> {
 
     fn parse_raw_object(&self, raw_bytes: &[u8]) -> Result<(ObjectId, Object)> {
         // Parse the raw bytes as an indirect object
-        parser::indirect_object(
-            raw_bytes,
-            0,
-            None,
-            self,
-            &mut HashSet::new(),
-        )
+        parser::indirect_object(raw_bytes, 0, None, self, &mut HashSet::new())
     }
 
     fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
@@ -979,17 +962,19 @@ impl Reader<'_> {
                                 .objects
                                 .into_iter()
                                 .filter(|((obj_num, _), _)| {
-                                    compressed_obj_containers.get(obj_num).is_none_or(|&c| c == container_id)
+                                    compressed_obj_containers
+                                        .get(obj_num)
+                                        .is_none_or(|&c| c == container_id)
                                 })
                                 .filter_map(|(object_id, mut object)| filter_func(object_id, &mut object))
                                 .collect();
                             object_streams.extend(objects);
                         } else {
-                            object_streams.extend(
-                                obj_stream.objects.into_iter().filter(|((obj_num, _), _)| {
-                                    compressed_obj_containers.get(obj_num).is_none_or(|&c| c == container_id)
-                                }),
-                            );
+                            object_streams.extend(obj_stream.objects.into_iter().filter(|((obj_num, _), _)| {
+                                compressed_obj_containers
+                                    .get(obj_num)
+                                    .is_none_or(|&c| c == container_id)
+                            }));
                         }
                     } else if stream.content.is_empty() {
                         let mut zero_length_streams = zero_length_streams.lock().unwrap();
@@ -1263,13 +1248,7 @@ impl Reader<'_> {
         }
 
         // Just parse without decryption - we'll decrypt later
-        parser::indirect_object(
-            self.buffer,
-            offset,
-            expected_id,
-            self,
-            already_seen,
-        )
+        parser::indirect_object(self.buffer, offset, expected_id, self, already_seen)
     }
 
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {

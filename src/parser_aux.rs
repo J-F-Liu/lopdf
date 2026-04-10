@@ -1,15 +1,15 @@
 use log::warn;
 
+use crate::{Dictionary, Object, ObjectId, Stream, parser};
 use crate::{
+    Error, Result,
     content::{Content, Operation},
     document::Document,
     encodings::Encoding,
     error::ParseError,
     object::Object::Name,
     xref::{Xref, XrefEntry, XrefType},
-    Error, Result,
 };
-use crate::{parser, Dictionary, Object, ObjectId, Stream};
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read},
@@ -18,8 +18,7 @@ use std::{
 impl Content<Vec<Operation>> {
     /// Decode content operations.
     pub fn decode(data: &[u8]) -> Result<Self> {
-        parser::content(data)
-            .ok_or(ParseError::InvalidContentStream.into())
+        parser::content(data).ok_or(ParseError::InvalidContentStream.into())
     }
 }
 
@@ -163,14 +162,12 @@ impl Document {
                         .as_name()?;
                     current_encoding = encodings.get(current_font);
                 }
-                "Tj" | "TJ" => {
-                    match current_encoding {
-                        Some(encoding) => {
-                            try_to_replace_encoded_text(operation, encoding, text, other_text, default_str.unwrap_or(""))?
-                        }
-                        None => {
-                            warn!("Could not decode extracted text, some of the occurances might not be properly replaced")
-                        }
+                "Tj" | "TJ" => match current_encoding {
+                    Some(encoding) => {
+                        try_to_replace_encoded_text(operation, encoding, text, other_text, default_str.unwrap_or(""))?
+                    }
+                    None => {
+                        warn!("Could not decode extracted text, some of the occurances might not be properly replaced")
                     }
                 },
                 _ => {}
@@ -181,29 +178,25 @@ impl Document {
     }
 
     pub fn replace_partial_text(
-        &mut self,
-        page_number: u32,
-        search_text: &str,
-        replacement_text: &str,
-        default_char: Option<&str>,
+        &mut self, page_number: u32, search_text: &str, replacement_text: &str, default_char: Option<&str>,
     ) -> Result<usize> {
         let page = page_number.saturating_sub(1) as usize;
         let page_id = self
             .page_iter()
             .nth(page)
             .ok_or(Error::PageNumberNotFound(page_number))?;
-        
+
         let encodings: BTreeMap<Vec<u8>, Encoding> = self
             .get_page_fonts(page_id)?
             .into_iter()
             .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
             .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
-        
+
         let content_data = self.get_page_content(page_id)?;
         let mut content = Content::decode(&content_data)?;
         let mut current_encoding = None;
         let mut replacement_count = 0;
-        
+
         for operation in &mut content.operations {
             match operation.operator.as_ref() {
                 "Tf" => {
@@ -230,12 +223,12 @@ impl Document {
                 _ => {}
             }
         }
-        
+
         if replacement_count > 0 {
             let modified_content = content.encode()?;
             self.change_page_content(page_id, modified_content)?;
         }
-        
+
         Ok(replacement_count)
     }
 
@@ -393,14 +386,10 @@ fn try_to_replace_encoded_text(
 }
 
 fn replace_partial_in_operation(
-    operation: &mut Operation,
-    encoding: &Encoding,
-    search_text: &str,
-    replacement_text: &str,
-    default_char: &str,
+    operation: &mut Operation, encoding: &Encoding, search_text: &str, replacement_text: &str, default_char: &str,
 ) -> Result<usize> {
     let mut replacement_count = 0;
-    
+
     for operand in &mut operation.operands {
         match operand {
             Object::String(bytes, _) => {
@@ -413,27 +402,18 @@ fn replace_partial_in_operation(
                 }
             }
             Object::Array(arr) => {
-                replacement_count += replace_partial_in_array(
-                    arr,
-                    encoding,
-                    search_text,
-                    replacement_text,
-                    default_char,
-                )?;
+                replacement_count +=
+                    replace_partial_in_array(arr, encoding, search_text, replacement_text, default_char)?;
             }
             _ => {}
         }
     }
-    
+
     Ok(replacement_count)
 }
 
 fn replace_partial_in_array(
-    arr: &mut [Object],
-    encoding: &Encoding,
-    search_text: &str,
-    replacement_text: &str,
-    default_char: &str,
+    arr: &mut [Object], encoding: &Encoding, search_text: &str, replacement_text: &str, default_char: &str,
 ) -> Result<usize> {
     let mut replacement_count = 0;
 
@@ -448,20 +428,16 @@ fn replace_partial_in_array(
             }
         }
     }
-    
+
     Ok(replacement_count)
 }
 
-fn encode_with_fallback(
-    encoding: &Encoding,
-    text: &str,
-    default_char: &str,
-) -> Vec<u8> {
+fn encode_with_fallback(encoding: &Encoding, text: &str, default_char: &str) -> Vec<u8> {
     let encoded = Document::encode_text(encoding, text);
     if !encoded.is_empty() {
         return encoded;
     }
-    
+
     encode(encoding, text, default_char)
 }
 
@@ -567,8 +543,8 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[test]
     fn load_and_save() {
-        use crate::creator::tests::{create_document, save_document};
         use crate::Document;
+        use crate::creator::tests::{create_document, save_document};
 
         // test load_from() and save_to()
         use std::fs::File;
@@ -627,7 +603,7 @@ mod tests {
         let mut doc = create_document_with_texts(&["Hello World! Hello Universe!"]);
         let replacements = doc.replace_partial_text(1, "Hello", "Hi", None).unwrap();
         assert_eq!(replacements, 2); // Should replace both occurrences
-        
+
         let extracted_text = doc.extract_text(&[1]).unwrap();
         assert!(extracted_text.contains("Hi World! Hi Universe!"));
     }

@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::{Dictionary, Document, Object, ObjectId, Stream, FontData};
+use crate::{Dictionary, Document, FontData, Object, ObjectId, Stream};
 
 impl Document {
     /// Create new PDF document with version.
@@ -271,10 +271,10 @@ pub mod tests {
         });
         doc.trailer.set("Root", catalog_id);
         doc.trailer.set("Info", info_id);
-        doc.trailer.set("ID", Object::Array(vec![
-            Object::string_literal(b"ABC"),
-            Object::string_literal(b"DEF"),
-        ]));
+        doc.trailer.set(
+            "ID",
+            Object::Array(vec![Object::string_literal(b"ABC"), Object::string_literal(b"DEF")]),
+        );
         doc.compress();
         doc
     }
