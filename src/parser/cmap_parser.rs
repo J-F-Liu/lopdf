@@ -103,8 +103,8 @@ fn cmap_data(input: ParserInput) -> NomResult<Vec<CMapSection>> {
 }
 
 fn cmap_metadata(input: ParserInput) -> NomResult<()> {
-    let metadata_parser = alt((cid_system_info, cmap_name, cmap_type));
-    fold_many_m_n(1, 4, metadata_parser, || (), |_, _| ()).parse(input)
+    let metadata_parser = alt((cid_system_info, cmap_name, cmap_type, cmap_version, uidoffset, wmode, xuid));
+    fold_many_m_n(1, 7, metadata_parser, || (), |_, _| ()).parse(input)
 }
 
 fn cid_system_info(input: ParserInput) -> NomResult<()> {
@@ -126,6 +126,24 @@ fn cmap_name(input: ParserInput) -> NomResult<()> {
 
 fn cmap_type(input: ParserInput) -> NomResult<()> {
     (tag(&b"/CMapType"[..]), space1, digit1, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
+}
+
+fn cmap_version(input: ParserInput) -> NomResult<()> {
+    let version = (digit1, opt((tag(&b"."[..]), digit1)));
+    (tag(&b"/CMapVersion"[..]), space1, version, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
+}
+
+fn wmode(input: ParserInput) -> NomResult<()> {
+    (tag(&b"/WMode"[..]), space1, digit1, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
+}
+
+fn uidoffset(input: ParserInput) -> NomResult<()> {
+    (tag(&b"/UIDOffset"[..]), space1, digit1, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
+}
+
+fn xuid(input: ParserInput) -> NomResult<()> {
+    let array = (tag(&b"["[..]), separated_list1(space1, digit1), tag(&b"]"[..]));
+    (tag(&b"/XUID"[..]), space1, array, space1, tag(&b"def"[..]), multispace1).parse(input).map(|(i, _)| (i, ()))
 }
 
 fn cmap_codespace_and_mappings(input: ParserInput) -> NomResult<Vec<CMapSection>> {
@@ -397,6 +415,36 @@ end def
     fn parse_cmap_type() {
         let data = b"/CMapType 2 def\n";
         assert!(cmap_type(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_cmap_version() {
+        let data = b"/CMapVersion 0 def\n";
+        assert!(cmap_version(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_cmap_version2() {
+        let data = b"/CMapVersion 10.001 def\n";
+        assert!(cmap_version(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_uidoffset() {
+        let data = b"/UIDOffset 950 def\n";
+        assert!(uidoffset(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_xuid() {
+        let data = b"/XUID [1 10 25343] def\n";
+        assert!(xuid(test_span(data)).is_ok())
+    }
+
+    #[test]
+    fn parse_wmode() {
+        let data = b"/WMode 0 def\n";
+        assert!(wmode(test_span(data)).is_ok())
     }
 
     #[test]
