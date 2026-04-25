@@ -1,6 +1,6 @@
 use log::{error, warn};
 use std::cmp;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
 #[cfg(not(feature = "async"))]
 use std::fs::File;
@@ -473,6 +473,14 @@ pub struct PdfMetadata {
     pub creation_date: Option<String>,
     /// Document modification date (PDF date format: D:YYYYMMDDHHmmSSOHH'mm')
     pub modification_date: Option<String>,
+    /// Custom Info dictionary entries that are not part of the standard set above.
+    ///
+    /// Producers commonly use the Info dictionary to attach application-specific
+    /// metadata (for example, Microsoft Information Protection labels stored as
+    /// `MSIP_Label_{GUID}_{Property}` keys). Such entries used to be discarded
+    /// by the metadata-only loader; they are now preserved here as raw `Object`
+    /// values so callers can inspect or decode them as needed.
+    pub custom: HashMap<Vec<u8>, Object>,
     /// Number of pages in the document
     pub page_count: u32,
     /// PDF version
@@ -488,7 +496,39 @@ struct InfoMetadata {
     producer: Option<String>,
     creation_date: Option<String>,
     modification_date: Option<String>,
+    custom: HashMap<Vec<u8>, Object>,
 }
+
+impl InfoMetadata {
+    fn empty() -> Self {
+        Self {
+            title: None,
+            author: None,
+            subject: None,
+            keywords: None,
+            creator: None,
+            producer: None,
+            creation_date: None,
+            modification_date: None,
+            custom: HashMap::new(),
+        }
+    }
+}
+
+/// Standard Info dictionary keys defined in PDF 1.7 §14.3.3 ("Document
+/// Information Dictionary"). Any other key is preserved on
+/// `PdfMetadata::custom` rather than dropped.
+const STANDARD_INFO_KEYS: &[&[u8]] = &[
+    b"Title",
+    b"Author",
+    b"Subject",
+    b"Keywords",
+    b"Creator",
+    b"Producer",
+    b"CreationDate",
+    b"ModDate",
+    b"Trapped",
+];
 
 impl Reader<'_> {
     /// Read metadata (title and page count) without loading the entire document.
@@ -562,6 +602,7 @@ impl Reader<'_> {
             producer: info_metadata.producer,
             creation_date: info_metadata.creation_date,
             modification_date: info_metadata.modification_date,
+            custom: info_metadata.custom,
             page_count,
             version,
         })
@@ -570,68 +611,32 @@ impl Reader<'_> {
     fn extract_info_metadata(&self) -> Result<InfoMetadata> {
         let info_ref = match self.document.trailer.get(b"Info") {
             Ok(obj) => obj.as_reference().ok(),
-            Err(_) => {
-                return Ok(InfoMetadata {
-                    title: None,
-                    author: None,
-                    subject: None,
-                    keywords: None,
-                    creator: None,
-                    producer: None,
-                    creation_date: None,
-                    modification_date: None,
-                });
-            }
+            Err(_) => return Ok(InfoMetadata::empty()),
         };
 
         let info_id = match info_ref {
             Some(id) => id,
-            None => {
-                return Ok(InfoMetadata {
-                    title: None,
-                    author: None,
-                    subject: None,
-                    keywords: None,
-                    creator: None,
-                    producer: None,
-                    creation_date: None,
-                    modification_date: None,
-                });
-            }
+            None => return Ok(InfoMetadata::empty()),
         };
 
         let mut already_seen = HashSet::new();
         let info_obj = match self.get_object(info_id, &mut already_seen) {
             Ok(obj) => obj,
-            Err(_) => {
-                return Ok(InfoMetadata {
-                    title: None,
-                    author: None,
-                    subject: None,
-                    keywords: None,
-                    creator: None,
-                    producer: None,
-                    creation_date: None,
-                    modification_date: None,
-                });
-            }
+            Err(_) => return Ok(InfoMetadata::empty()),
         };
 
         let info_dict = match info_obj.as_dict() {
             Ok(dict) => dict,
-            Err(_) => {
-                return Ok(InfoMetadata {
-                    title: None,
-                    author: None,
-                    subject: None,
-                    keywords: None,
-                    creator: None,
-                    producer: None,
-                    creation_date: None,
-                    modification_date: None,
-                });
-            }
+            Err(_) => return Ok(InfoMetadata::empty()),
         };
+
+        let mut custom = HashMap::new();
+        for (key, value) in info_dict.iter() {
+            if STANDARD_INFO_KEYS.contains(&key.as_slice()) {
+                continue;
+            }
+            custom.insert(key.clone(), value.clone());
+        }
 
         Ok(InfoMetadata {
             title: Self::extract_string_field(info_dict, b"Title"),
@@ -642,6 +647,7 @@ impl Reader<'_> {
             producer: Self::extract_string_field(info_dict, b"Producer"),
             creation_date: Self::extract_string_field(info_dict, b"CreationDate"),
             modification_date: Self::extract_string_field(info_dict, b"ModDate"),
+            custom,
         })
     }
 
