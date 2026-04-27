@@ -121,11 +121,10 @@ impl Document {
                     }
                     None => warn!("Could not decode extracted text"),
                 },
-                "ET" => {
-                    if !current_text.ends_with('\n') {
-                        current_text.push('\n')
-                    }
+                "ET" if !current_text.ends_with('\n') => {
+                    current_text.push('\n')
                 }
+                "ET" => {}
                 _ => {}
             }
         }
@@ -287,10 +286,8 @@ fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> 
                 collect_text(text, encoding, arr)?;
                 text.push(' ');
             }
-            Object::Integer(i) => {
-                if *i < -100 {
-                    text.push(' ');
-                }
+            Object::Integer(i) if *i < -100 => {
+                text.push(' ');
             }
             _ => {}
         }

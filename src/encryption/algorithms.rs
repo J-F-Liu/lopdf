@@ -1416,7 +1416,7 @@ mod tests {
         assert!(algorithm.authenticate_user_password_r6(&owner_password).is_err());
 
         // Assert that the permissions validate correctly.
-        assert!(algorithm.validate_permissions(&file_encryption_key).is_ok());
+        assert!(algorithm.validate_permissions(file_encryption_key).is_ok());
 
         // Assert that the file encryption key is equal for the owner password.
         let key = algorithm.compute_file_encryption_key_r6(&owner_password).unwrap();
@@ -1475,7 +1475,7 @@ mod tests {
         assert!(algorithm.authenticate_user_password_r6(&owner_password).is_err());
 
         // Assert that the permissions validate correctly.
-        assert!(algorithm.validate_permissions(&file_encryption_key).is_ok());
+        assert!(algorithm.validate_permissions(file_encryption_key).is_ok());
 
         // Assert that the file encryption key is equal for the owner password.
         let key = algorithm.compute_file_encryption_key_r6(&owner_password).unwrap();

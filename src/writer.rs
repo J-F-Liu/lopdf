@@ -436,8 +436,7 @@ impl Writer {
             xref_index.push(Integer(section.starting_id as i64));
             xref_index.push(Integer(section.entries.len() as i64));
             // Add entries to stream
-            let mut obj_id = section.starting_id;
-            for entry in section.entries {
+            for (obj_id, entry) in (section.starting_id..).zip(section.entries) {
                 match entry {
                     XrefEntry::Free => {
                         // Type 0
@@ -464,7 +463,6 @@ impl Writer {
                         xref_stream.extend(index.to_be_bytes());
                     }
                 }
-                obj_id += 1;
             }
         }
 

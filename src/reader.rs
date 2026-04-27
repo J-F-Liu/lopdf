@@ -1325,8 +1325,7 @@ fn load_document_with_preceding_bytes() {
 
 #[test]
 fn load_many_shallow_brackets() {
-    let content: String = std::iter::repeat("()")
-        .take(MAX_BRACKET * 10)
+    let content: String = std::iter::repeat_n("()", MAX_BRACKET * 10)
         .flat_map(|x| x.chars())
         .collect();
     const STREAM_CRUFT: usize = 33;
@@ -1371,9 +1370,8 @@ startxref
 
 #[test]
 fn load_too_deep_brackets() {
-    let content: Vec<u8> = std::iter::repeat(b'(')
-        .take(MAX_BRACKET + 1)
-        .chain(std::iter::repeat(b')').take(MAX_BRACKET + 1))
+    let content: Vec<u8> = std::iter::repeat_n(b'(', MAX_BRACKET + 1)
+        .chain(std::iter::repeat_n(b')', MAX_BRACKET + 1))
         .collect();
     let content = String::from_utf8(content).unwrap();
     const STREAM_CRUFT: usize = 33;

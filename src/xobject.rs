@@ -182,7 +182,7 @@ async fn insert_image() {
     use super::xobject;
     let mut doc = Document::load("assets/example.pdf").await.unwrap();
     let pages = doc.get_pages();
-    let page_id = *pages.get(&1).expect(&format!("Page {} not exist.", 1));
+    let page_id = *pages.get(&1).unwrap_or_else(|| panic!("Page {} not exist.", 1));
     let img = xobject::image("assets/pdf_icon.jpg").unwrap();
     doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0)).unwrap();
     doc.save("test_5_image.pdf").unwrap();
