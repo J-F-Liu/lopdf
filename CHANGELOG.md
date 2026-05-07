@@ -5,6 +5,8 @@
 
 * Add `LoadOptions` struct with `password`, `filter`, and `strict` fields for extensible loading configuration
 * Add `load_with_options`, `load_from_with_options`, and `load_mem_with_options` methods (sync + async)
+* Add support for the `'`, `"`, and `T*` text-showing operators in `extract_text` / `extract_text_chunks` (PDF 1.7 §9.4.2-3). Previously these operators fell through the silent-drop arm, losing their associated text content.
+* Add `creator::tests::create_document_with_operations` helper for tests that need to exercise specific content-stream operators not produced by `create_document_with_texts`.
 
 ### Deprecate
 
