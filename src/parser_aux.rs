@@ -121,9 +121,47 @@ impl Document {
                     }
                     None => warn!("Could not decode extracted text"),
                 },
-                "ET" if !current_text.ends_with('\n') => {
-                    current_text.push('\n')
-                }
+                // PDF 32000-1 §9.4.3 — `'` is equivalent to `T* Tj`:
+                // move to next line, then show string from the single
+                // string operand.
+                "'" => match current_encoding {
+                    Some(encoding) => {
+                        if !current_text.ends_with('\n') {
+                            current_text.push('\n');
+                        }
+                        let res = collect_text(&mut current_text, encoding, &operation.operands);
+                        if let Err(err) = res {
+                            collected_chunks_and_errs.push(Err(err));
+                        }
+                    }
+                    None => warn!("Could not decode extracted text"),
+                },
+                // PDF 32000-1 §9.4.3 — `"` is equivalent to
+                // `aw Tw ac Tc T* Tj` with operands `[aw, ac, string]`.
+                // Operands 0/1 set word/character spacing for rendering
+                // and don't affect the extracted character sequence;
+                // operand 2 is the string to show.
+                "\"" => match current_encoding {
+                    Some(encoding) => {
+                        if !current_text.ends_with('\n') {
+                            current_text.push('\n');
+                        }
+                        if let Some(string_operand) = operation.operands.get(2) {
+                            let res = collect_text(&mut current_text, encoding, std::slice::from_ref(string_operand));
+                            if let Err(err) = res {
+                                collected_chunks_and_errs.push(Err(err));
+                            }
+                        }
+                    }
+                    None => warn!("Could not decode extracted text"),
+                },
+                // PDF 32000-1 §9.4.2 — `T*` moves to the start of the
+                // next line. For text extraction we approximate this
+                // as `\n`, matching how the `ET` arm above handles end
+                // of text object.
+                "T*" if !current_text.ends_with('\n') => current_text.push('\n'),
+                "T*" => {}
+                "ET" if !current_text.ends_with('\n') => current_text.push('\n'),
                 "ET" => {}
                 _ => {}
             }
@@ -603,5 +641,83 @@ mod tests {
 
         let extracted_text = doc.extract_text(&[1]).unwrap();
         assert!(extracted_text.contains("Hi World! Hi Universe!"));
+    }
+
+    /// PDF 1.7 / ISO 32000-1 §9.4.3 — `'` is equivalent to `T* Tj`:
+    /// move to the next line and show a string. extract_text should
+    /// recover the string operand and emit a line break before it.
+    #[test]
+    fn extract_text_handles_apostrophe_show_text_op() {
+        use crate::Object;
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+
+        let doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new("Tj", vec![Object::string_literal("first")]),
+            Operation::new("'", vec![Object::string_literal("second")]),
+            Operation::new("'", vec![Object::string_literal("third")]),
+            Operation::new("ET", vec![]),
+        ]);
+
+        let text = doc.extract_text(&[1]).unwrap();
+        assert!(text.contains("first"), "Tj string lost: {text:?}");
+        assert!(text.contains("second"), "first ' string lost: {text:?}");
+        assert!(text.contains("third"), "second ' string lost: {text:?}");
+    }
+
+    /// PDF 1.7 / ISO 32000-1 §9.4.3 — `"` is equivalent to
+    /// `aw Tw ac Tc T* Tj` with operands `[aw, ac, string]`. extract_text
+    /// should recover operand index 2 (the string); operands 0 and 1 set
+    /// rendering spacing and don't affect the extracted character sequence.
+    #[test]
+    fn extract_text_handles_quote_show_text_op() {
+        use crate::Object;
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+
+        let doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new("\"", vec![0.into(), 0.into(), Object::string_literal("from-quote-op")]),
+            Operation::new("ET", vec![]),
+        ]);
+
+        let text = doc.extract_text(&[1]).unwrap();
+        assert!(text.contains("from-quote-op"), "\" string operand lost: {text:?}");
+    }
+
+    /// PDF 1.7 / ISO 32000-1 §9.4.2 — `T*` moves to the start of the
+    /// next line. For text extraction we approximate as `\n`, so a
+    /// `Tj T* Tj` sequence should produce two strings separated by a
+    /// newline rather than running together.
+    #[test]
+    fn extract_text_preserves_line_breaks_for_t_star() {
+        use crate::Object;
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+
+        let doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new("Tj", vec![Object::string_literal("line-one")]),
+            Operation::new("T*", vec![]),
+            Operation::new("Tj", vec![Object::string_literal("line-two")]),
+            Operation::new("ET", vec![]),
+        ]);
+
+        let text = doc.extract_text(&[1]).unwrap();
+        let one = text.find("line-one").expect("line-one missing");
+        let two = text.find("line-two").expect("line-two missing");
+        assert!(one < two, "order wrong: {text:?}");
+        let between = &text[one + "line-one".len()..two];
+        assert!(
+            between.contains('\n'),
+            "T* did not insert a line break between Tj strings: between={between:?}"
+        );
     }
 }
