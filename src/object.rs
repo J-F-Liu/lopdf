@@ -1,11 +1,12 @@
 use crate::encodings;
-use crate::encodings::Encoding;
 use crate::encodings::cmap::ToUnicodeCMap;
+use crate::encodings::{Differences, Encoding, Glyph};
 use crate::error::DecompressError;
 use crate::{Document, Error, Result};
 use indexmap::IndexMap;
 use log::warn;
 use std::cmp::max;
+use std::collections::HashSet;
 use std::fmt;
 use std::str;
 
@@ -404,7 +405,7 @@ impl Dictionary {
         self.0.iter_mut()
     }
 
-    pub fn get_font_encoding(&'_ self, doc: &Document) -> Result<Encoding<'_>> {
+    pub fn get_font_encoding<'a>(&'a self, doc: &'a Document) -> Result<Encoding<'a>> {
         if !self.has_type(b"Font") {
             return Err(Error::DictType {
                 expected: "Font",
@@ -413,39 +414,155 @@ impl Dictionary {
         }
 
         // Note: currently not all encodings are handled, not implemented:
-        // - dictionary differences encoding
-        // - default base encoding in dictionary differences encoding
         // - TrueType cmap tables
         // - DescendantFonts in CID-Keyed fonts
-        // - predefined CJK CMAP other than indicated in SimpleEncoding
-        match self.get(b"Encoding").and_then(Object::as_name) {
-            Ok(b"StandardEncoding") => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
-            Ok(b"MacRomanEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
-            Ok(b"MacExpertEncoding") => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
-            Ok(b"WinAnsiEncoding") => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
-            Ok(b"PDFDocEncoding") => {
-                log::warn!("PDFDocEncoding is not a valid character encoding for a font");
-                Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING))
+        // - Predefined CJK CMAP other than indicated in SimpleEncoding
+        // - Deciding what should be the fallback font if no such encoding is defined in difference encoding (see Table
+        //   114 in 9.6.6.1 General under `BaseEncoding`).
+        let result = (|| {
+            if let Ok(object) = self.get(b"Encoding") {
+                return self.get_base_encoding(object, doc);
             }
-            Ok(b"Identity-H") | Ok(b"Identity-V") => {
-                let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
-                self.get_encoding_from_to_unicode_cmap(stream)
-            }
-            Ok(name) => Ok(Encoding::SimpleEncoding(name)),
-            Err(err) => {
-                warn!("Could not parse the encoding, error: {err:#?}\nFont: {self:#?}\nTrying to retrieve ToUnicode.");
-                let stream = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream);
-                if let Ok(stream) = stream {
-                    return self.get_encoding_from_to_unicode_cmap(stream);
-                }
 
-                warn!("Using standard encoding as a fallback!");
+            if let Ok(stream) = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream) {
+                return self.get_to_unicode_encoding(stream);
+            }
+
+            Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
+        })();
+
+        match result {
+            Ok(encoding) => Ok(encoding),
+            Err(err) => {
+                warn!(
+                    "Could not parse the encoding, error: {err:#?}\nFont: {self:#?}. Using standard encoding as a fallback!"
+                );
                 Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
             }
         }
     }
 
-    fn get_encoding_from_to_unicode_cmap(&'_ self, stream: &Stream) -> Result<Encoding<'_>> {
+    /// Get a simple encoding from the /Encoding entry of a font dictionary.
+    fn get_base_encoding<'a>(&'a self, mut object: &'a Object, doc: &'a Document) -> Result<Encoding<'a>> {
+        // Set of visited to detect circular references.
+        let mut visited = HashSet::new();
+
+        loop {
+            match *object {
+                Object::Name(ref name) => {
+                    return self.base_encoding(doc, name);
+                }
+                Object::Reference(id) => {
+                    if !visited.insert(id) {
+                        return Err(Error::ReferenceCycle(id));
+                    }
+
+                    let Ok(o) = doc.get_object(id) else {
+                        return Err(Error::ObjectNotFound(id));
+                    };
+
+                    object = o;
+                }
+                Object::Dictionary(ref dict) => {
+                    let ty = dict.get(b"Type")?.as_name()?;
+
+                    match ty {
+                        b"Encoding" => {
+                            let mut base = None;
+
+                            if let Ok(base_encoding) = dict.get(b"BaseEncoding")
+                                && let Ok(name) = base_encoding.as_name()
+                            {
+                                base = Some(self.base_encoding(doc, name)?);
+                            }
+
+                            let base = match base {
+                                Some(base) => base,
+                                None => Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING),
+                            };
+
+                            let differences = dict.get(b"Differences")?.as_array()?;
+                            let differences = self.differences(base, &differences)?;
+                            return Ok(Encoding::Differences(differences));
+                        }
+                        _ => {
+                            return Err(Error::ObjectType {
+                                expected: "Encoding Dictionary",
+                                found: "Dictionary with Type other than /Encoding",
+                            });
+                        }
+                    }
+                }
+                ref object => {
+                    return Err(Error::ObjectType {
+                        expected: "Name or Reference or Dictionary",
+                        found: object.enum_variant(),
+                    });
+                }
+            }
+        }
+    }
+
+    fn base_encoding<'a>(&'a self, doc: &'a Document, name: &'a [u8]) -> Result<Encoding<'a>> {
+        match &name[..] {
+            b"StandardEncoding" => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            b"MacRomanEncoding" => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
+            b"MacExpertEncoding" => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
+            b"WinAnsiEncoding" => Ok(Encoding::OneByteEncoding(&encodings::WIN_ANSI_ENCODING)),
+            b"PDFDocEncoding" => {
+                log::warn!("PDFDocEncoding is not a valid character encoding for a font");
+                Ok(Encoding::OneByteEncoding(&encodings::PDF_DOC_ENCODING))
+            }
+            b"Identity-H" | b"Identity-V" => {
+                let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
+                self.get_to_unicode_encoding(stream)
+            }
+            name => Ok(Encoding::SimpleEncoding(name)),
+        }
+    }
+
+    fn differences<'a>(&'a self, base: Encoding<'a>, array: &[Object]) -> Result<Differences<'a>> {
+        let mut map = IndexMap::new();
+        let mut inverse = IndexMap::new();
+        let mut current_code = 0;
+
+        for obj in array {
+            match *obj {
+                Object::Integer(code) => {
+                    if code < 0 || code > 255 {
+                        return Err(Error::InvalidEncodingDifferenceCode { code });
+                    }
+
+                    current_code = code as u8;
+                }
+                Object::Name(ref name) => {
+                    let Some(glyph) = Glyph::from_name(name) else {
+                        return Err(Error::InvalidEncodingDifferenceGlyph {
+                            name: String::from_utf8_lossy(name).into_owned(),
+                        });
+                    };
+
+                    map.insert(current_code, glyph);
+                    inverse.insert(glyph, current_code);
+                    current_code = current_code.wrapping_add(1);
+                }
+                _ => {
+                    return Err(Error::ObjectType {
+                        expected: "Integer or Name",
+                        found: obj.enum_variant(),
+                    });
+                }
+            }
+        }
+
+        Ok(Differences {
+            base: Box::new(base),
+            map,
+            inverse,
+        })
+    }
+
+    fn get_to_unicode_encoding(&'_ self, stream: &Stream) -> Result<Encoding<'_>> {
         let content = stream.get_plain_content()?;
         let cmap = ToUnicodeCMap::parse(content)?;
         Ok(Encoding::UnicodeMapEncoding(cmap))

@@ -318,7 +318,7 @@ fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> 
     for operand in operands.iter() {
         match operand {
             Object::String(bytes, _) => {
-                text.push_str(&Document::decode_text(encoding, bytes)?);
+                encoding.write_to_string(bytes, text)?;
             }
             Object::Array(arr) => {
                 collect_text(text, encoding, arr)?;

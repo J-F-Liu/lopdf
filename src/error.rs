@@ -113,6 +113,12 @@ pub enum Error {
     /// Encountered an unsupported security handler.
     #[error("unsupported security handler")]
     UnsupportedSecurityHandler(Vec<u8>),
+    /// Encountered when a differences code is out of bounds.
+    #[error("invalid encoding difference code: {code}")]
+    InvalidEncodingDifferenceCode { code: i64 },
+    /// Encountered when a differences glyph name is invalid.
+    #[error("invalid encoding difference glyph name: {name}")]
+    InvalidEncodingDifferenceGlyph { name: String },
 }
 
 #[derive(Error, Debug)]
