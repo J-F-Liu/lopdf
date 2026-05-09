@@ -10,7 +10,9 @@ pub fn text_string(text: &str) -> Object {
     if text.is_ascii() {
         return Object::String(text.into(), StringFormat::Literal);
     }
-    Object::String(encodings::encode_utf16_be(text), StringFormat::Hexadecimal)
+    let mut string = Vec::new();
+    encodings::encode_utf16_be(text, &mut string);
+    Object::String(string, StringFormat::Hexadecimal)
 }
 
 /// Decodes a text string.
@@ -39,7 +41,9 @@ pub fn decode_text_string(obj: &Object) -> Result<String> {
         String::from_utf8(s.to_vec()).map_err(|_| Error::TextStringDecode)
     } else {
         // If neither BOM is detected, PDFDocEncoding is used
-        Ok(bytes_to_string(&encodings::PDF_DOC_ENCODING, s))
+        let mut out = String::new();
+        bytes_to_string(&encodings::PDF_DOC_ENCODING, s, &mut out)?;
+        Ok(out)
     }
 }
 

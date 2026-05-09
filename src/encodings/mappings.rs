@@ -1,6 +1,6 @@
 use super::glyphnames::Glyph;
 
-pub type CodedCharacterSet = [Option<u16>; 256];
+pub type CodedCharacterSet = [Option<Glyph>; 256];
 pub const MAC_ROMAN_ENCODING: CodedCharacterSet = [
     None,
     None,
