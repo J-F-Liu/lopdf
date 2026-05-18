@@ -391,24 +391,26 @@ fn try_to_replace_encoded_text(
                 let mut str_collected = String::new();
                 collect_text(&mut str_collected, encoding, arr)?;
                 if str_collected == text_to_replace {
-                    let s_len = str_collected.chars().count();
-                    let r_len = replacement.chars().count();
-                    let mut cur = 0;
+                    // The number of `Object::String` items in a `TJ` array is
+                    // not guaranteed to match the character count of the
+                    // decoded text (each string may hold several glyphs, and
+                    // numeric kerning entries are interleaved).
+                    //
+                    // There is no **good** way to interpolate between the OG
+                    // and the replacement, but putting the full encoded replacement
+                    // into the first string slot and emptying out the remaining
+                    // string slots, leaving any numeric kerning entries in place
+                    // seems like the least bad option.
+                    let encoded_replacement = encode(encoding, replacement, default_str);
+                    let mut placed = false;
                     for item in arr.iter_mut() {
                         if let Object::String(bytes, _f) = item {
-                            if cur == s_len - 1 {
-                                let sub = substring(replacement, cur);
-                                let encoded_bytes = encode(encoding, sub, default_str);
-                                *bytes = encoded_bytes;
-                                break;
-                            } else if cur > r_len {
-                                *item = Object::Null;
+                            if placed {
+                                *bytes = Vec::new();
                             } else {
-                                let sub = substr(replacement, cur, 1);
-                                let encoded_bytes = encode(encoding, sub, default_str);
-                                *bytes = encoded_bytes;
+                                bytes.clone_from(&encoded_replacement);
+                                placed = true;
                             }
-                            cur += 1;
                         }
                     }
                 }
