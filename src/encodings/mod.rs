@@ -19,13 +19,8 @@ pub fn bytes_to_string(encoding: &CodedCharacterSet, bytes: &[u8], out: &mut Str
             continue;
         };
 
-        for c in char::decode_utf16([g.utf16_code_unit()]) {
-            // This technically skips over invalid code units, which shouldn't
-            // happen since we control that the glyph dictionary only contains
-            // valid single-code-unit glyphs. But this is fine.
-            if let Ok(ch) = c {
-                out.push(ch);
-            }
+        for ch in char::decode_utf16([g.utf16_code_unit()]).flatten() {
+            out.push(ch);
         }
     }
 

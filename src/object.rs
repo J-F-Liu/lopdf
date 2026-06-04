@@ -482,7 +482,7 @@ impl Dictionary {
                             };
 
                             let differences = dict.get(b"Differences")?.as_array()?;
-                            let differences = self.differences(base, &differences)?;
+                            let differences = self.differences(base, differences)?;
                             return Ok(Encoding::Differences(differences));
                         }
                         _ => {
@@ -504,7 +504,7 @@ impl Dictionary {
     }
 
     fn base_encoding<'a>(&'a self, doc: &'a Document, name: &'a [u8]) -> Result<Encoding<'a>> {
-        match &name[..] {
+        match name {
             b"StandardEncoding" => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
             b"MacRomanEncoding" => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
             b"MacExpertEncoding" => Ok(Encoding::OneByteEncoding(&encodings::MAC_EXPERT_ENCODING)),
@@ -529,7 +529,7 @@ impl Dictionary {
         for obj in array {
             match *obj {
                 Object::Integer(code) => {
-                    if code < 0 || code > 255 {
+                    if !(0..=255).contains(&code) {
                         return Err(Error::InvalidEncodingDifferenceCode { code });
                     }
 

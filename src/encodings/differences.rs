@@ -15,10 +15,8 @@ impl Differences<'_> {
                 continue;
             };
 
-            for c in char::decode_utf16([glyph.utf16_code_unit()]) {
-                if let Ok(c) = c {
-                    out.push_str(c.encode_utf8(&mut [0; 4]));
-                }
+            for c in char::decode_utf16([glyph.utf16_code_unit()]).flatten() {
+                out.push_str(c.encode_utf8(&mut [0; 4]));
             }
         }
 
