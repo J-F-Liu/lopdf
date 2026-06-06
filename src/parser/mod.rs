@@ -704,6 +704,16 @@ pub fn content(input: ParserInput) -> Option<Content<Vec<Operation>>> {
     strip_nom(_content.parse(input))
 }
 
+pub fn content_strict(input: ParserInput) -> Result<Content<Vec<Operation>>, error::ParseError> {
+    let (rest, content) = _content
+        .parse(input)
+        .map_err(|_| error::ParseError::InvalidContentStream)?;
+    if !rest.is_empty() {
+        return Err(error::ParseError::InvalidContentStream);
+    }
+    Ok(content)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -958,5 +968,25 @@ EI";
             Some(num) => assert_eq!(num, 135738),
             None => panic!("startxref with trailing space should parse"),
         }
+    }
+
+    #[test]
+    fn content_silently_truncates_corrupted_data() {
+        // Corrupted data with unterminated string literal
+        let data = b"q 1 0 0 1 10 10 cm (corrupted Q";
+
+        let content = content(data).unwrap();
+
+        // Operations before the corruption returned without an error.
+        // Trailing Q was silently dropped.
+        assert_eq!(content.operations.len(), 2);
+        assert_eq!(content.operations[0].operator, "q");
+        assert_eq!(content.operations[1].operator, "cm");
+    }
+
+    #[test]
+    fn content_strict_rejects_corrupted_data() {
+        let data = b"q 1 0 0 1 10 10 cm (corrupted Q";
+        assert!(content_strict(data).is_err());
     }
 }
