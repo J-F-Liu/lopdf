@@ -1,13 +1,13 @@
 use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
-use crate::Error;
 use crate::content::*;
 use crate::error;
 use crate::xref::*;
+use crate::Error;
 use std::collections::HashSet;
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take, take_while, take_while_m_n, take_while1};
+use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
 use nom::character::complete::multispace1;
 use nom::character::complete::{digit0, digit1, one_of};
 use nom::character::complete::{space0, space1};
@@ -804,24 +804,24 @@ T* (encoded streams.) Tj
     fn big_generation_value() {
         let input = b"xref
 0 1
-0000000000 65536 f 
+0000000000 65536 f\x20
 0 16
-0000000000 65535 f 
-0000153238 00000 n 
-0000000019 00000 n 
-0000000313 00000 n 
-0000000333 00000 n 
-0000145531 00000 n 
-0000153407 00000 n 
-0000145554 00000 n 
-0000152303 00000 n 
-0000152324 00000 n 
-0000152514 00000 n 
-0000152880 00000 n 
-0000153106 00000 n 
-0000153139 00000 n 
-0000153532 00000 n 
-0000153629 00000 n 
+0000000000 65535 f\x20
+0000153238 00000 n\x20
+0000000019 00000 n\x20
+0000000313 00000 n\x20
+0000000333 00000 n\x20
+0000145531 00000 n\x20
+0000153407 00000 n\x20
+0000145554 00000 n\x20
+0000152303 00000 n\x20
+0000152324 00000 n\x20
+0000152514 00000 n\x20
+0000152880 00000 n\x20
+0000153106 00000 n\x20
+0000153139 00000 n\x20
+0000153532 00000 n\x20
+0000153629 00000 n\x20
 trailer
 <</Size 16/Root 14 0 R
 /Info 15 0 R
@@ -830,7 +830,7 @@ trailer
 /DocChecksum /2BCC3C7DE26E6BF3573E4A6E8362221F
 >>
 startxref
-153804
+153804\x20
 %%EOF
 ";
         match xref(test_span(input)) {
@@ -842,7 +842,7 @@ startxref
     #[test]
     fn space_in_startxref_number() {
         let input = b"startxref
-153804 
+153804\x20
 %%EOF
 ";
         match xref_start(test_span(input)) {
