@@ -693,9 +693,10 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
 }
 
 fn _content(input: ParserInput) -> NomResult<Content<Vec<Operation>>> {
-    preceded(
+    delimited(
         content_space,
         map(many0(operation), |operations| Content { operations }),
+        many0(terminated(comment, content_space)),
     )
     .parse(input)
 }
@@ -914,6 +915,8 @@ startxref
 % Another comment
 ";
         let out = content(test_span(input)).unwrap();
+        let out_strict = content_strict(test_span(input)).unwrap();
+        assert_eq!(out.operations.len(), out_strict.operations.len());
         assert_eq!(out.operations.len(), 3);
     }
 
