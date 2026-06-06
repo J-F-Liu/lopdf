@@ -1,15 +1,15 @@
 use log::warn;
 
-use crate::{Dictionary, Object, ObjectId, Stream, parser};
 use crate::{
-    Error, Result,
     content::{Content, Operation},
     document::Document,
     encodings::Encoding,
     error::ParseError,
     object::Object::Name,
     xref::{Xref, XrefEntry, XrefType},
+    Error, Result,
 };
+use crate::{parser, Dictionary, Object, ObjectId, Stream};
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read},
@@ -19,6 +19,11 @@ impl Content<Vec<Operation>> {
     /// Decode content operations.
     pub fn decode(data: &[u8]) -> Result<Self> {
         parser::content(data).ok_or(ParseError::InvalidContentStream.into())
+    }
+
+    /// Strict decode content operations.
+    pub fn decode_strict(data: &[u8]) -> Result<Self> {
+        parser::content_strict(data).map_err(|e| e.into())
     }
 }
 
@@ -580,8 +585,8 @@ mod tests {
     #[cfg(not(feature = "async"))]
     #[test]
     fn load_and_save() {
-        use crate::Document;
         use crate::creator::tests::{create_document, save_document};
+        use crate::Document;
 
         // test load_from() and save_to()
         use std::fs::File;
@@ -650,9 +655,9 @@ mod tests {
     /// recover the string operand and emit a line break before it.
     #[test]
     fn extract_text_handles_apostrophe_show_text_op() {
-        use crate::Object;
         use crate::content::Operation;
         use crate::creator::tests::create_document_with_operations;
+        use crate::Object;
 
         let doc = create_document_with_operations(vec![
             Operation::new("BT", vec![]),
@@ -676,9 +681,9 @@ mod tests {
     /// rendering spacing and don't affect the extracted character sequence.
     #[test]
     fn extract_text_handles_quote_show_text_op() {
-        use crate::Object;
         use crate::content::Operation;
         use crate::creator::tests::create_document_with_operations;
+        use crate::Object;
 
         let doc = create_document_with_operations(vec![
             Operation::new("BT", vec![]),
@@ -698,9 +703,9 @@ mod tests {
     /// newline rather than running together.
     #[test]
     fn extract_text_preserves_line_breaks_for_t_star() {
-        use crate::Object;
         use crate::content::Operation;
         use crate::creator::tests::create_document_with_operations;
+        use crate::Object;
 
         let doc = create_document_with_operations(vec![
             Operation::new("BT", vec![]),
