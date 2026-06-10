@@ -29,7 +29,7 @@ mod writer;
 mod object_stream;
 pub mod parser;
 mod parser_aux;
-mod reader;
+pub mod reader;
 mod save_options;
 
 mod font;
