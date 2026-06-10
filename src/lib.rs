@@ -27,7 +27,7 @@ mod toc;
 mod writer;
 
 mod object_stream;
-mod parser;
+pub mod parser;
 mod parser_aux;
 mod reader;
 mod save_options;
