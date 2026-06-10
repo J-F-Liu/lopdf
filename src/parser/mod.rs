@@ -21,7 +21,7 @@ use nom_locate::LocatedSpan;
 
 pub(crate) mod cmap_parser;
 
-pub(crate) type ParserInput<'a> = LocatedSpan<&'a [u8], &'a str>;
+pub type ParserInput<'a> = LocatedSpan<&'a [u8], &'a str>;
 // Change this to something else that implements ParseError to get a
 // different error type out of nom.
 pub(crate) type NomError<'a> = nom::error::Error<ParserInput<'a>>;
