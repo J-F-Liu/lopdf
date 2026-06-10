@@ -24,9 +24,9 @@ pub(crate) mod cmap_parser;
 pub type ParserInput<'a> = LocatedSpan<&'a [u8], &'a str>;
 // Change this to something else that implements ParseError to get a
 // different error type out of nom.
-pub(crate) type NomError<'a> = nom::error::Error<ParserInput<'a>>;
+pub type NomError<'a> = nom::error::Error<ParserInput<'a>>;
 
-pub(crate) type NomResult<'a, O, E = NomError<'a>> = IResult<ParserInput<'a>, O, E>;
+pub type NomResult<'a, O, E = NomError<'a>> = IResult<ParserInput<'a>, O, E>;
 
 #[inline]
 fn strip_nom<O>(r: NomResult<O>) -> Option<O> {
@@ -266,7 +266,7 @@ fn array(input: ParserInput) -> NomResult<Vec<Object>> {
     delimited(pair(tag(&b"["[..]), space), many0(_direct_object), tag(&b"]"[..])).parse(input)
 }
 
-pub(crate) fn dictionary(input: ParserInput) -> NomResult<Dictionary> {
+pub fn dictionary(input: ParserInput) -> NomResult<Dictionary> {
     delimited(pair(tag(&b"<<"[..]), space), inner_dictionary, tag(&b">>"[..])).parse(input)
 }
 
@@ -359,7 +359,7 @@ fn _direct_objects(input: ParserInput) -> NomResult<Object> {
     )).parse(input)
 }
 
-fn _direct_object(input: ParserInput) -> NomResult<Object> {
+pub fn _direct_object(input: ParserInput) -> NomResult<Object> {
     terminated(_direct_objects, space).parse(input)
 }
 
