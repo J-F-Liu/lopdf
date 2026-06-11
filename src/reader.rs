@@ -411,6 +411,18 @@ pub struct Reader<'a> {
     pub password: Option<String>,                 // Password for encrypted PDFs
 }
 
+impl<'a> Reader<'a> {
+    pub fn new(buffer: &'a [u8]) -> Self {
+        Reader {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: Default::default(),
+            password: None,
+        }
+    }
+}
+
 /// Maximum allowed embedding of literal strings.
 pub const MAX_BRACKET: usize = 100;
 
