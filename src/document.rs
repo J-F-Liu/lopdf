@@ -595,6 +595,7 @@ impl Document {
                     Ok(data) => content.write_all(&data)?,
                     Err(_) => content.write_all(&content_stream.content)?,
                 };
+                content.push(b'\n');
             }
         }
         Ok(content)
