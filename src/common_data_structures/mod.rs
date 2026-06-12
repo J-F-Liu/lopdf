@@ -1,6 +1,6 @@
 use crate::{
-    encodings::{self, bytes_to_string},
     Error, Object, Result, StringFormat,
+    encodings::{self, bytes_to_string},
 };
 
 /// Creates a text string.
@@ -10,7 +10,9 @@ pub fn text_string(text: &str) -> Object {
     if text.is_ascii() {
         return Object::String(text.into(), StringFormat::Literal);
     }
-    Object::String(encodings::encode_utf16_be(text), StringFormat::Hexadecimal)
+    let mut string = Vec::new();
+    encodings::encode_utf16_be(text, &mut string);
+    Object::String(string, StringFormat::Hexadecimal)
 }
 
 /// Decodes a text string.
@@ -39,15 +41,16 @@ pub fn decode_text_string(obj: &Object) -> Result<String> {
         String::from_utf8(s.to_vec()).map_err(|_| Error::TextStringDecode)
     } else {
         // If neither BOM is detected, PDFDocEncoding is used
-        Ok(bytes_to_string(&encodings::PDF_DOC_ENCODING, s))
+        let mut out = String::new();
+        bytes_to_string(&encodings::PDF_DOC_ENCODING, s, &mut out)?;
+        Ok(out)
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        common_data_structures::decode_text_string, encodings, parser::ParserInput, text_string, writer::Writer,
-        Object, StringFormat,
+        Object, StringFormat, common_data_structures::decode_text_string, encodings, text_string, writer::Writer,
     };
 
     #[test]
@@ -69,7 +72,7 @@ mod test {
     #[test]
     fn spec_example1_decode() {
         let input = b"<</Key(text\\213)>>";
-        let dict = crate::parser::direct_object(ParserInput::new_extra(input, "")).unwrap();
+        let dict = crate::parser::direct_object(input).unwrap();
         let dict = dict.as_dict().unwrap();
         let actual = decode_text_string(dict.get(b"Key").unwrap()).unwrap();
         let expected = "text‰";
@@ -93,7 +96,7 @@ mod test {
     #[test]
     fn spec_example2_decode() {
         let input = b"<</Key<FEFF0442043504410442>>>";
-        let dict = crate::parser::direct_object(ParserInput::new_extra(input, "")).unwrap();
+        let dict = crate::parser::direct_object(input).unwrap();
         let dict = dict.as_dict().unwrap();
         let actual = decode_text_string(dict.get(b"Key").unwrap()).unwrap();
         // Russian for "test"

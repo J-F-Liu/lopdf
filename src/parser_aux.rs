@@ -6,7 +6,6 @@ use crate::{
     encodings::Encoding,
     error::ParseError,
     object::Object::Name,
-    parser::ParserInput,
     xref::{Xref, XrefEntry, XrefType},
     Error, Result,
 };
@@ -19,8 +18,12 @@ use std::{
 impl Content<Vec<Operation>> {
     /// Decode content operations.
     pub fn decode(data: &[u8]) -> Result<Self> {
-        parser::content(ParserInput::new_extra(data, "content operations"))
-            .ok_or(ParseError::InvalidContentStream.into())
+        parser::content(data).ok_or(ParseError::InvalidContentStream.into())
+    }
+
+    /// Strict decode content operations.
+    pub fn decode_strict(data: &[u8]) -> Result<Self> {
+        parser::content_strict(data).map_err(|e| e.into())
     }
 }
 
@@ -123,11 +126,48 @@ impl Document {
                     }
                     None => warn!("Could not decode extracted text"),
                 },
-                "ET" => {
-                    if !current_text.ends_with('\n') {
-                        current_text.push('\n')
+                // PDF 32000-1 §9.4.3 — `'` is equivalent to `T* Tj`:
+                // move to next line, then show string from the single
+                // string operand.
+                "'" => match current_encoding {
+                    Some(encoding) => {
+                        if !current_text.ends_with('\n') {
+                            current_text.push('\n');
+                        }
+                        let res = collect_text(&mut current_text, encoding, &operation.operands);
+                        if let Err(err) = res {
+                            collected_chunks_and_errs.push(Err(err));
+                        }
                     }
-                }
+                    None => warn!("Could not decode extracted text"),
+                },
+                // PDF 32000-1 §9.4.3 — `"` is equivalent to
+                // `aw Tw ac Tc T* Tj` with operands `[aw, ac, string]`.
+                // Operands 0/1 set word/character spacing for rendering
+                // and don't affect the extracted character sequence;
+                // operand 2 is the string to show.
+                "\"" => match current_encoding {
+                    Some(encoding) => {
+                        if !current_text.ends_with('\n') {
+                            current_text.push('\n');
+                        }
+                        if let Some(string_operand) = operation.operands.get(2) {
+                            let res = collect_text(&mut current_text, encoding, std::slice::from_ref(string_operand));
+                            if let Err(err) = res {
+                                collected_chunks_and_errs.push(Err(err));
+                            }
+                        }
+                    }
+                    None => warn!("Could not decode extracted text"),
+                },
+                // PDF 32000-1 §9.4.2 — `T*` moves to the start of the
+                // next line. For text extraction we approximate this
+                // as `\n`, matching how the `ET` arm above handles end
+                // of text object.
+                "T*" if !current_text.ends_with('\n') => current_text.push('\n'),
+                "T*" => {}
+                "ET" if !current_text.ends_with('\n') => current_text.push('\n'),
+                "ET" => {}
                 _ => {}
             }
         }
@@ -164,14 +204,12 @@ impl Document {
                         .as_name()?;
                     current_encoding = encodings.get(current_font);
                 }
-                "Tj" | "TJ" => {
-                    match current_encoding {
-                        Some(encoding) => {
-                            try_to_replace_encoded_text(operation, encoding, text, other_text, default_str.unwrap_or(""))?
-                        }
-                        None => {
-                            warn!("Could not decode extracted text, some of the occurances might not be properly replaced")
-                        }
+                "Tj" | "TJ" => match current_encoding {
+                    Some(encoding) => {
+                        try_to_replace_encoded_text(operation, encoding, text, other_text, default_str.unwrap_or(""))?
+                    }
+                    None => {
+                        warn!("Could not decode extracted text, some of the occurances might not be properly replaced")
                     }
                 },
                 _ => {}
@@ -182,29 +220,25 @@ impl Document {
     }
 
     pub fn replace_partial_text(
-        &mut self,
-        page_number: u32,
-        search_text: &str,
-        replacement_text: &str,
-        default_char: Option<&str>,
+        &mut self, page_number: u32, search_text: &str, replacement_text: &str, default_char: Option<&str>,
     ) -> Result<usize> {
         let page = page_number.saturating_sub(1) as usize;
         let page_id = self
             .page_iter()
             .nth(page)
             .ok_or(Error::PageNumberNotFound(page_number))?;
-        
+
         let encodings: BTreeMap<Vec<u8>, Encoding> = self
             .get_page_fonts(page_id)?
             .into_iter()
             .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
             .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
-        
+
         let content_data = self.get_page_content(page_id)?;
         let mut content = Content::decode(&content_data)?;
         let mut current_encoding = None;
         let mut replacement_count = 0;
-        
+
         for operation in &mut content.operations {
             match operation.operator.as_ref() {
                 "Tf" => {
@@ -231,12 +265,12 @@ impl Document {
                 _ => {}
             }
         }
-        
+
         if replacement_count > 0 {
             let modified_content = content.encode()?;
             self.change_page_content(page_id, modified_content)?;
         }
-        
+
         Ok(replacement_count)
     }
 
@@ -289,16 +323,14 @@ fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> 
     for operand in operands.iter() {
         match operand {
             Object::String(bytes, _) => {
-                text.push_str(&Document::decode_text(encoding, bytes)?);
+                encoding.write_to_string(bytes, text)?;
             }
             Object::Array(arr) => {
                 collect_text(text, encoding, arr)?;
                 text.push(' ');
             }
-            Object::Integer(i) => {
-                if *i < -100 {
-                    text.push(' ');
-                }
+            Object::Integer(i) if *i < -100 => {
+                text.push(' ');
             }
             _ => {}
         }
@@ -364,24 +396,26 @@ fn try_to_replace_encoded_text(
                 let mut str_collected = String::new();
                 collect_text(&mut str_collected, encoding, arr)?;
                 if str_collected == text_to_replace {
-                    let s_len = str_collected.chars().count();
-                    let r_len = replacement.chars().count();
-                    let mut cur = 0;
+                    // The number of `Object::String` items in a `TJ` array is
+                    // not guaranteed to match the character count of the
+                    // decoded text (each string may hold several glyphs, and
+                    // numeric kerning entries are interleaved).
+                    //
+                    // There is no **good** way to interpolate between the OG
+                    // and the replacement, but putting the full encoded replacement
+                    // into the first string slot and emptying out the remaining
+                    // string slots, leaving any numeric kerning entries in place
+                    // seems like the least bad option.
+                    let encoded_replacement = encode(encoding, replacement, default_str);
+                    let mut placed = false;
                     for item in arr.iter_mut() {
                         if let Object::String(bytes, _f) = item {
-                            if cur == s_len - 1 {
-                                let sub = substring(replacement, cur);
-                                let encoded_bytes = encode(encoding, sub, default_str);
-                                *bytes = encoded_bytes;
-                                break;
-                            } else if cur > r_len {
-                                *item = Object::Null;
+                            if placed {
+                                *bytes = Vec::new();
                             } else {
-                                let sub = substr(replacement, cur, 1);
-                                let encoded_bytes = encode(encoding, sub, default_str);
-                                *bytes = encoded_bytes;
+                                bytes.clone_from(&encoded_replacement);
+                                placed = true;
                             }
-                            cur += 1;
                         }
                     }
                 }
@@ -394,14 +428,10 @@ fn try_to_replace_encoded_text(
 }
 
 fn replace_partial_in_operation(
-    operation: &mut Operation,
-    encoding: &Encoding,
-    search_text: &str,
-    replacement_text: &str,
-    default_char: &str,
+    operation: &mut Operation, encoding: &Encoding, search_text: &str, replacement_text: &str, default_char: &str,
 ) -> Result<usize> {
     let mut replacement_count = 0;
-    
+
     for operand in &mut operation.operands {
         match operand {
             Object::String(bytes, _) => {
@@ -414,27 +444,18 @@ fn replace_partial_in_operation(
                 }
             }
             Object::Array(arr) => {
-                replacement_count += replace_partial_in_array(
-                    arr,
-                    encoding,
-                    search_text,
-                    replacement_text,
-                    default_char,
-                )?;
+                replacement_count +=
+                    replace_partial_in_array(arr, encoding, search_text, replacement_text, default_char)?;
             }
             _ => {}
         }
     }
-    
+
     Ok(replacement_count)
 }
 
 fn replace_partial_in_array(
-    arr: &mut [Object],
-    encoding: &Encoding,
-    search_text: &str,
-    replacement_text: &str,
-    default_char: &str,
+    arr: &mut [Object], encoding: &Encoding, search_text: &str, replacement_text: &str, default_char: &str,
 ) -> Result<usize> {
     let mut replacement_count = 0;
 
@@ -449,20 +470,16 @@ fn replace_partial_in_array(
             }
         }
     }
-    
+
     Ok(replacement_count)
 }
 
-fn encode_with_fallback(
-    encoding: &Encoding,
-    text: &str,
-    default_char: &str,
-) -> Vec<u8> {
+fn encode_with_fallback(encoding: &Encoding, text: &str, default_char: &str) -> Vec<u8> {
     let encoded = Document::encode_text(encoding, text);
     if !encoded.is_empty() {
         return encoded;
     }
-    
+
     encode(encoding, text, default_char)
 }
 
@@ -628,8 +645,86 @@ mod tests {
         let mut doc = create_document_with_texts(&["Hello World! Hello Universe!"]);
         let replacements = doc.replace_partial_text(1, "Hello", "Hi", None).unwrap();
         assert_eq!(replacements, 2); // Should replace both occurrences
-        
+
         let extracted_text = doc.extract_text(&[1]).unwrap();
         assert!(extracted_text.contains("Hi World! Hi Universe!"));
+    }
+
+    /// PDF 1.7 / ISO 32000-1 §9.4.3 — `'` is equivalent to `T* Tj`:
+    /// move to the next line and show a string. extract_text should
+    /// recover the string operand and emit a line break before it.
+    #[test]
+    fn extract_text_handles_apostrophe_show_text_op() {
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+        use crate::Object;
+
+        let doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new("Tj", vec![Object::string_literal("first")]),
+            Operation::new("'", vec![Object::string_literal("second")]),
+            Operation::new("'", vec![Object::string_literal("third")]),
+            Operation::new("ET", vec![]),
+        ]);
+
+        let text = doc.extract_text(&[1]).unwrap();
+        assert!(text.contains("first"), "Tj string lost: {text:?}");
+        assert!(text.contains("second"), "first ' string lost: {text:?}");
+        assert!(text.contains("third"), "second ' string lost: {text:?}");
+    }
+
+    /// PDF 1.7 / ISO 32000-1 §9.4.3 — `"` is equivalent to
+    /// `aw Tw ac Tc T* Tj` with operands `[aw, ac, string]`. extract_text
+    /// should recover operand index 2 (the string); operands 0 and 1 set
+    /// rendering spacing and don't affect the extracted character sequence.
+    #[test]
+    fn extract_text_handles_quote_show_text_op() {
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+        use crate::Object;
+
+        let doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new("\"", vec![0.into(), 0.into(), Object::string_literal("from-quote-op")]),
+            Operation::new("ET", vec![]),
+        ]);
+
+        let text = doc.extract_text(&[1]).unwrap();
+        assert!(text.contains("from-quote-op"), "\" string operand lost: {text:?}");
+    }
+
+    /// PDF 1.7 / ISO 32000-1 §9.4.2 — `T*` moves to the start of the
+    /// next line. For text extraction we approximate as `\n`, so a
+    /// `Tj T* Tj` sequence should produce two strings separated by a
+    /// newline rather than running together.
+    #[test]
+    fn extract_text_preserves_line_breaks_for_t_star() {
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+        use crate::Object;
+
+        let doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new("Tj", vec![Object::string_literal("line-one")]),
+            Operation::new("T*", vec![]),
+            Operation::new("Tj", vec![Object::string_literal("line-two")]),
+            Operation::new("ET", vec![]),
+        ]);
+
+        let text = doc.extract_text(&[1]).unwrap();
+        let one = text.find("line-one").expect("line-one missing");
+        let two = text.find("line-two").expect("line-two missing");
+        assert!(one < two, "order wrong: {text:?}");
+        let between = &text[one + "line-one".len()..two];
+        assert!(
+            between.contains('\n'),
+            "T* did not insert a line break between Tj strings: between={between:?}"
+        );
     }
 }

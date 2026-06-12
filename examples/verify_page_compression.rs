@@ -14,30 +14,28 @@ fn load_document(path: &str) -> Result<Document, Box<dyn std::error::Error>> {
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async move {
-            Document::load(path).await
-        })?)
+        .block_on(async move { Document::load(path).await })?)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let compressed_path = "/Users/nicolasdao/Downloads/pdfs/pdf-demo_compressed.pdf";
-    
+
     println!("Checking if Page objects are in object streams...\n");
-    
+
     // Load the compressed PDF
     let doc = load_document(compressed_path)?;
-    
+
     // Check for object streams
     let mut objstm_count = 0;
     let mut total_compressed = 0;
-    
+
     for (id, obj) in &doc.objects {
         if let Object::Stream(stream) = obj {
             if let Ok(type_obj) = stream.dict.get(b"Type") {
                 if let Ok(type_name) = type_obj.as_name() {
                     if type_name == b"ObjStm" {
                         objstm_count += 1;
-                        
+
                         // Get number of objects in this stream
                         if let Ok(n) = stream.dict.get(b"N") {
                             if let Ok(n_val) = n.as_i64() {
@@ -50,15 +48,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     println!("\nTotal object streams: {}", objstm_count);
     println!("Total compressed objects: {}", total_compressed);
-    
+
     // Check if we can find Page objects as top-level objects
     let mut page_count = 0;
     let mut pages_count = 0;
     let mut catalog_count = 0;
-    
+
     for (_id, obj) in &doc.objects {
         if let Object::Dictionary(dict) = obj {
             if let Ok(type_obj) = dict.get(b"Type") {
@@ -73,28 +71,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     println!("\nTop-level objects found:");
     println!("  Page objects: {}", page_count);
     println!("  Pages objects: {}", pages_count);
     println!("  Catalog objects: {}", catalog_count);
-    
+
     if page_count == 0 && pages_count == 0 {
         println!("\n✓ SUCCESS: Page and Pages objects are compressed into object streams!");
     } else {
         println!("\n✗ WARNING: Some structural objects may not be compressed");
     }
-    
+
     // Check the raw PDF content
     let content = std::fs::read_to_string(compressed_path)?;
-    
+
     // Look for individual page definitions
     let page_defs = content.matches(" 0 obj\n<</Type/Page").count();
     println!("\nPage definitions found in raw PDF: {}", page_defs);
-    
+
     if page_defs == 0 {
         println!("✓ No individual Page object definitions found - they're in object streams!");
     }
-    
+
     Ok(())
 }

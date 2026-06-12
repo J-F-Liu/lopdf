@@ -1,4 +1,6 @@
 #![feature(test)]
+#![cfg(not(feature = "async"))]
+
 use std::fs::File;
 use std::io::{Cursor, Read};
 

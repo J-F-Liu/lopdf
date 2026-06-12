@@ -15,9 +15,7 @@ fn load_document(path: &str) -> Result<Document, lopdf::Error> {
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async move {
-            Document::load(path).await
-        })
+        .block_on(async move { Document::load(path).await })
 }
 
 fn main() {
@@ -35,11 +33,11 @@ fn main() {
             println!("✓ PDF loaded successfully");
             println!("  Version: {:?}", doc.version);
             println!("  Objects: {}", doc.objects.len());
-            
+
             // Count pages
             let pages = doc.get_pages();
             println!("  Pages: {}", pages.len());
-            
+
             // Check for object streams
             let mut obj_stream_count = 0;
             for (_id, obj) in &doc.objects {
@@ -53,11 +51,11 @@ fn main() {
                     }
                 }
             }
-            
+
             if obj_stream_count > 0 {
                 println!("  Object streams: {}", obj_stream_count);
             }
-            
+
             println!("\nPDF is valid and can be opened!");
         }
         Err(e) => {

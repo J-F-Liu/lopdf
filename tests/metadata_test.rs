@@ -242,3 +242,83 @@ fn test_metadata_extraction_encrypted_wrong_password() {
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), lopdf::Error::InvalidPassword));
 }
+
+/// Verifies that custom (non-standard) Info dictionary entries are preserved on
+/// `PdfMetadata::custom`, while the standard fields remain available through
+/// their typed accessors. This is the path used to extract producer-specific
+/// metadata such as Microsoft Information Protection labels
+/// (`MSIP_Label_{GUID}_{Property}`) without loading the full document.
+#[test]
+fn test_metadata_extraction_preserves_custom_info_entries() {
+    let mut doc = Document::with_version("1.5");
+
+    let catalog_dict = lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => lopdf::Object::Reference((2, 0))
+    };
+    let catalog_id = doc.add_object(catalog_dict);
+    doc.trailer.set("Root", lopdf::Object::Reference(catalog_id));
+
+    let pages_dict = lopdf::dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![lopdf::Object::Reference((3, 0))],
+        "Count" => 1
+    };
+    doc.objects.insert((2, 0), lopdf::Object::Dictionary(pages_dict));
+
+    let page_dict = lopdf::dictionary! {
+        "Type" => "Page",
+        "Parent" => lopdf::Object::Reference((2, 0)),
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()]
+    };
+    doc.objects.insert((3, 0), lopdf::Object::Dictionary(page_dict));
+
+    let mip_guid_enabled = "MSIP_Label_754d9351-9ade-4bd5-893a-95071572330d_Enabled";
+    let mip_guid_name = "MSIP_Label_754d9351-9ade-4bd5-893a-95071572330d_Name";
+
+    let info_dict = lopdf::dictionary! {
+        "Title" => lopdf::Object::String(b"Doc with custom info".to_vec(), lopdf::StringFormat::Literal),
+        "Producer" => lopdf::Object::String(b"Test Suite".to_vec(), lopdf::StringFormat::Literal),
+        mip_guid_enabled => lopdf::Object::String(b"True".to_vec(), lopdf::StringFormat::Literal),
+        mip_guid_name => lopdf::Object::String(b"Confidential".to_vec(), lopdf::StringFormat::Literal),
+        "AppCustomCounter" => lopdf::Object::Integer(42)
+    };
+    let info_id = doc.add_object(info_dict);
+    doc.trailer.set("Info", lopdf::Object::Reference(info_id));
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("test_custom_info.pdf");
+    doc.save(&path).unwrap();
+
+    let buffer = std::fs::read(&path).unwrap();
+    let metadata = Document::load_metadata_mem(&buffer).unwrap();
+
+    // Standard fields still populated.
+    assert_eq!(metadata.title, Some("Doc with custom info".to_string()));
+    assert_eq!(metadata.producer, Some("Test Suite".to_string()));
+
+    // Custom fields preserved on the new `custom` map.
+    assert_eq!(metadata.custom.len(), 3);
+
+    let enabled = metadata
+        .custom
+        .get(mip_guid_enabled.as_bytes())
+        .expect("MIP Enabled entry preserved");
+    assert!(matches!(enabled, lopdf::Object::String(bytes, _) if bytes == b"True"));
+
+    let name = metadata
+        .custom
+        .get(mip_guid_name.as_bytes())
+        .expect("MIP Name entry preserved");
+    assert!(matches!(name, lopdf::Object::String(bytes, _) if bytes == b"Confidential"));
+
+    let counter = metadata
+        .custom
+        .get(&b"AppCustomCounter"[..])
+        .expect("non-string custom entry preserved");
+    assert!(matches!(counter, lopdf::Object::Integer(42)));
+
+    // Standard keys must NOT leak into `custom`.
+    assert!(!metadata.custom.contains_key(&b"Title"[..]));
+    assert!(!metadata.custom.contains_key(&b"Producer"[..]));
+}

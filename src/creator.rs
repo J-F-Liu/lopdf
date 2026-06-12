@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::{Dictionary, Document, Object, ObjectId, Stream, FontData};
+use crate::{Dictionary, Document, FontData, Object, ObjectId, Stream};
 
 impl Document {
     /// Create new PDF document with version.
@@ -271,10 +271,61 @@ pub mod tests {
         });
         doc.trailer.set("Root", catalog_id);
         doc.trailer.set("Info", info_id);
-        doc.trailer.set("ID", Object::Array(vec![
-            Object::string_literal(b"ABC"),
-            Object::string_literal(b"DEF"),
-        ]));
+        doc.trailer.set(
+            "ID",
+            Object::Array(vec![Object::string_literal(b"ABC"), Object::string_literal(b"DEF")]),
+        );
+        doc.compress();
+        doc
+    }
+
+    /// Create a single-page document whose content stream is the
+    /// caller-supplied list of operations (wrapped in `BT`/`ET` if not
+    /// already). Used by tests that need to exercise specific
+    /// content-stream operators not produced by `create_document_with_texts`.
+    pub fn create_document_with_operations(operations: Vec<Operation>) -> Document {
+        let mut doc = Document::with_version("1.5");
+        let info_id = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Create PDF document example"),
+            "Creator" => Object::string_literal("https://crates.io/crates/lopdf"),
+            "CreationDate" => get_timestamp(),
+        });
+        let pages_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Courier",
+        });
+        let resources_id = doc.add_object(dictionary! {
+            "Font" => dictionary! {
+                "F1" => font_id,
+            },
+        });
+        let content = Content { operations };
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let page = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => content_id,
+        });
+        let pages = dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page.into()],
+            "Count" => 1,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+        };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc.trailer.set("Info", info_id);
+        doc.trailer.set(
+            "ID",
+            Object::Array(vec![Object::string_literal(b"ABC"), Object::string_literal(b"DEF")]),
+        );
         doc.compress();
         doc
     }

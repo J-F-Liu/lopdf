@@ -86,7 +86,7 @@ impl XrefEntry {
     /// Encode entry for use in cross-reference stream
     pub fn encode_for_xref_stream(&self, widths: &[usize; 3]) -> Vec<u8> {
         let mut result = Vec::new();
-        
+
         match self {
             XrefEntry::Free | XrefEntry::UnusableFree => {
                 // Type 0: Free object
@@ -107,7 +107,7 @@ impl XrefEntry {
                 encode_field(*index as u64, widths[2], &mut result);
             }
         }
-        
+
         result
     }
 
@@ -184,29 +184,27 @@ pub struct XrefStreamBuilder<'a> {
 impl<'a> XrefStreamBuilder<'a> {
     /// Create a new builder from an Xref
     pub fn new(xref: &'a Xref) -> Self {
-        let entries: Vec<_> = xref.entries.iter()
-            .map(|(&id, entry)| (id, entry))
-            .collect();
-        
+        let entries: Vec<_> = xref.entries.iter().map(|(&id, entry)| (id, entry)).collect();
+
         Self {
             xref,
             entries,
             widths: [1, 2, 2], // Default widths
         }
     }
-    
+
     /// Get the number of entries
     pub fn entries_count(&self) -> usize {
         self.entries.len()
     }
-    
+
     /// Calculate optimal field widths based on the data
     pub fn calculate_optimal_widths(&self) -> [usize; 3] {
         let mut max_offset = 0u64;
         let mut max_gen = 0u16;
         let mut max_container = 0u32;
         let mut max_index = 0u16;
-        
+
         for (_, entry) in &self.entries {
             match entry {
                 XrefEntry::Normal { offset, generation } => {
@@ -220,53 +218,53 @@ impl<'a> XrefStreamBuilder<'a> {
                 _ => {}
             }
         }
-        
+
         // Calculate bytes needed
         let offset_bytes = bytes_needed(max_offset);
         let gen_bytes = bytes_needed(max_gen as u64);
         let container_bytes = bytes_needed(max_container as u64);
         let index_bytes = bytes_needed(max_index as u64);
-        
+
         [
             1, // Type field is always 1 byte
             offset_bytes.max(container_bytes),
             gen_bytes.max(index_bytes),
         ]
     }
-    
+
     /// Build the stream content
     pub fn build_stream_content(&mut self) -> crate::Result<Vec<u8>> {
         self.widths = self.calculate_optimal_widths();
         let mut content = Vec::new();
-        
+
         // Sort entries by ID
         self.entries.sort_by_key(|(id, _)| *id);
-        
+
         for (_, entry) in &self.entries {
             let encoded = entry.encode_for_xref_stream(&self.widths);
             content.extend_from_slice(&encoded);
         }
-        
+
         Ok(content)
     }
-    
+
     /// Build the Index array for the cross-reference stream
     pub fn build_index_array(&self) -> Vec<crate::Object> {
         use crate::Object;
-        
+
         let mut index = Vec::new();
         let mut sorted_entries = self.entries.clone();
         sorted_entries.sort_by_key(|(id, _)| *id);
-        
+
         if sorted_entries.is_empty() {
             return index;
         }
-        
+
         let mut start = sorted_entries[0].0;
         let mut count = 1;
-        
+
         for i in 1..sorted_entries.len() {
-            if sorted_entries[i].0 == sorted_entries[i-1].0 + 1 {
+            if sorted_entries[i].0 == sorted_entries[i - 1].0 + 1 {
                 count += 1;
             } else {
                 index.push(Object::Integer(start as i64));
@@ -275,17 +273,17 @@ impl<'a> XrefStreamBuilder<'a> {
                 count = 1;
             }
         }
-        
+
         index.push(Object::Integer(start as i64));
         index.push(Object::Integer(count as i64));
-        
+
         index
     }
-    
+
     /// Convert to a Stream object
     pub fn to_stream_object(&mut self) -> crate::Result<crate::Stream> {
-        use crate::{dictionary, Object, Stream};
-        
+        use crate::{Object, Stream, dictionary};
+
         let content = self.build_stream_content()?;
         let dict = dictionary! {
             "Type" => "XRef",
@@ -298,7 +296,7 @@ impl<'a> XrefStreamBuilder<'a> {
             "Index" => self.build_index_array(),
             "Filter" => "FlateDecode"
         };
-        
+
         let mut stream = Stream::new(dict, content);
         stream.compress()?;
         Ok(stream)

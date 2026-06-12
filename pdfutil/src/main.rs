@@ -116,7 +116,7 @@ fn main() -> Result<()> {
             } else {
                 doc.get_pages().keys().cloned().collect::<Vec<_>>()
             };
-            
+
             let text = doc.extract_text(&page_numbers)?;
             println!("{}", text);
         }
@@ -143,7 +143,7 @@ fn main() -> Result<()> {
         } => {
             let mut doc = Document::load(&input)?;
             let mut total_replacements = 0;
-            
+
             if page == 0 {
                 // Replace on all pages
                 let pages = doc.get_pages();
@@ -168,7 +168,7 @@ fn main() -> Result<()> {
                     Err(e) => return Err(e),
                 }
             }
-            
+
             if total_replacements > 0 {
                 doc.save(&output)?;
                 println!("Total replacements: {}. Saved to: {:?}", total_replacements, output);
@@ -183,7 +183,7 @@ fn main() -> Result<()> {
             println!("Pages: {}", doc.get_pages().len());
             println!("Objects: {}", doc.objects.len());
             println!("Max Object ID: {}", doc.max_id);
-            
+
             if let Ok(info) = doc.trailer.get(b"Info").and_then(|id| {
                 if let Ok(id) = id.as_reference() {
                     doc.get_dictionary(id)
@@ -212,11 +212,8 @@ fn main() -> Result<()> {
         }
         Commands::Delete { input, output, pages } => {
             let mut doc = Document::load(&input)?;
-            let page_numbers: Vec<u32> = pages
-                .split(',')
-                .filter_map(|s| s.trim().parse::<u32>().ok())
-                .collect();
-            
+            let page_numbers: Vec<u32> = pages.split(',').filter_map(|s| s.trim().parse::<u32>().ok()).collect();
+
             doc.delete_pages(&page_numbers);
             doc.save(&output)?;
             println!("Deleted {} pages. Saved to: {:?}", page_numbers.len(), output);
@@ -241,26 +238,30 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lopdf::{dictionary, content::{Content, Operation}, Stream, Object};
+    use lopdf::{
+        Object, Stream,
+        content::{Content, Operation},
+        dictionary,
+    };
 
     #[test]
     fn test_replace_partial_command() -> Result<()> {
         // Create a test PDF
         let mut doc = Document::with_version("1.5");
-        
+
         let pages_id = doc.new_object_id();
         let font_id = doc.add_object(dictionary! {
             "Type" => "Font",
             "Subtype" => "Type1",
             "BaseFont" => "Helvetica",
         });
-        
+
         let resources_id = doc.add_object(dictionary! {
             "Font" => dictionary! {
                 "F1" => font_id,
             },
         });
-        
+
         let content = Content {
             operations: vec![
                 Operation::new("BT", vec![]),
@@ -270,41 +271,44 @@ mod tests {
                 Operation::new("ET", vec![]),
             ],
         };
-        
+
         let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode()?));
-        
+
         let page_id = doc.add_object(dictionary! {
             "Type" => "Page",
             "Parent" => pages_id,
             "Contents" => content_id,
             "Resources" => resources_id,
         });
-        
-        doc.objects.insert(pages_id, Object::Dictionary(dictionary! {
-            "Type" => "Pages",
-            "Kids" => vec![page_id.into()],
-            "Count" => 1,
-            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
-        }));
-        
+
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            }),
+        );
+
         let catalog_id = doc.add_object(dictionary! {
             "Type" => "Catalog",
             "Pages" => pages_id,
         });
-        
+
         doc.trailer.set("Root", catalog_id);
-        
+
         // Save test PDF
         doc.save("test_input.pdf")?;
-        
+
         // Test the utility would work with this PDF
         let mut doc = Document::load("test_input.pdf")?;
         let count = doc.replace_partial_text(1, "Hello", "Hi", None)?;
         assert_eq!(count, 2);
-        
+
         // Clean up
         std::fs::remove_file("test_input.pdf").ok();
-        
+
         Ok(())
     }
 }

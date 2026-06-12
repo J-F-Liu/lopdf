@@ -15,9 +15,7 @@ fn load_document(path: &str) -> Result<Document, lopdf::Error> {
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async move {
-            Document::load(path).await
-        })
+        .block_on(async move { Document::load(path).await })
 }
 
 fn main() {
@@ -45,7 +43,7 @@ fn main() {
 fn analyze_pages(doc: &Document) {
     let pages = doc.get_pages();
     println!("Total pages: {}", pages.len());
-    
+
     // Check if we have object streams
     let mut obj_streams = Vec::new();
     for (id, obj) in &doc.objects {
@@ -59,23 +57,23 @@ fn analyze_pages(doc: &Document) {
             }
         }
     }
-    
+
     if !obj_streams.is_empty() {
         println!("\nObject streams found: {:?}", obj_streams);
     }
-    
+
     println!("\nAnalyzing pages:");
     for (page_num, &page_id) in pages.iter() {
         println!("\n{}", "-".repeat(60));
         println!("Page {}: Object {} 0 R", page_num, page_id.0);
-        
+
         match doc.get_object(page_id) {
             Ok(Object::Dictionary(page_dict)) => {
                 // Check page type
                 if let Ok(type_obj) = page_dict.get(b"Type") {
                     println!("  Type: {:?}", type_obj);
                 }
-                
+
                 // Check Contents
                 match page_dict.get(b"Contents") {
                     Ok(Object::Reference(content_id)) => {
@@ -98,7 +96,7 @@ fn analyze_pages(doc: &Document) {
                         println!("  Contents: ERROR - {}", e);
                     }
                 }
-                
+
                 // Check Resources
                 match page_dict.get(b"Resources") {
                     Ok(Object::Reference(res_id)) => {
@@ -135,7 +133,7 @@ fn check_content_stream(doc: &Document, content_id: (u32, u16)) {
             if let Ok(filter) = stream.dict.get(b"Filter") {
                 println!("      Filter: {:?}", filter);
             }
-            
+
             // Try to get decompressed content
             match stream.decompressed_content() {
                 Ok(content) => {
@@ -162,8 +160,11 @@ fn check_object_location(doc: &Document, obj_id: (u32, u16)) {
     if doc.objects.contains_key(&obj_id) {
         println!("      Note: Object exists in document");
     } else {
-        println!("      WARNING: Object {} {} R not found in document!", obj_id.0, obj_id.1);
-        
+        println!(
+            "      WARNING: Object {} {} R not found in document!",
+            obj_id.0, obj_id.1
+        );
+
         // Check xref
         if let Some(xref_entry) = doc.reference_table.get(obj_id.0) {
             println!("      Xref entry: {:?}", xref_entry);

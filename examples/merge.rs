@@ -108,7 +108,9 @@ fn main() {
         let pages = doc.get_pages();
 
         // This is actually better than extend as we use less allocations and cloning then.
-        pages.into_values().map(|object_id| {
+        pages
+            .into_values()
+            .map(|object_id| {
                 // We use this as the return object for Bookmarking to deturmine what it points too.
                 // We only want to do this for the first page though.
                 if first_object.is_none() {
@@ -248,7 +250,9 @@ fn main() {
         // Set new "Kids" list (collected from documents pages) for "Pages"
         dictionary.set(
             "Kids",
-            documents_pages.into_keys().map(|object_id| Object::Reference(object_id))
+            documents_pages
+                .into_keys()
+                .map(|object_id| Object::Reference(object_id))
                 .collect::<Vec<_>>(),
         );
 

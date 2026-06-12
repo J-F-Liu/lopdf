@@ -194,12 +194,12 @@ impl Document {
 
             for (old, new) in pages.iter().zip(page_order) {
                 if let Some(object) = self.objects.remove(&old.1) {
-                    objects.insert((new.1 .0, old.1 .1), object);
-                    replace.insert(old.1, (new.1 .0, old.1 .1));
+                    objects.insert((new.1.0, old.1.1), object);
+                    replace.insert(old.1, (new.1.0, old.1.1));
                 }
 
                 if old.1 != new.1 {
-                    self.renumber_bookmarks(&old.1, &(new.1 .0, old.1 .1));
+                    self.renumber_bookmarks(&old.1, &(new.1.0, old.1.1));
                 }
             }
 

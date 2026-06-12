@@ -1,6 +1,6 @@
 use super::Object;
-use crate::writer::Writer;
 use crate::Result;
+use crate::writer::Writer;
 use std::io::Write;
 
 #[derive(Debug, Clone)]

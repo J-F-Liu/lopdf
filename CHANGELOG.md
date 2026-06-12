@@ -1,70 +1,151 @@
 
-<a name="v0.38.0"></a>
-## [v0.38.0](https://github.com/J-F-Liu/lopdf/compare/v0.37.0...v0.38.0) (2025-08-26)
+<a name="v0.41.0"></a>
+## [v0.41.0](https://github.com/J-F-Liu/lopdf/compare/v0.40.0...v0.41.0) (2026-06-04)
 
 ### Add
 
-* Add enhanced PDF decryption support for encrypted documents with empty passwords
-* Add automatic decryption during document loading for better pdftk compatibility
-* Add raw object extraction before parsing to handle encrypted content
-* Add support for decrypting PDFs with compressed object streams
-* Add comprehensive test suite for PDF decryption functionality
-* Add `assets/encrypted.pdf` test file for decryption testing
-* Add examples demonstrating decryption capabilities (`test_decryption.rs`, `verify_decryption.rs`)
-
-### Enhance
-
-* Enhance `Reader::read()` to detect and handle encrypted PDFs automatically
-* Enhance document loading to attempt empty password authentication by default
-* Enhance object processing to decrypt objects after parsing
-* Enhance support for encrypted PDFs containing object streams
+* Add test to reproduce bug with replacing text in non-single character TJ Arrays
+* Add regression test PDF file
+* Add performance tests for document loading and page counting
 
 ### Fix
 
-* Fix encrypted object parsing by extracting raw bytes before decryption
-* Fix object stream handling in encrypted documents
-* Fix decryption workflow to match pdftk's approach
+* Fix bug replacing text in non-single character TJ Arrays
+* fix clippy errors
 
-### Implementation Details
+### Implement
 
-* Modified `src/reader.rs` to add `load_encrypted_document()` method
-* Added `extract_raw_object()` method for raw byte extraction
-* Added `parse_raw_object()` method for parsing extracted bytes
-* Store raw object bytes in `Reader::raw_objects` field for deferred decryption
-* Process compressed objects from object streams after decryption
+* Implement differences mapping
 
-<a name="v0.37.0"></a>
-## [v0.37.0](https://github.com/J-F-Liu/lopdf/compare/v0.36.0...v0.37.0) (2025-08-08)
+### Release
 
-### Add
+* Release 0.41
 
-* Add complete PDF object streams write support enabling 11-61% file size reduction ([#XXX](https://github.com/J-F-Liu/lopdf/issues/XXX))
-* Add `save_modern()` method for easy object streams and cross-reference streams usage  
-* Add `SaveOptions` struct with builder pattern for configuring compression settings
-* Add `ObjectStreamBuilder` for creating object streams programmatically
-* Add cross-reference stream support for PDF 1.5+ compliance
-* Add `replace_partial_text()` function for partial text replacement in PDFs
-* Add comprehensive test suite with 50+ tests for object streams functionality
-* Add object streams write capability (previously read-only)
-* Add implementation documentation in OBJECT_STREAMS_IMPLEMENTATION.md
+### Removes
+
+* Removes `nom_locate` dependency to fix a performance regression introduced in v0.35.0.
+
+
+<a name="v0.40.0"></a>
+## [v0.40.0](https://github.com/J-F-Liu/lopdf/compare/v0.39.0...v0.40.0) (2026-03-19)
 
 ### Fix
 
-* Fix pdfutil build error - missing `derive` feature for clap dependency
-* Fix async feature compilation - 25 examples/tests failing with `--all-features`
-* Fix 31 clippy linting errors blocking CI with `#![deny(clippy::all)]`
-* Fix object compression eligibility - structural objects (Catalog, Pages, Page) now properly compressed
-* Fix trailer-referenced objects compression - only encryption dictionary excluded from compression
-* Fix linearization detection for proper Catalog handling per PDF specification
-* Fix compilation warnings
+* Fix a few warnings.
+* Fix WinAnsiEncoding handling in SimpleEncoding string conversion
+
+### Release
+
+* Release 0.40
+
+### Remove
+
+* Remove an unused dependency.
+
+### Return
+
+* return Option via ok() instead of unwrap() for decode_text_string
 
 ### Update
 
-* Update to Rust 2024 edition with minimum Rust 1.85 requirement
+* update src/reader to make clippy happy
 
-### Maintain
+### Update
 
-* Maintain full backward compatibility - all existing APIs unchanged
+* Update `getrandom` to 0.4 and `rand` to 0.10.
+
+### Upgrade
+
+* Upgrade `wasm-bindgen-test` while we're at it.
+
+
+<a name="v0.39.0"></a>
+## [v0.39.0](https://github.com/J-F-Liu/lopdf/compare/v0.38.0...v0.39.0) (2026-01-16)
+
+### Add
+
+* add tests
+
+### Fix
+
+* fix conditionally compile encrypted metadata tests
+* fix test_metadata and clippy warnings
+* fix readme example ci issue
+* fix clippy ci failed
+
+### Release
+
+* Release 0.39
+
+### Breaking change
+
+
+is_encrypted() now returns false after successful
+decryption. Use was_encrypted() to check original encryption state.
+
+
+<a name="v0.38.0"></a>
+## [v0.38.0](https://github.com/J-F-Liu/lopdf/compare/v0.37.0...v0.38.0) (2026-01-16)
+
+### Apply
+
+* apply fix the warnings
+
+### Inline
+
+* Inline ImageMasks don't need to have a ColorSpace so don't require one.
+
+
+<a name="v0.37.0"></a>
+## [v0.37.0](https://github.com/J-F-Liu/lopdf/compare/v0.36.0...v0.37.0) (2026-01-16)
+
+### Add
+
+* add unicode replace support ([#421](https://github.com/J-F-Liu/lopdf/issues/421))
+
+### Avoid
+
+* Avoid unwrapping object streams when decrypting documents
+
+### Change
+
+* Change remove_object() to only remove the object ([#423](https://github.com/J-F-Liu/lopdf/issues/423))
+
+### Ensure
+
+* Ensure we only encrypt with compliant P-values
+
+### Fix
+
+* fix bug ([#422](https://github.com/J-F-Liu/lopdf/issues/422))
+
+### Fix
+
+* Fix clippy
+* Fix bug by encoding OE, UE and Perms for revision 5
+
+### Implement
+
+* Implement tests to encrypt and decrypt documents
+* Implement tests for the password algorithms
+
+### Improve
+
+* Improve readability by consistently iterating over blocks
+* Improve Length field checks
+
+### Retain
+
+* Retain permission bits
+
+### Set
+
+* Set up WASI CI
+* Set up WASM CI workflow
+
+### Update
+
+* Update changelog
 
 
 <a name="v0.36.0"></a>

@@ -235,10 +235,8 @@ impl Document {
                 Object::Array(array) => traverse_array(array, action, refs),
                 Object::Dictionary(dict) => traverse_dictionary(dict, action, refs),
                 Object::Stream(stream) => traverse_dictionary(&mut stream.dict, action, refs),
-                Object::Reference(id) => {
-                    if !refs.contains(id) {
-                        refs.push(*id);
-                    }
+                Object::Reference(id) if !refs.contains(id) => {
+                    refs.push(*id);
                 }
                 _ => {}
             }
@@ -837,15 +835,14 @@ impl Iterator for PageTreeIter<'_> {
                             b"Page" => {
                                 return Some(kid_id);
                             }
-                            b"Pages" => {
-                                if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT {
-                                    let kids = self.kids.unwrap();
-                                    if !kids.is_empty() {
-                                        self.stack.push(kids);
-                                    }
-                                    self.kids = Self::kids(self.doc, kid_id);
+                            b"Pages" if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT => {
+                                let kids = self.kids.unwrap();
+                                if !kids.is_empty() {
+                                    self.stack.push(kids);
                                 }
+                                self.kids = Self::kids(self.doc, kid_id);
                             }
+                            b"Pages" => {}
                             _ => {}
                         }
                     }
