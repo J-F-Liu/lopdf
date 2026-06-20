@@ -408,7 +408,7 @@ impl Writer {
         let mut xref_sections = Vec::new();
         let mut xref_section = XrefSection::new(0);
 
-        for obj_id in 1..xref.size + 1 {
+        for obj_id in 1..xref.size {
             // If section is empty change number of starting id.
             if xref_section.is_empty() {
                 xref_section = XrefSection::new(obj_id);
