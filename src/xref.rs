@@ -52,6 +52,7 @@ impl Xref {
 
     pub fn insert(&mut self, id: u32, entry: XrefEntry) {
         self.entries.insert(id, entry);
+        self.size = self.size.max(id.saturating_add(1));
     }
 
     /// Combine Xref entries. Only add them if they do not exists already.

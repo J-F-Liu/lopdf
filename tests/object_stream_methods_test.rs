@@ -373,3 +373,55 @@ fn test_multiple_object_streams_in_document() {
         "Should have multiple object streams for 250+ objects"
     );
 }
+
+#[test]
+fn test_loads_catalog_from_later_generated_object_stream() {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+    });
+
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page_id.into()],
+            "Count" => 1,
+        }),
+    );
+
+    // Fill the document with enough objects to force multiple object streams.
+    let max_objects_per_stream = lopdf::ObjectStreamConfig::default().max_objects_per_stream;
+    for _ in 0..=max_objects_per_stream {
+        doc.add_object(dictionary! {
+            "Dummy" => true,
+        });
+    }
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+
+    doc.trailer.set("Root", catalog_id);
+
+    let mut buffer = Vec::new();
+    doc.save_modern(&mut buffer).unwrap();
+
+    let content = String::from_utf8_lossy(&buffer);
+    let objstm_count = content.matches("/ObjStm").count();
+    assert!(
+        objstm_count >= 2,
+        "should have multiple object streams"
+    );
+
+    let loaded = Document::load_mem(&buffer).unwrap();
+    loaded
+        .catalog()
+        .expect("catalog should remain reachable from a later generated object stream");
+    assert_eq!(loaded.get_pages().len(), 1);
+}
