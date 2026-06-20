@@ -52,6 +52,13 @@ impl Xref {
 
     pub fn insert(&mut self, id: u32, entry: XrefEntry) {
         self.entries.insert(id, entry);
+        // Maintain the documented invariant: `size` is the highest object
+        // number plus 1. Without this, inserting an object whose id is at or
+        // above the current `size` (e.g. the cross-reference stream's own
+        // object, created late during `write_cross_reference_stream`) leaves
+        // `size` stale, and `create_xref_steam` — which iterates `1..size` —
+        // silently omits that object's entry from the emitted xref stream.
+        self.size = self.size.max(id.saturating_add(1));
     }
 
     /// Combine Xref entries. Only add them if they do not exists already.
