@@ -274,24 +274,37 @@ fn null(input: ParserInput) -> NomResult<Object> {
     map(tag(&b"null"[..]), |_| Object::Null).parse(input)
 }
 
-fn array(input: ParserInput) -> NomResult<Vec<Object>> {
-    delimited(pair(tag(&b"["[..]), space), many0(_direct_object), tag(&b"]"[..])).parse(input)
+fn array(depth: usize) -> impl Fn(ParserInput) -> NomResult<Vec<Object>> {
+    move |input| {
+        delimited(
+            pair(tag(&b"["[..]), space),
+            many0(_direct_object(depth)),
+            tag(&b"]"[..]),
+        )
+        .parse(input)
+    }
 }
 
 pub(crate) fn dictionary(input: ParserInput) -> NomResult<Dictionary> {
-    delimited(pair(tag(&b"<<"[..]), space), inner_dictionary, tag(&b">>"[..])).parse(input)
+    _dictionary(crate::reader::MAX_NESTING_DEPTH)(input)
 }
 
-fn inner_dictionary(input: ParserInput) -> NomResult<Dictionary> {
-    fold_many0(
-        pair(terminated(name, space), _direct_object),
-        Dictionary::new,
-        |mut dict, (key, value)| {
-            dict.set(key, value);
-            dict
-        },
-    )
-    .parse(input)
+fn _dictionary(depth: usize) -> impl Fn(ParserInput) -> NomResult<Dictionary> {
+    move |input| delimited(pair(tag(&b"<<"[..]), space), inner_dictionary(depth), tag(&b">>"[..])).parse(input)
+}
+
+fn inner_dictionary(depth: usize) -> impl Fn(ParserInput) -> NomResult<Dictionary> {
+    move |input| {
+        fold_many0(
+            pair(terminated(name, space), _direct_object(depth)),
+            Dictionary::new,
+            |mut dict, (key, value)| {
+                dict.set(key, value);
+                dict
+            },
+        )
+        .parse(input)
+    }
 }
 
 pub(crate) fn dict_dup(input: ParserInput) -> NomResult<Dictionary> {
@@ -308,7 +321,10 @@ pub(crate) fn dict_dup(input: ParserInput) -> NomResult<Dictionary> {
         ),
         fold_many0(
             terminated(
-                pair(terminated(name, space), _direct_object),
+                pair(
+                    terminated(name, space),
+                    _direct_object(crate::reader::MAX_NESTING_DEPTH),
+                ),
                 pair(tag(&b"def"[..]), multispace1),
             ),
             Dictionary::new,
@@ -359,33 +375,43 @@ fn reference(input: ParserInput) -> NomResult<Object> {
     map(terminated(object_id, tag(&b"R"[..])), Object::Reference).parse(input)
 }
 
-fn _direct_objects(input: ParserInput) -> NomResult<Object> {
-    alt((
-        null,
-        boolean,
-        reference,
-        map(real, Object::Real),
-        map(integer, Object::Integer),
-        map(name, Object::Name),
-        map(literal_string, Object::string_literal),
-        hexadecimal_string,
-        map(array, Object::Array),
-        map(dictionary, Object::Dictionary),
-    ))
-    .parse(input)
+fn _direct_objects(depth: usize) -> impl Fn(ParserInput) -> NomResult<Object> {
+    move |input| {
+        alt((
+            null,
+            boolean,
+            reference,
+            map(real, Object::Real),
+            map(integer, Object::Integer),
+            map(name, Object::Name),
+            map(literal_string, Object::string_literal),
+            hexadecimal_string,
+            map(array(depth), Object::Array),
+            map(_dictionary(depth), Object::Dictionary),
+        ))
+        .parse(input)
+    }
 }
 
-fn _direct_object(input: ParserInput) -> NomResult<Object> {
-    terminated(_direct_objects, space).parse(input)
+fn _direct_object(depth: usize) -> impl Fn(ParserInput) -> NomResult<Object> {
+    move |input| {
+        if depth == 0 {
+            return Err(nom::Err::Failure(NomError::from_error_kind(input, ErrorKind::TooLarge)));
+        }
+        terminated(_direct_objects(depth - 1), space).parse(input)
+    }
 }
 
 pub fn direct_object(input: ParserInput) -> Option<Object> {
-    strip_nom(_direct_object.parse(input))
+    strip_nom(_direct_object(crate::reader::MAX_NESTING_DEPTH)(input))
 }
 
 fn object<'a>(input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>) -> NomResult<'a, Object> {
     terminated(
-        alt((|input| stream(input, reader, already_seen), _direct_objects)),
+        alt((
+            |input| stream(input, reader, already_seen),
+            _direct_objects(crate::reader::MAX_NESTING_DEPTH),
+        )),
         space,
     )
     .parse(input)
@@ -575,7 +601,7 @@ fn operand(input: ParserInput) -> NomResult<Object> {
             map(name, Object::Name),
             map(literal_string, Object::string_literal),
             hexadecimal_string,
-            map(array, Object::Array),
+            map(array(crate::reader::MAX_NESTING_DEPTH), Object::Array),
             map(dictionary, Object::Dictionary),
         )),
         content_space,
@@ -599,7 +625,7 @@ fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
 }
 
 fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
-    let (input, stream_dict) = inner_dictionary.parse(input)?;
+    let (input, stream_dict) = inner_dictionary(crate::reader::MAX_NESTING_DEPTH).parse(input)?;
     let (input, _) = pair(tag(&b"ID"[..]), content_space).parse(input)?;
     match image_data_stream(input, stream_dict) {
         Ok((input, stream)) => {
@@ -991,5 +1017,49 @@ EI";
     fn content_strict_rejects_corrupted_data() {
         let data = b"q 1 0 0 1 10 10 cm (corrupted Q";
         assert!(content_strict(data).is_err());
+    }
+
+    fn on_big_stack(f: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(f)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn deeply_nested_array_is_rejected() {
+        on_big_stack(|| {
+            let depth = 200_000;
+            let mut input = Vec::with_capacity(depth * 2);
+            input.extend(std::iter::repeat_n(b'[', depth));
+            input.extend(std::iter::repeat_n(b']', depth));
+            let result = _direct_object(crate::reader::MAX_NESTING_DEPTH)(input.as_slice());
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn deeply_nested_dictionary_is_rejected() {
+        on_big_stack(|| {
+            let depth = 200_000;
+            let mut input = Vec::with_capacity(depth * 6);
+            for _ in 0..depth {
+                input.extend_from_slice(b"<</K ");
+            }
+            for _ in 0..depth {
+                input.extend_from_slice(b">>");
+            }
+            let result = _direct_object(crate::reader::MAX_NESTING_DEPTH)(input.as_slice());
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn modestly_nested_array_still_parses() {
+        let input = b"[[[[[1]]]]]";
+        let obj = _direct_object(crate::reader::MAX_NESTING_DEPTH)(test_span(input));
+        assert!(obj.is_ok());
     }
 }

@@ -453,6 +453,8 @@ pub struct Reader<'a> {
 /// Maximum allowed embedding of literal strings.
 pub const MAX_BRACKET: usize = 100;
 
+pub const MAX_NESTING_DEPTH: usize = 100;
+
 /// PDF metadata extracted without loading the entire document.
 /// This is useful for quickly getting basic information about large PDFs.
 #[derive(Debug, Clone)]
