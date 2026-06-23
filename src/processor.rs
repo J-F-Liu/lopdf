@@ -7,25 +7,25 @@ use std::io::Write;
 impl Document {
     /// Change producer of document information dictionary.
     pub fn change_producer(&mut self, producer: &str) {
-        if let Ok(info) = self.trailer.get_mut(b"Info") {
-            if let Some(dict) = match info {
+        if let Ok(info) = self.trailer.get_mut(b"Info")
+            && let Some(dict) = match info {
                 Object::Dictionary(dict) => Some(dict),
                 Object::Reference(id) => self.objects.get_mut(id).and_then(|o| o.as_dict_mut().ok()),
                 _ => None,
-            } {
-                dict.set("Producer", Object::string_literal(producer));
             }
+        {
+            dict.set("Producer", Object::string_literal(producer));
         }
     }
 
     /// Compress PDF stream objects.
     pub fn compress(&mut self) {
         for object in self.objects.values_mut() {
-            if let Object::Stream(stream) = object {
-                if stream.allows_compression {
-                    // Ignore any error and continue to compress other streams.
-                    let _ = stream.compress();
-                }
+            if let Object::Stream(stream) = object
+                && stream.allows_compression
+            {
+                // Ignore any error and continue to compress other streams.
+                let _ = stream.compress();
             }
         }
     }
@@ -208,10 +208,10 @@ impl Document {
             }
 
             let action = |object: &mut Object| {
-                if let Object::Reference(id) = object {
-                    if replace.contains_key(id) {
-                        *id = replace[id];
-                    }
+                if let Object::Reference(id) = object
+                    && let Some(new_id) = replace.get(id)
+                {
+                    *id = *new_id;
                 }
             };
 
@@ -249,10 +249,10 @@ impl Document {
         }
 
         let action = |object: &mut Object| {
-            if let Object::Reference(id) = object {
-                if replace.contains_key(id) {
-                    *id = replace[id];
-                }
+            if let Object::Reference(id) = object
+                && let Some(new_id) = replace.get(id)
+            {
+                *id = *new_id;
             }
         };
 
