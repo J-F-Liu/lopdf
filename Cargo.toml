@@ -14,48 +14,49 @@ name = "lopdf"
 readme = "README.md"
 repository = "https://github.com/J-F-Liu/lopdf.git"
 version = "0.41.0"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [dependencies]
-aes = "0.8.4"
-bitflags = "2.8.0"
-cbc = "0.1.2"
+aes = "0.9"
+bitflags = "2.13"
+cbc = "0.2"
 chrono = { version = "0.4", optional = true, default-features = false, features = [
     "std",
     "clock",
 ] }
-ecb = "0.1.2"
-encoding_rs = "0.8.32"
-flate2 = "1.0"
+ecb = "0.2"
+encoding_rs = "0.8"
+flate2 = "1.1"
 image = { version = "0.25", optional = true }
-indexmap = "2.2.3"
+indexmap = "2.14"
 itoa = "1.0"
 jiff = { version = "0.2", optional = true }
 getrandom = "0.4"
 log = "0.4"
-md-5 = "0.10"
+md-5 = "0.11"
 nom = "8.0"
 rand = { version = "0.10" }
-rangemap = "1.5"
-rayon = { version = "1.6", optional = true }
+rangemap = "1.7"
+rayon = { version = "1.12", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
-sha2 = "0.10.8"
+sha2 = "0.11"
 stringprep = "0.1.5"
-thiserror = "2.0.3"
+thiserror = "2.0"
 time = { version = "0.3", features = [
     "formatting",
     "parsing",
 ], optional = true }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
-weezl = "0.1"
+weezl = "0.2"
 ttf-parser = "0.25.1"
 
 [dev-dependencies]
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
+criterion = "0.8"
 env_logger = "0.11"
 serde_json = "1.0"
-shellexpand = "3.0"
-tempfile = "3.3"
+shellexpand = "3.1"
+tempfile = "3.27"
 wasm-bindgen-test = "0.3"
 ttf-parser = "0.25.1"
 
@@ -83,6 +84,14 @@ required-features = ["default"]
 
 [[example]]
 name = "rotate"
+
+[[bench]]
+name = "datetime"
+harness = false
+
+[[bench]]
+name = "parse"
+harness = false
 
 [badges]
 travis-ci = { repository = "J-F-Liu/lopdf" }
