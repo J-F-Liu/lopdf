@@ -1,4 +1,23 @@
 
+<a name="v0.42.0"></a>
+## [v0.42.0](https://github.com/J-F-Liu/lopdf/compare/v0.41.0...v0.42.0) (2026-06-23)
+
+### Feat
+
+* Add Content::decode_strict method for strict parsing
+
+### Fix
+
+* Limit array and dictionary nesting depth
+* Include subsequent ObjStm objects in xref stream range
+* Insert newline between concatenated content streams
+* Consume trailing comments in content streams
+
+### Test
+
+* Escape trailing whitespace in parser tests
+
+
 <a name="v0.41.0"></a>
 ## [v0.41.0](https://github.com/J-F-Liu/lopdf/compare/v0.40.0...v0.41.0) (2026-06-04)
 
