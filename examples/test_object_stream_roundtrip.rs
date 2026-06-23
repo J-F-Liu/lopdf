@@ -94,19 +94,17 @@ fn main() {
     // Check for object streams
     let mut obj_stream_count = 0;
     for (id, obj) in &loaded_doc.objects {
-        if let lopdf::Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        obj_stream_count += 1;
-                        println!("Found object stream {} 0 R", id.0);
-                        if let Ok(filter) = stream.dict.get(b"Filter") {
-                            println!("  Has Filter: {:?}", filter);
-                        } else {
-                            println!("  WARNING: No Filter!");
-                        }
-                    }
-                }
+        if let lopdf::Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            obj_stream_count += 1;
+            println!("Found object stream {} 0 R", id.0);
+            if let Ok(filter) = stream.dict.get(b"Filter") {
+                println!("  Has Filter: {:?}", filter);
+            } else {
+                println!("  WARNING: No Filter!");
             }
         }
     }

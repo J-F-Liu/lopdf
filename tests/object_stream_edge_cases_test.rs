@@ -98,7 +98,7 @@ fn test_trailer_with_all_pdf_types() {
     doc.trailer.set("Null", Object::Null);
     doc.trailer.set("Bool", Object::Boolean(true));
     doc.trailer.set("Int", Object::Integer(42));
-    doc.trailer.set("Real", Object::Real(3.14159));
+    doc.trailer.set("Real", Object::Real(1.25));
     doc.trailer
         .set("String", Object::String(b"test".to_vec(), lopdf::StringFormat::Literal));
     doc.trailer.set("Name", Object::Name(b"Test".to_vec()));

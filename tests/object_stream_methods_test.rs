@@ -414,10 +414,7 @@ fn test_loads_catalog_from_later_generated_object_stream() {
 
     let content = String::from_utf8_lossy(&buffer);
     let objstm_count = content.matches("/ObjStm").count();
-    assert!(
-        objstm_count >= 2,
-        "should have multiple object streams"
-    );
+    assert!(objstm_count >= 2, "should have multiple object streams");
 
     let loaded = Document::load_mem(&buffer).unwrap();
     loaded

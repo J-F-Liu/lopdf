@@ -8,8 +8,11 @@ where
     P: AsRef<Path> + Display,
 {
     #[cfg(feature = "async")]
-    let doc = tokio::runtime::Runtime::new()?
-        .block_on(async move { Document::load(&path).await.expect(&*format!("Failed to load {}", path)) });
+    let doc = tokio::runtime::Runtime::new()?.block_on(async move {
+        Document::load(&path)
+            .await
+            .unwrap_or_else(|_| panic!("Failed to load {}", path))
+    });
     #[cfg(not(feature = "async"))]
     let doc = Document::load(path)?;
 
@@ -25,7 +28,7 @@ where
     let doc = tokio::runtime::Runtime::new()?.block_on(async move {
         IncrementalDocument::load(&path)
             .await
-            .expect(&*format!("Failed to load {}", path))
+            .unwrap_or_else(|_| panic!("Failed to load {}", path))
     });
     #[cfg(not(feature = "async"))]
     let doc = IncrementalDocument::load(path)?;

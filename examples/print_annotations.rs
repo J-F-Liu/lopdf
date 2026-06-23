@@ -16,7 +16,7 @@ fn args() -> Vec<String> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {
-        eprintln!("Usage: {} <pdf-file>", &args[0]);
+        eprintln!("Usage: {} <pdf-file>", args[0]);
         process::exit(1);
     }
 
@@ -38,29 +38,29 @@ fn handle_pdf_page(doc: Document) -> u32 {
             if let Ok(Object::String(c, _)) = a.get_deref(b"Contents", &doc) {
                 println!("  Contents: {:.60}", String::from_utf8_lossy(c).lines().next().unwrap());
             }
-            if subtype == b"Link" {
-                if let Ok(ahref) = a.get_deref(b"A", &doc).and_then(Object::as_dict) {
-                    print!(
-                        "  {} -> ",
-                        ahref
-                            .get_deref(b"S", &doc)
-                            .and_then(Object::as_name)
-                            .map(str::from_utf8)
-                            .unwrap()
-                            .unwrap()
-                    );
-                    if let Ok(d) = ahref.get_deref(b"D", &doc).and_then(Object::as_array) {
-                        println!("{:?}", d);
-                    } else if let Ok(Object::String(u, _)) = ahref.get_deref(b"URI", &doc) {
-                        println!("{}", String::from_utf8_lossy(u));
-                    } else if let Ok(n) = ahref
-                        .get_deref(b"N", &doc)
+            if subtype == b"Link"
+                && let Ok(ahref) = a.get_deref(b"A", &doc).and_then(Object::as_dict)
+            {
+                print!(
+                    "  {} -> ",
+                    ahref
+                        .get_deref(b"S", &doc)
                         .and_then(Object::as_name)
                         .map(str::from_utf8)
                         .unwrap()
-                    {
-                        println!("{}", n);
-                    }
+                        .unwrap()
+                );
+                if let Ok(d) = ahref.get_deref(b"D", &doc).and_then(Object::as_array) {
+                    println!("{:?}", d);
+                } else if let Ok(Object::String(u, _)) = ahref.get_deref(b"URI", &doc) {
+                    println!("{}", String::from_utf8_lossy(u));
+                } else if let Ok(n) = ahref
+                    .get_deref(b"N", &doc)
+                    .and_then(Object::as_name)
+                    .map(str::from_utf8)
+                    .unwrap()
+                {
+                    println!("{}", n);
                 }
             }
         }
@@ -91,6 +91,6 @@ async fn main() {
 
     match Document::load(&args[1]).await {
         Ok(doc) => _ = handle_pdf_page(doc),
-        Err(e) => eprintln!("Error opening {:?}: {:?}", &args[1], e),
+        Err(e) => eprintln!("Error opening {:?}: {:?}", args[1], e),
     }
 }

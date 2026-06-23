@@ -68,18 +68,16 @@ fn main() {
     let loaded = load_document("test_direct_objstream.pdf");
 
     for (id, obj) in &loaded.objects {
-        if let Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        println!("Found object stream {} 0 R", id.0);
-                        println!("  Dict: {:?}", stream.dict);
-                        println!("  Has Filter: {}", stream.dict.get(b"Filter").is_ok());
-                        if let Ok(filter) = stream.dict.get(b"Filter") {
-                            println!("  Filter value: {:?}", filter);
-                        }
-                    }
-                }
+        if let Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            println!("Found object stream {} 0 R", id.0);
+            println!("  Dict: {:?}", stream.dict);
+            println!("  Has Filter: {}", stream.dict.get(b"Filter").is_ok());
+            if let Ok(filter) = stream.dict.get(b"Filter") {
+                println!("  Filter value: {:?}", filter);
             }
         }
     }

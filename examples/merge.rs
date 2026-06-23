@@ -188,10 +188,10 @@ fn main() {
                 // We have also to merge all dictionaries of the old and the new "Pages" object
                 if let Ok(dictionary) = object.as_dict() {
                     let mut dictionary = dictionary.clone();
-                    if let Some((_, ref object)) = pages_object {
-                        if let Ok(old_dictionary) = object.as_dict() {
-                            dictionary.extend(old_dictionary);
-                        }
+                    if let Some((_, ref object)) = pages_object
+                        && let Ok(old_dictionary) = object.as_dict()
+                    {
+                        dictionary.extend(old_dictionary);
                     }
 
                     pages_object = Some((
@@ -250,10 +250,7 @@ fn main() {
         // Set new "Kids" list (collected from documents pages) for "Pages"
         dictionary.set(
             "Kids",
-            documents_pages
-                .into_keys()
-                .map(|object_id| Object::Reference(object_id))
-                .collect::<Vec<_>>(),
+            documents_pages.into_keys().map(Object::Reference).collect::<Vec<_>>(),
         );
 
         document.objects.insert(page_id, Object::Dictionary(dictionary));
@@ -281,10 +278,10 @@ fn main() {
     document.adjust_zero_pages();
 
     //Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
-    if let Some(outline_id) = document.build_outline() {
-        if let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_id) {
-            dict.set("Outlines", Object::Reference(outline_id));
-        }
+    if let Some(outline_id) = document.build_outline()
+        && let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_id)
+    {
+        dict.set("Outlines", Object::Reference(outline_id));
     }
 
     // Most of the time this does nothing unless there are a lot of streams

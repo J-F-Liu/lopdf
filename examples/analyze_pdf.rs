@@ -85,10 +85,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if already using object streams
     let has_objstm = doc.objects.values().any(|obj| {
-        if let Object::Dictionary(dict) = obj {
-            if let Ok(Object::Name(name)) = dict.get(b"Type") {
-                return name == b"ObjStm";
-            }
+        if let Object::Dictionary(dict) = obj
+            && let Ok(Object::Name(name)) = dict.get(b"Type")
+        {
+            return name == b"ObjStm";
         }
         false
     });

@@ -6,8 +6,6 @@ use std::time::Instant;
 
 use clap::Parser;
 use lopdf::{Document, LoadOptions, Object};
-use serde_json;
-use shellexpand;
 
 #[cfg(feature = "async")]
 use tokio::runtime::Builder;
@@ -95,11 +93,11 @@ fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
 
 #[cfg(feature = "async")]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
-    Ok(Builder::new_current_thread().build().unwrap().block_on(async move {
+    Builder::new_current_thread().build().unwrap().block_on(async move {
         Document::load_with_options(path, LoadOptions::with_filter(filter_func))
             .await
-            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
-    })?)
+            .map_err(|e| Error::other(e.to_string()))
+    })
 }
 
 fn pdf2toc<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool) -> Result<(), Error> {
@@ -108,7 +106,7 @@ fn pdf2toc<P: AsRef<Path> + Debug>(path: P, output: P, pretty: bool) -> Result<(
     if doc.is_encrypted() {
         return Err(Error::new(ErrorKind::InvalidInput, "Password missing!"));
     }
-    let toc = doc.get_toc().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+    let toc = doc.get_toc().map_err(|e| Error::other(e.to_string()))?;
     if !toc.errors.is_empty() {
         eprintln!("{path:?} has {} errors:", toc.errors.len());
         for error in &toc.errors[..toc.errors.len().min(10)] {
