@@ -72,8 +72,11 @@ jobs:
               run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
             - run: cargo test
-            - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --chrome --features wasm_js
-            - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' wasm-pack test --headless --firefox --features wasm_js
+            # opt-level=1 keeps the test wasm under the validator's per-function
+            # local limit; unoptimized debug codegen overflows it ("too many
+            # locals: locals exceed maximum").
+            - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js" -C opt-level=1' wasm-pack test --headless --chrome --features wasm_js
+            - run: RUSTFLAGS='--cfg getrandom_backend="wasm_js" -C opt-level=1' wasm-pack test --headless --firefox --features wasm_js
 
     wasi:
         runs-on: ubuntu-latest
