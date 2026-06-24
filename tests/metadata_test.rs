@@ -7,6 +7,7 @@ fn test_metadata_extraction_basic() {
 
     assert_eq!(metadata.version, "1.5");
     assert!(metadata.page_count > 0);
+    assert!(!metadata.encrypted);
 }
 
 #[test]
@@ -115,6 +116,7 @@ fn test_metadata_extraction_encrypted_empty_password() {
     assert_eq!(metadata.author, Some("Test Author".to_string()));
     assert_eq!(metadata.subject, Some("Test Subject".to_string()));
     assert_eq!(metadata.page_count, 1);
+    assert!(metadata.encrypted);
 }
 
 #[cfg(not(feature = "async"))]
@@ -185,6 +187,15 @@ fn test_metadata_extraction_encrypted_with_password() {
     assert_eq!(metadata_mem.title, Some("Password Protected PDF".to_string()));
     assert_eq!(metadata_mem.author, Some("Protected Author".to_string()));
     assert_eq!(metadata_mem.page_count, 1);
+    assert!(metadata.encrypted);
+    assert!(metadata_mem.encrypted);
+
+    // Without the password, the loader no longer fails: it reports `encrypted`
+    // and omits the (undecryptable) Info fields rather than erroring.
+    let metadata_no_pw = Document::load_metadata_mem(&buffer).unwrap();
+    assert!(metadata_no_pw.encrypted);
+    assert_eq!(metadata_no_pw.title, None);
+    assert_eq!(metadata_no_pw.author, None);
 }
 
 #[cfg(not(feature = "async"))]

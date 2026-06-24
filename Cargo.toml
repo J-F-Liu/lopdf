@@ -13,8 +13,9 @@ license = "MIT"
 name = "lopdf"
 readme = "README.md"
 repository = "https://github.com/J-F-Liu/lopdf.git"
-version = "0.41.0"
-rust-version = "1.88"
+version = "0.42.0"
+rust-version = "1.85"
+exclude = ["/tests", "/benches", "/assets", "/.vscode", "/.github"]
 
 [dependencies]
 aes = "0.9"

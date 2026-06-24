@@ -487,6 +487,12 @@ pub struct PdfMetadata {
     pub page_count: u32,
     /// PDF version
     pub version: String,
+    /// Whether the document declares encryption (an `/Encrypt` entry in the
+    /// trailer). When `true`, string and stream contents are encrypted; the
+    /// standard Info fields above are populated only if the document could be
+    /// decrypted — e.g. an empty user password, or a password supplied via a
+    /// `*_with_password` loader.
+    pub encrypted: bool,
 }
 
 struct InfoMetadata {
@@ -588,12 +594,31 @@ impl Reader<'_> {
         self.document.reference_table = xref;
         self.document.trailer = trailer.clone();
 
-        if self.document.trailer.get(b"Encrypt").is_ok() {
-            self.setup_encryption_for_metadata()?;
-        }
+        let encrypted = self.document.trailer.get(b"Encrypt").is_ok();
+        // For encrypted PDFs, set up decryption so the Info dictionary can be
+        // read. If the document is protected by a password we cannot supply,
+        // still report what we have (notably `encrypted`) rather than failing
+        // the whole call; callers needing the Info fields should use a
+        // `*_with_password` loader.
+        let needs_password = if encrypted {
+            match self.setup_encryption_for_metadata() {
+                Ok(()) => false,
+                // No usable password was available (empty password failed and
+                // none was supplied): report `encrypted` without the Info
+                // fields. A wrong supplied password still surfaces as an error.
+                Err(Error::Unimplemented(_)) => true,
+                Err(e) => return Err(e),
+            }
+        } else {
+            false
+        };
 
-        let info_metadata = self.extract_info_metadata()?;
-        let page_count = self.extract_page_count()?;
+        let info_metadata = if needs_password {
+            InfoMetadata::empty()
+        } else {
+            self.extract_info_metadata()?
+        };
+        let page_count = if needs_password { 0 } else { self.extract_page_count()? };
 
         Ok(PdfMetadata {
             title: info_metadata.title,
@@ -607,6 +632,7 @@ impl Reader<'_> {
             custom: info_metadata.custom,
             page_count,
             version,
+            encrypted,
         })
     }
 
