@@ -14,7 +14,7 @@ name = "lopdf"
 readme = "README.md"
 repository = "https://github.com/J-F-Liu/lopdf.git"
 version = "0.42.0"
-rust-version = "1.85"
+rust-version = "1.88"
 exclude = ["/tests", "/benches", "/assets", "/.vscode", "/.github"]
 
 [dependencies]
