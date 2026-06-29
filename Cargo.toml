@@ -15,7 +15,7 @@ readme = "README.md"
 repository = "https://github.com/J-F-Liu/lopdf.git"
 version = "0.43.0"
 rust-version = "1.88"
-exclude = ["/tests", "/benches", "/assets", "/.vscode", "/.github"]
+exclude = ["/benches", "/assets", "/.chglog", "/.vscode", "/.github"]
 
 [dependencies]
 aes = "0.9"
