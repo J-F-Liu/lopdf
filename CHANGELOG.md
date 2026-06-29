@@ -1,4 +1,12 @@
 
+<a name="v0.43.0"></a>
+## [v0.43.0](https://github.com/J-F-Liu/lopdf/compare/v0.42.0...v0.43.0) (2026-06-25)
+
+### Feat
+
+* Report encryption status in PdfMetadata
+
+
 <a name="v0.42.0"></a>
 ## [v0.42.0](https://github.com/J-F-Liu/lopdf/compare/v0.41.0...v0.42.0) (2026-06-23)
 
