@@ -71,32 +71,30 @@ fn main() {
     let mut obj_stream_with_filter = 0;
 
     for (id, obj) in &loaded.objects {
-        if let lopdf::Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        obj_stream_count += 1;
-                        let has_filter = stream.dict.get(b"Filter").is_ok();
-                        if has_filter {
-                            obj_stream_with_filter += 1;
-                        }
-
-                        println!("\nObject Stream {} 0 R:", id.0);
-                        println!("  Has Filter: {}", has_filter);
-                        if let Ok(n) = stream.dict.get(b"N").and_then(|o| o.as_i64()) {
-                            println!("  Contains {} objects", n);
-                        }
-                        if let Ok(first) = stream.dict.get(b"First").and_then(|o| o.as_i64()) {
-                            println!("  First offset: {}", first);
-                        }
-                        println!("  Content size: {} bytes", stream.content.len());
-
-                        // Check if content looks compressed
-                        let looks_compressed = stream.content.iter().take(20).any(|&b| b > 127);
-                        println!("  Content looks compressed: {}", looks_compressed);
-                    }
-                }
+        if let lopdf::Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            obj_stream_count += 1;
+            let has_filter = stream.dict.get(b"Filter").is_ok();
+            if has_filter {
+                obj_stream_with_filter += 1;
             }
+
+            println!("\nObject Stream {} 0 R:", id.0);
+            println!("  Has Filter: {}", has_filter);
+            if let Ok(n) = stream.dict.get(b"N").and_then(|o| o.as_i64()) {
+                println!("  Contains {} objects", n);
+            }
+            if let Ok(first) = stream.dict.get(b"First").and_then(|o| o.as_i64()) {
+                println!("  First offset: {}", first);
+            }
+            println!("  Content size: {} bytes", stream.content.len());
+
+            // Check if content looks compressed
+            let looks_compressed = stream.content.iter().take(20).any(|&b| b > 127);
+            println!("  Content looks compressed: {}", looks_compressed);
         }
     }
 

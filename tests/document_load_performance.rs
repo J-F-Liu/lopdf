@@ -1,4 +1,6 @@
+#[cfg(not(feature = "async"))]
 use lopdf::Document;
+#[cfg(not(feature = "async"))]
 use std::time::Instant;
 
 #[cfg(not(feature = "async"))]

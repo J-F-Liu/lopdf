@@ -1,13 +1,13 @@
 use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
+use crate::Error;
 use crate::content::*;
 use crate::error;
 use crate::xref::*;
-use crate::Error;
 use std::collections::HashSet;
 use std::str::{self, FromStr};
 
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take, take_while, take_while1, take_while_m_n};
+use nom::bytes::complete::{tag, take, take_while, take_while_m_n, take_while1};
 use nom::character::complete::multispace1;
 use nom::character::complete::{digit0, digit1, one_of};
 use nom::character::complete::{space0, space1};
@@ -435,10 +435,10 @@ fn _indirect_object<'a>(
     let (i, (_, object_id)) = terminated((space, object_id), pair(tag(&b"obj"[..]), space))
         .parse(input)
         .map_err(|_| Error::IndirectObject { offset })?;
-    if let Some(expected_id) = expected_id {
-        if object_id != expected_id {
-            return Err(crate::error::Error::ObjectIdMismatch);
-        }
+    if let Some(expected_id) = expected_id
+        && object_id != expected_id
+    {
+        return Err(crate::error::Error::ObjectIdMismatch);
     }
 
     let object_offset = input.len() - i.len();
@@ -512,10 +512,8 @@ fn xref(input: ParserInput) -> NomResult<Xref> {
             || -> Xref { Xref::new(0, XrefType::CrossReferenceTable) },
             |mut xref, ((start, _count), entries)| {
                 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
-                    if is_normal {
-                        if let Ok(generation) = generation.try_into() {
-                            xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
-                        }
+                    if is_normal && let Ok(generation) = generation.try_into() {
+                        xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
                     }
                 }
                 xref

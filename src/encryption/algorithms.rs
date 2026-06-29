@@ -3,7 +3,7 @@ use super::rc4::Rc4;
 use crate::encodings;
 use crate::encryption::Permissions;
 use crate::{Document, Error, Object};
-use aes::cipher::{BlockDecryptMut as _, BlockEncryptMut as _, KeyInit as _, KeyIvInit as _};
+use aes::cipher::{BlockModeDecrypt as _, BlockModeEncrypt as _, KeyInit as _, KeyIvInit as _};
 use md5::{Digest as _, Md5};
 use rand::RngExt as _;
 use sha2::{Sha256, Sha384, Sha512};
@@ -14,6 +14,11 @@ type Aes256EbcEnc = ecb::Encryptor<aes::Aes256>;
 
 type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
 type Aes256EbcDec = ecb::Decryptor<aes::Aes256>;
+type AesBlock = aes::cipher::Block<aes::Aes128>;
+
+fn aes_block_mut(block: &mut [u8]) -> &mut AesBlock {
+    block.try_into().expect("AES block must be 16 bytes")
+}
 
 // If the password string is less than 32 bytes long, pad it by appending the required number of
 // additional bytes from the beginning of the following padding string.
@@ -93,7 +98,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             // bits.
             5 => (),
             // Unknown codes.
-            _ => return Err(DecryptionError::UnsupportedVersion)?,
+            _ => Err(DecryptionError::UnsupportedVersion)?,
         }
 
         // The length of the file encryption key shall only be present if V is 2 or 3 (but
@@ -104,32 +109,32 @@ impl TryFrom<&Document> for PasswordAlgorithm {
                 // with a default value of 40.
                 1 => {
                     if length != 40 {
-                        return Err(DecryptionError::InvalidKeyLength)?;
+                        Err(DecryptionError::InvalidKeyLength)?;
                     }
                 }
                 // The length of the file encryption key shall be a multiple of 8 in the range 40
                 // to and including 128.
                 2..=3 => {
                     if length % 8 != 0 || !(40..=128).contains(&length) {
-                        return Err(DecryptionError::InvalidKeyLength)?;
+                        Err(DecryptionError::InvalidKeyLength)?;
                     }
                 }
                 // The Length field should not be present if V is 4. However, if it is present it
                 // must be 128.
                 4 => {
                     if length != 128 {
-                        return Err(DecryptionError::InvalidKeyLength)?;
+                        Err(DecryptionError::InvalidKeyLength)?;
                     }
                 }
                 // The Length field should not be present if V is 5. However, if it is present it
                 // must be 256.
                 5 => {
                     if length != 256 {
-                        return Err(DecryptionError::InvalidKeyLength)?;
+                        Err(DecryptionError::InvalidKeyLength)?;
                     }
                 }
                 // The Length field may not be present otherwise.
-                _ => return Err(DecryptionError::InvalidKeyLength)?,
+                _ => Err(DecryptionError::InvalidKeyLength)?,
             }
         }
 
@@ -150,7 +155,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
 
         // The owner value is 32 bytes long if the value of R is 4 or less.
         if revision <= 4 && owner_value.len() != 32 {
-            return Err(DecryptionError::InvalidHashLength)?;
+            Err(DecryptionError::InvalidHashLength)?;
         }
 
         // The owner value is 48 bytes long if the value of R is 5 or greater.
@@ -158,7 +163,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         // to the spec-required length so these documents are accepted.
         if revision >= 5 {
             if owner_value.len() < 48 {
-                return Err(DecryptionError::InvalidHashLength)?;
+                Err(DecryptionError::InvalidHashLength)?;
             }
             owner_value.truncate(48);
         }
@@ -173,7 +178,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         // The owner encrypted blob is required if R is 5 or greater and the blob shall be 32 bytes
         // long.
         if revision >= 5 && owner_encrypted.len() != 32 {
-            return Err(DecryptionError::InvalidCipherTextLength)?;
+            Err(DecryptionError::InvalidCipherTextLength)?;
         }
 
         // Get the user value and user encrypted blobs.
@@ -186,7 +191,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
 
         // The user value is 32 bytes long if the value of R is 4 or less.
         if revision <= 4 && user_value.len() != 32 {
-            return Err(DecryptionError::InvalidHashLength)?;
+            Err(DecryptionError::InvalidHashLength)?;
         }
 
         // The user value is 48 bytes long if the value of R is 5 or greater.
@@ -194,7 +199,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         // to the spec-required length so these documents are accepted.
         if revision >= 5 {
             if user_value.len() < 48 {
-                return Err(DecryptionError::InvalidHashLength)?;
+                Err(DecryptionError::InvalidHashLength)?;
             }
             user_value.truncate(48);
         }
@@ -209,7 +214,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         // The user encrypted blob is required if R is 5 or greater and the blob shall be 32 bytes
         // long.
         if revision >= 5 && user_encrypted.len() != 32 {
-            return Err(DecryptionError::InvalidCipherTextLength)?;
+            Err(DecryptionError::InvalidCipherTextLength)?;
         }
 
         // Get the permission value and permission encrypted blobs.
@@ -231,7 +236,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
         // The permission encrypted blob is required if R is 65 or greater and the blob shall be
         // 16 bytes long.
         if revision >= 5 && permission_encrypted.len() != 16 {
-            return Err(DecryptionError::InvalidCipherTextLength)?;
+            Err(DecryptionError::InvalidCipherTextLength)?;
         }
 
         Ok(Self {
@@ -414,7 +419,7 @@ impl PasswordAlgorithm {
             let mut decryptor = Aes256CbcDec::new(&key.into(), &iv.into());
 
             for block in owner_encrypted.chunks_exact_mut(16) {
-                decryptor.decrypt_block_mut(block.into());
+                decryptor.decrypt_block(aes_block_mut(block));
             }
 
             return Ok(owner_encrypted);
@@ -444,7 +449,7 @@ impl PasswordAlgorithm {
             let mut decryptor = Aes256CbcDec::new(&key.into(), &iv.into());
 
             for block in user_encrypted.chunks_exact_mut(16) {
-                decryptor.decrypt_block_mut(block.into());
+                decryptor.decrypt_block(aes_block_mut(block));
             }
 
             // Decrypt the 16-byte Perms string using AES-256 in EBC mode with an initialization
@@ -522,13 +527,13 @@ impl PasswordAlgorithm {
             //
             // The 64 repetitions of K0 ensure that K1 is a multiple of 64 bytes, thus a multiple
             // of 16 bytes, i.e., it does not require padding.
-            let key = &k[0..][..16];
-            let iv = &k[16..][..16];
+            let key: &[u8; 16] = k[..16].try_into().expect("hash key must be 16 bytes");
+            let iv: &[u8; 16] = k[16..32].try_into().expect("hash IV must be 16 bytes");
 
             let mut encryptor = Aes128CbcEnc::new(key.into(), iv.into());
 
             for block in k1.chunks_exact_mut(16) {
-                encryptor.encrypt_block_mut(block.into());
+                encryptor.encrypt_block(aes_block_mut(block));
             }
 
             let e = k1;
@@ -945,7 +950,7 @@ impl PasswordAlgorithm {
         let mut encryptor = Aes256CbcEnc::new(&key.into(), &iv.into());
 
         for block in user_encrypted.chunks_exact_mut(16) {
-            encryptor.encrypt_block_mut(block.into());
+            encryptor.encrypt_block(aes_block_mut(block));
         }
 
         Ok((user_value.to_vec(), user_encrypted))
@@ -999,7 +1004,7 @@ impl PasswordAlgorithm {
         let mut encryptor = Aes256CbcEnc::new(&key.into(), &iv.into());
 
         for block in owner_encrypted.chunks_exact_mut(16) {
-            encryptor.encrypt_block_mut(block.into());
+            encryptor.encrypt_block(aes_block_mut(block));
         }
 
         Ok((owner_value.to_vec(), owner_encrypted))
@@ -1036,7 +1041,7 @@ impl PasswordAlgorithm {
         let mut encryptor = Aes256EbcEnc::new(&key.into());
 
         for block in bytes.chunks_exact_mut(16) {
-            encryptor.encrypt_block_mut(block.into());
+            encryptor.encrypt_block(aes_block_mut(block));
         }
 
         // The result (16 bytes) is stored as the Perms string, and checked for validity when the
@@ -1130,7 +1135,7 @@ impl PasswordAlgorithm {
         let mut decryptor = Aes256EbcDec::new(&key.into());
 
         for block in bytes.chunks_exact_mut(16) {
-            decryptor.decrypt_block_mut(block.into());
+            decryptor.decrypt_block(aes_block_mut(block));
         }
 
         // Verify that bytes 9-11 of the result are the characters "a", "d", "b".

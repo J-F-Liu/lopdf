@@ -166,10 +166,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nAnalyzing compressed PDF:");
     let compressed_doc = load_document("text_heavy_compressed.pdf")?;
     let has_objstm = compressed_doc.objects.values().any(|obj| {
-        if let Object::Dictionary(dict) = obj {
-            if let Ok(Object::Name(name)) = dict.get(b"Type") {
-                return name == b"ObjStm";
-            }
+        if let Object::Dictionary(dict) = obj
+            && let Ok(Object::Name(name)) = dict.get(b"Type")
+        {
+            return name == b"ObjStm";
         }
         false
     });

@@ -28,10 +28,10 @@ fn test_can_be_compressed_performance() {
     let mut compressible_count = 0;
 
     for &id in &object_ids {
-        if let Some(obj) = doc.objects.get(&id) {
-            if ObjectStream::can_be_compressed(id, obj, &doc) {
-                compressible_count += 1;
-            }
+        if let Some(obj) = doc.objects.get(&id)
+            && ObjectStream::can_be_compressed(id, obj, &doc)
+        {
+            compressible_count += 1;
         }
     }
 

@@ -1,6 +1,9 @@
 use lopdf::{Document, Object};
 
 #[cfg(not(feature = "async"))]
+use lopdf::LoadOptions;
+
+#[cfg(not(feature = "async"))]
 #[test]
 fn test_load_encrypted_pdf_from_assets() {
     // Test loading the existing encrypted.pdf file
@@ -849,7 +852,7 @@ fn test_load_mem_with_password() {
     let mut buffer = Vec::new();
     doc.save_to(&mut buffer).unwrap();
 
-    let loaded_doc = Document::load_mem_with_password(&buffer, "mem_user").unwrap();
+    let loaded_doc = Document::load_mem_with_options(&buffer, LoadOptions::with_password("mem_user")).unwrap();
     assert!(
         !loaded_doc.is_encrypted(),
         "Should not appear encrypted after decryption"

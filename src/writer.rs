@@ -114,14 +114,12 @@ impl Document {
         // Categorize objects
         for (&(id, generation), object) in &self.objects {
             // Skip existing object streams - we'll create new ones
-            if let Object::Stream(stream) = object {
-                if let Ok(type_obj) = stream.dict.get(b"Type") {
-                    if let Ok(type_name) = type_obj.as_name() {
-                        if type_name == b"ObjStm" {
-                            continue; // Skip existing object streams
-                        }
-                    }
-                }
+            if let Object::Stream(stream) = object
+                && let Ok(type_obj) = stream.dict.get(b"Type")
+                && let Ok(type_name) = type_obj.as_name()
+                && type_name == b"ObjStm"
+            {
+                continue; // Skip existing object streams
             }
 
             if generation == 0 && ObjectStream::can_be_compressed((id, generation), object, self) {
@@ -294,11 +292,11 @@ impl IncrementalDocument {
             self.get_prev_documents().reference_table.cross_reference_type,
         );
 
-        if let Some(last_byte) = prev_document_bytes.last() {
-            if *last_byte != b'\n' {
-                // Add a newline if it was not already present
-                writeln!(target)?;
-            }
+        if let Some(last_byte) = prev_document_bytes.last()
+            && *last_byte != b'\n'
+        {
+            // Add a newline if it was not already present
+            writeln!(target)?;
         }
         writeln!(target, "%PDF-{}", self.new_document.version)?;
 

@@ -472,7 +472,7 @@ impl Document {
         // Add the objects from the object streams now that they have been decrypted.
         let mut object_streams = vec![];
 
-        for (_, object) in self.objects.iter_mut() {
+        for object in self.objects.values_mut() {
             let Ok(ref mut stream) = object.as_stream_mut() else {
                 continue;
             };
@@ -830,22 +830,22 @@ impl Iterator for PageTreeIter<'_> {
 
                 self.kids = Some(new_kids);
 
-                if let Ok(kid_id) = kid.as_reference() {
-                    if let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::get_type) {
-                        match type_name {
-                            b"Page" => {
-                                return Some(kid_id);
-                            }
-                            b"Pages" if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT => {
-                                let kids = self.kids.unwrap();
-                                if !kids.is_empty() {
-                                    self.stack.push(kids);
-                                }
-                                self.kids = Self::kids(self.doc, kid_id);
-                            }
-                            b"Pages" => {}
-                            _ => {}
+                if let Ok(kid_id) = kid.as_reference()
+                    && let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::get_type)
+                {
+                    match type_name {
+                        b"Page" => {
+                            return Some(kid_id);
                         }
+                        b"Pages" if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT => {
+                            let kids = self.kids.unwrap();
+                            if !kids.is_empty() {
+                                self.stack.push(kids);
+                            }
+                            self.kids = Self::kids(self.doc, kid_id);
+                        }
+                        b"Pages" => {}
+                        _ => {}
                     }
                 }
             }

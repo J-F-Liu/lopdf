@@ -1,8 +1,6 @@
-use lopdf::{Document, LoadOptions, Object};
-
 #[cfg(not(feature = "async"))]
 mod sync_tests {
-    use super::*;
+    use lopdf::{Document, LoadOptions, Object};
     use std::fs::File;
 
     #[test]

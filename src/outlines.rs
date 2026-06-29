@@ -68,20 +68,19 @@ impl Document {
             Err(_) => self.get_object(node.as_reference()?)?.as_dict()?,
         };
         loop {
-            if let Ok(Some(outline)) = self.get_outline(node, named_destinations) {
-                if let Some(ref mut outlines) = outlines {
-                    outlines.push(outline);
-                }
+            if let Ok(Some(outline)) = self.get_outline(node, named_destinations)
+                && let Some(ref mut outlines) = outlines
+            {
+                outlines.push(outline);
             }
             if let Ok(first) = node.get(b"First") {
                 let sub_outlines = Vec::new();
                 let sub_outlines = self.get_outlines(Some(first.clone()), Some(sub_outlines), named_destinations)?;
-                if let Some(sub_outlines) = sub_outlines {
-                    if !sub_outlines.is_empty() {
-                        if let Some(ref mut outlines) = outlines {
-                            outlines.push(Outline::SubOutlines(sub_outlines));
-                        }
-                    }
+                if let Some(sub_outlines) = sub_outlines
+                    && !sub_outlines.is_empty()
+                    && let Some(ref mut outlines) = outlines
+                {
+                    outlines.push(Outline::SubOutlines(sub_outlines));
                 }
             }
             node = match self.get_dict_in_dict(node, b"Next") {

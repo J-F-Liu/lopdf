@@ -129,13 +129,13 @@ impl ToUnicodeCMap {
                         }
                     };
 
-                    if let Some(uni_seq) = unicode_sequence {
-                        if !uni_seq.is_empty() {
-                            rev_map.entry(uni_seq).or_insert_with(Vec::new).push(ReverseCMapEntry {
-                                source_code: src_code,
-                                code_len,
-                            });
-                        }
+                    if let Some(uni_seq) = unicode_sequence
+                        && !uni_seq.is_empty()
+                    {
+                        rev_map.entry(uni_seq).or_insert_with(Vec::new).push(ReverseCMapEntry {
+                            source_code: src_code,
+                            code_len,
+                        });
                     }
                 }
             }

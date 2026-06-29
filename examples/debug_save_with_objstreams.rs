@@ -59,27 +59,25 @@ fn main() {
 
     // Find object streams
     for (id, obj) in &loaded.objects {
-        if let Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        println!("\nFound object stream {} 0 R:", id.0);
-                        println!("  Dictionary: {:?}", stream.dict);
-                        println!("  Has Filter: {}", stream.dict.get(b"Filter").is_ok());
-                        println!("  Content size: {} bytes", stream.content.len());
+        if let Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            println!("\nFound object stream {} 0 R:", id.0);
+            println!("  Dictionary: {:?}", stream.dict);
+            println!("  Has Filter: {}", stream.dict.get(b"Filter").is_ok());
+            println!("  Content size: {} bytes", stream.content.len());
 
-                        // Check if it looks compressed
-                        let looks_compressed = stream.content.iter().take(10).any(|&b| b > 127 || b < 32);
-                        println!("  Content looks compressed: {}", looks_compressed);
+            // Check if it looks compressed
+            let looks_compressed = stream.content.iter().take(10).any(|&b| !(32..=127).contains(&b));
+            println!("  Content looks compressed: {}", looks_compressed);
 
-                        if !looks_compressed {
-                            println!(
-                                "  First 50 bytes: {:?}",
-                                &stream.content[..stream.content.len().min(50)]
-                            );
-                        }
-                    }
-                }
+            if !looks_compressed {
+                println!(
+                    "  First 50 bytes: {:?}",
+                    &stream.content[..stream.content.len().min(50)]
+                );
             }
         }
     }

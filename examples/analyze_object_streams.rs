@@ -50,78 +50,73 @@ fn analyze_document(doc: &Document) {
     let mut compressed_objects = HashMap::new();
 
     for (id, obj) in &doc.objects {
-        if let Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        object_streams.push(id);
+        if let Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            object_streams.push(id);
 
-                        // Get info about this object stream
-                        if let Ok(n) = stream.dict.get(b"N") {
-                            if let Ok(count) = n.as_i64() {
-                                println!("\nObject Stream {} 0 R:", id.0);
-                                println!("  Contains {} objects", count);
+            // Get info about this object stream
+            if let Ok(n) = stream.dict.get(b"N")
+                && let Ok(count) = n.as_i64()
+            {
+                println!("\nObject Stream {} 0 R:", id.0);
+                println!("  Contains {} objects", count);
 
-                                if let Ok(first) = stream.dict.get(b"First") {
-                                    if let Ok(first_offset) = first.as_i64() {
-                                        println!("  First object at offset: {}", first_offset);
-                                    }
-                                }
+                if let Ok(first) = stream.dict.get(b"First")
+                    && let Ok(first_offset) = first.as_i64()
+                {
+                    println!("  First object at offset: {}", first_offset);
+                }
 
-                                // Try to parse the stream content
-                                match stream.decompressed_content() {
-                                    Ok(decompressed) => {
-                                        println!("  Decompressed size: {} bytes", decompressed.len());
+                // Try to parse the stream content
+                match stream.decompressed_content() {
+                    Ok(decompressed) => {
+                        println!("  Decompressed size: {} bytes", decompressed.len());
 
-                                        // Parse the offset table
-                                        if let Ok(first_offset) = stream.dict.get(b"First").and_then(|o| o.as_i64()) {
-                                            if first_offset as usize <= decompressed.len() {
-                                                let offset_table = &decompressed[..first_offset as usize];
-                                                if let Ok(offset_str) = std::str::from_utf8(offset_table) {
-                                                    let numbers: Vec<_> = offset_str.split_whitespace().collect();
-                                                    println!("  Objects in stream:");
-                                                    for chunk in numbers.chunks(2) {
-                                                        if chunk.len() == 2 {
-                                                            println!("    - Object {}: offset {}", chunk[0], chunk[1]);
-                                                            if let Ok(obj_num) = chunk[0].parse::<u32>() {
-                                                                compressed_objects.insert(obj_num, id.0);
-                                                            }
-                                                        }
-                                                    }
-                                                } else {
-                                                    println!("  ERROR: Could not parse offset table as UTF-8");
-                                                    println!(
-                                                        "  First 100 bytes: {:?}",
-                                                        &offset_table[..offset_table.len().min(100)]
-                                                    );
-                                                }
-                                            } else {
-                                                println!(
-                                                    "  ERROR: First offset {} exceeds decompressed size {}",
-                                                    first_offset,
-                                                    decompressed.len()
-                                                );
+                        // Parse the offset table
+                        if let Ok(first_offset) = stream.dict.get(b"First").and_then(|o| o.as_i64()) {
+                            if first_offset as usize <= decompressed.len() {
+                                let offset_table = &decompressed[..first_offset as usize];
+                                if let Ok(offset_str) = std::str::from_utf8(offset_table) {
+                                    let numbers: Vec<_> = offset_str.split_whitespace().collect();
+                                    println!("  Objects in stream:");
+                                    for chunk in numbers.chunks(2) {
+                                        if chunk.len() == 2 {
+                                            println!("    - Object {}: offset {}", chunk[0], chunk[1]);
+                                            if let Ok(obj_num) = chunk[0].parse::<u32>() {
+                                                compressed_objects.insert(obj_num, id.0);
                                             }
                                         }
                                     }
-                                    Err(e) => {
-                                        println!("  ERROR: Could not decompress stream: {}", e);
-                                        println!("  Stream is compressed: {}", stream.allows_compression);
-                                        if let Ok(filter) = stream.dict.get(b"Filter") {
-                                            println!("  Filter: {:?}", filter);
-                                        } else {
-                                            println!("  No Filter found in dictionary!");
-                                            println!("  Dictionary: {:?}", stream.dict);
-                                        }
-                                        println!("  Raw content size: {} bytes", stream.content.len());
-                                        println!(
-                                            "  First 20 bytes of raw content: {:?}",
-                                            &stream.content[..stream.content.len().min(20)]
-                                        );
-                                    }
+                                } else {
+                                    println!("  ERROR: Could not parse offset table as UTF-8");
+                                    println!("  First 100 bytes: {:?}", &offset_table[..offset_table.len().min(100)]);
                                 }
+                            } else {
+                                println!(
+                                    "  ERROR: First offset {} exceeds decompressed size {}",
+                                    first_offset,
+                                    decompressed.len()
+                                );
                             }
                         }
+                    }
+                    Err(e) => {
+                        println!("  ERROR: Could not decompress stream: {}", e);
+                        println!("  Stream is compressed: {}", stream.allows_compression);
+                        if let Ok(filter) = stream.dict.get(b"Filter") {
+                            println!("  Filter: {:?}", filter);
+                        } else {
+                            println!("  No Filter found in dictionary!");
+                            println!("  Dictionary: {:?}", stream.dict);
+                        }
+                        println!("  Raw content size: {} bytes", stream.content.len());
+                        println!(
+                            "  First 20 bytes of raw content: {:?}",
+                            &stream.content[..stream.content.len().min(20)]
+                        );
                     }
                 }
             }
@@ -166,13 +161,10 @@ fn analyze_document(doc: &Document) {
                             Object::Array(refs) => {
                                 println!("  Contents array with {} elements", refs.len());
                                 for (i, content_ref) in refs.iter().enumerate() {
-                                    if let Object::Reference(ref_id) = content_ref {
-                                        if compressed_objects.contains_key(&ref_id.0) {
-                                            println!(
-                                                "    ⚠️  Content[{}] {} {} R is compressed!",
-                                                i, ref_id.0, ref_id.1
-                                            );
-                                        }
+                                    if let Object::Reference(ref_id) = content_ref
+                                        && compressed_objects.contains_key(&ref_id.0)
+                                    {
+                                        println!("    ⚠️  Content[{}] {} {} R is compressed!", i, ref_id.0, ref_id.1);
                                     }
                                 }
                             }
@@ -181,12 +173,11 @@ fn analyze_document(doc: &Document) {
                     }
 
                     // Check resources
-                    if let Ok(resources) = page_dict.get(b"Resources") {
-                        if let Object::Reference(ref_id) = resources {
-                            if compressed_objects.contains_key(&ref_id.0) {
-                                println!("  ⚠️  Resources {} {} R is compressed!", ref_id.0, ref_id.1);
-                            }
-                        }
+                    if let Ok(resources) = page_dict.get(b"Resources")
+                        && let Object::Reference(ref_id) = resources
+                        && compressed_objects.contains_key(&ref_id.0)
+                    {
+                        println!("  ⚠️  Resources {} {} R is compressed!", ref_id.0, ref_id.1);
                     }
                 }
             }
@@ -208,13 +199,13 @@ fn analyze_document(doc: &Document) {
     println!("\n{}", "=".repeat(80));
     println!("Critical Objects Check:");
 
-    if let Ok(root) = doc.trailer.get(b"Root") {
-        if let Object::Reference(root_id) = root {
-            if compressed_objects.contains_key(&root_id.0) {
-                println!("⚠️  WARNING: Catalog (Root) object {} is compressed!", root_id.0);
-            } else {
-                println!("✓ Catalog (Root) object {} is not compressed", root_id.0);
-            }
+    if let Ok(root) = doc.trailer.get(b"Root")
+        && let Object::Reference(root_id) = root
+    {
+        if compressed_objects.contains_key(&root_id.0) {
+            println!("⚠️  WARNING: Catalog (Root) object {} is compressed!", root_id.0);
+        } else {
+            println!("✓ Catalog (Root) object {} is not compressed", root_id.0);
         }
     }
 }

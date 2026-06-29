@@ -1,4 +1,4 @@
-use aes::cipher::block_padding::{PadType, RawPadding, UnpadError};
+use aes::cipher::block_padding::{Error as PaddingError, Padding};
 
 /// Pad block with bytes with value equal to the number of bytes added.
 ///
@@ -8,7 +8,7 @@ pub struct Pkcs5;
 
 impl Pkcs5 {
     #[inline]
-    fn unpad(block: &[u8], strict: bool) -> Result<&[u8], UnpadError> {
+    fn unpad(block: &[u8], strict: bool) -> Result<&[u8], PaddingError> {
         // TODO: use bounds to check it at compile time
         if block.len() > 16 {
             panic!("block size is too big for PKCS#5");
@@ -16,19 +16,17 @@ impl Pkcs5 {
         let bs = block.len();
         let n = block[bs - 1];
         if n == 0 || n as usize > bs {
-            return Err(UnpadError);
+            return Err(PaddingError);
         }
         let s = bs - n as usize;
         if strict && block[s..bs - 1].iter().any(|&v| v != n) {
-            return Err(UnpadError);
+            return Err(PaddingError);
         }
         Ok(&block[..s])
     }
 }
 
-impl RawPadding for Pkcs5 {
-    const TYPE: PadType = PadType::Reversible;
-
+impl Padding for Pkcs5 {
     #[inline]
     fn raw_pad(block: &mut [u8], pos: usize) {
         // TODO: use bounds to check it at compile time for Padding<B>
@@ -45,7 +43,7 @@ impl RawPadding for Pkcs5 {
     }
 
     #[inline]
-    fn raw_unpad(block: &[u8]) -> Result<&[u8], UnpadError> {
+    fn raw_unpad(block: &[u8]) -> Result<&[u8], PaddingError> {
         Pkcs5::unpad(block, true)
     }
 }
