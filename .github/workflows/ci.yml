@@ -26,6 +26,9 @@ jobs:
                       rust: nightly
                       continue-on-error: true
 
+                    - name: "feat: no default features"
+                      features: "--no-default-features"
+
                     - name: "feat: all features"
                       features: "--all-features"
 
