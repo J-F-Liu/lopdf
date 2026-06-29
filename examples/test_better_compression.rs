@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Simulate compression
     let mut would_compress = Vec::new();
-    for (&id, _obj) in &doc.objects {
+    for &id in doc.objects.keys() {
         if !non_compressible.contains(&id) {
             would_compress.push(id);
         }
@@ -92,18 +92,17 @@ fn find_all_non_compressible_objects(doc: &Document) -> (HashSet<ObjectId>, Hash
         }
 
         // Check object type
-        if let Object::Dictionary(dict) = obj {
-            if let Ok(type_obj) = dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    match type_name {
-                        b"Page" => reason = Some("Is a Page object"),
-                        b"Pages" => reason = Some("Is a Pages object"),
-                        b"Catalog" => reason = Some("Is a Catalog object"),
-                        b"XRef" => reason = Some("Is a cross-reference stream"),
-                        b"ObjStm" => reason = Some("Is an object stream"),
-                        _ => {}
-                    }
-                }
+        if let Object::Dictionary(dict) = obj
+            && let Ok(type_obj) = dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+        {
+            match type_name {
+                b"Page" => reason = Some("Is a Page object"),
+                b"Pages" => reason = Some("Is a Pages object"),
+                b"Catalog" => reason = Some("Is a Catalog object"),
+                b"XRef" => reason = Some("Is a cross-reference stream"),
+                b"ObjStm" => reason = Some("Is an object stream"),
+                _ => {}
             }
         }
 

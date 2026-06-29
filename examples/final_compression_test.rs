@@ -85,19 +85,17 @@ fn main() {
     let mut obj_stream_count = 0;
     let mut compressed_count = 0;
 
-    for (_id, obj) in &loaded.objects {
-        if let Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        obj_stream_count += 1;
+    for obj in loaded.objects.values() {
+        if let Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            obj_stream_count += 1;
 
-                        // Count objects in stream
-                        if let Ok(n) = stream.dict.get(b"N").and_then(|o| o.as_i64()) {
-                            compressed_count += n as usize;
-                        }
-                    }
-                }
+            // Count objects in stream
+            if let Ok(n) = stream.dict.get(b"N").and_then(|o| o.as_i64()) {
+                compressed_count += n as usize;
             }
         }
     }
@@ -109,19 +107,18 @@ fn main() {
     println!("\nVerifying critical objects:");
 
     // Check catalog
-    if let Ok(root_ref) = loaded.trailer.get(b"Root") {
-        if let Object::Reference(cat_id) = root_ref {
-            check_not_compressed(&loaded, *cat_id, "Catalog");
-        }
+    if let Ok(root_ref) = loaded.trailer.get(b"Root")
+        && let Object::Reference(cat_id) = root_ref
+    {
+        check_not_compressed(&loaded, *cat_id, "Catalog");
     }
 
     // Check pages tree
-    if let Ok(catalog) = loaded.catalog() {
-        if let Ok(pages_ref) = catalog.get(b"Pages") {
-            if let Object::Reference(pages_id) = pages_ref {
-                check_not_compressed(&loaded, *pages_id, "Pages tree");
-            }
-        }
+    if let Ok(catalog) = loaded.catalog()
+        && let Ok(pages_ref) = catalog.get(b"Pages")
+        && let Object::Reference(pages_id) = pages_ref
+    {
+        check_not_compressed(&loaded, *pages_id, "Pages tree");
     }
 
     // Check page objects

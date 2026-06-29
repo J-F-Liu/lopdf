@@ -87,9 +87,7 @@ mod tests_with_parsing {
         assert_eq!(text, "🔧🔨\n🔧\n🔨\n");
     }
 
-    fn build_doc_with_tj_array(
-        content_bytes: Vec<u8>,
-    ) -> Document {
+    fn build_doc_with_tj_array(content_bytes: Vec<u8>) -> Document {
         use lopdf::dictionary;
 
         let mut doc = Document::with_version("1.5");
@@ -139,8 +137,7 @@ mod tests_with_parsing {
     fn replace_text_in_tj_array_doc() -> Result<Document> {
         // Content uses the TJ operator with a single-string array containing
         // all 12 characters of "Hello World!".
-        let content =
-            b"BT\n/F1 12 Tf\n100 700 Td\n[(Hello World!)] TJ\nET\n".to_vec();
+        let content = b"BT\n/F1 12 Tf\n100 700 Td\n[(Hello World!)] TJ\nET\n".to_vec();
         let mut doc = build_doc_with_tj_array(content);
         doc.replace_text(1, "Hello World!", "Modified text!", None)?;
         Ok(doc)

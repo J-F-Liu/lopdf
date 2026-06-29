@@ -97,20 +97,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut objstm_count = 0;
     let mut compressed_count = 0;
 
-    for (_id, obj) in &compressed_doc.objects {
-        if let Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        objstm_count += 1;
-                        // Count objects in this stream
-                        if let Ok(n) = stream.dict.get(b"N") {
-                            if let Ok(n_val) = n.as_i64() {
-                                compressed_count += n_val as usize;
-                            }
-                        }
-                    }
-                }
+    for obj in compressed_doc.objects.values() {
+        if let Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            objstm_count += 1;
+            // Count objects in this stream
+            if let Ok(n) = stream.dict.get(b"N")
+                && let Ok(n_val) = n.as_i64()
+            {
+                compressed_count += n_val as usize;
             }
         }
     }

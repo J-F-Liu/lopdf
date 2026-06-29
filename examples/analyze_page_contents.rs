@@ -47,14 +47,12 @@ fn analyze_pages(doc: &Document) {
     // Check if we have object streams
     let mut obj_streams = Vec::new();
     for (id, obj) in &doc.objects {
-        if let Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        obj_streams.push(id.0);
-                    }
-                }
-            }
+        if let Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            obj_streams.push(id.0);
         }
     }
 
@@ -78,14 +76,14 @@ fn analyze_pages(doc: &Document) {
                 match page_dict.get(b"Contents") {
                     Ok(Object::Reference(content_id)) => {
                         println!("  Contents: {} {} R", content_id.0, content_id.1);
-                        check_content_stream(&doc, *content_id);
+                        check_content_stream(doc, *content_id);
                     }
                     Ok(Object::Array(contents)) => {
                         println!("  Contents array with {} elements:", contents.len());
                         for (i, content_ref) in contents.iter().enumerate() {
                             if let Object::Reference(content_id) = content_ref {
                                 println!("    [{}] {} {} R", i, content_id.0, content_id.1);
-                                check_content_stream(&doc, *content_id);
+                                check_content_stream(doc, *content_id);
                             }
                         }
                     }
@@ -101,7 +99,7 @@ fn analyze_pages(doc: &Document) {
                 match page_dict.get(b"Resources") {
                     Ok(Object::Reference(res_id)) => {
                         println!("  Resources: {} {} R", res_id.0, res_id.1);
-                        check_object_location(&doc, *res_id);
+                        check_object_location(doc, *res_id);
                     }
                     Ok(Object::Dictionary(_)) => {
                         println!("  Resources: Inline dictionary");
@@ -119,7 +117,7 @@ fn analyze_pages(doc: &Document) {
             }
             Err(e) => {
                 println!("  ERROR: Cannot get page object: {}", e);
-                check_object_location(&doc, page_id);
+                check_object_location(doc, page_id);
             }
         }
     }

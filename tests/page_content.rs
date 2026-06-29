@@ -1,4 +1,4 @@
-use lopdf::{content::Content, dictionary, Document, Stream};
+use lopdf::{Document, Stream, content::Content, dictionary};
 
 #[test]
 fn get_page_content_separates_streams_at_token_boundary() {

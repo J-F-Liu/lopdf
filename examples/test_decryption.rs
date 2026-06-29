@@ -79,7 +79,7 @@ async fn main() {
     println!("Number of pages: {}", pages.len());
 
     // Try to extract text
-    if pages.len() > 0 {
+    if !pages.is_empty() {
         let page_numbers: Vec<u32> = pages.keys().cloned().collect();
         match doc.extract_text(&page_numbers) {
             Ok(text) => {

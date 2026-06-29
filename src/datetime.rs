@@ -100,7 +100,7 @@ mod time_impl {
             Object::string_literal(
                 format!(
                     "D:{}",
-                    date.format(&FormatItem::Literal("%Y%m%d%H%M%SZ".as_bytes())).unwrap()
+                    date.format(&FormatItem::StringLiteral("%Y%m%d%H%M%SZ")).unwrap()
                 )
                 .into_bytes(),
             )
@@ -111,7 +111,7 @@ mod time_impl {
         fn from(date: OffsetDateTime) -> Self {
             Object::string_literal({
                 // D:%Y%m%d%H%M%S:%z'
-                let format = time::format_description::parse(
+                let format = time::format_description::parse_borrowed::<3>(
                     "D:[year][month][day][hour][minute][second][offset_hour sign:mandatory]'[offset_minute]'",
                 )
                 .unwrap();
@@ -128,7 +128,7 @@ mod time_impl {
         type Error = time::Error;
 
         fn try_from(value: super::DateTime) -> Result<OffsetDateTime, Self::Error> {
-            let format = time::format_description::parse(
+            let format = time::format_description::parse_borrowed::<3>(
                 "[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]",
             )
             .unwrap();
@@ -158,14 +158,7 @@ impl Object {
     // Parses the `D`, `:` and `\` out of a `Object::String` to parse the date time
     fn datetime_string(&self) -> Option<String> {
         if let Object::String(bytes, _) = self {
-            String::from_utf8(
-                bytes
-                    .iter()
-                    .filter(|b| ![b'D', b':', b'\''].contains(b))
-                    .cloned()
-                    .collect(),
-            )
-            .ok()
+            String::from_utf8(bytes.iter().filter(|b| !b"D:'".contains(b)).cloned().collect()).ok()
         } else {
             None
         }

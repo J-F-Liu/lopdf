@@ -734,12 +734,11 @@ impl Reader<'_> {
         match pages_dict.get_type() {
             Ok(type_name) if type_name == b"Page" => Ok(1),
             Ok(type_name) if type_name == b"Pages" => {
-                if let Ok(count_obj) = pages_dict.get(b"Count") {
-                    if let Ok(count) = count_obj.as_i64() {
-                        if count >= 0 {
-                            return Ok(count as u32);
-                        }
-                    }
+                if let Ok(count_obj) = pages_dict.get(b"Count")
+                    && let Ok(count) = count_obj.as_i64()
+                    && count >= 0
+                {
+                    return Ok(count as u32);
                 }
 
                 let kids = match pages_dict.get(b"Kids").and_then(Object::as_array) {
@@ -749,10 +748,10 @@ impl Reader<'_> {
 
                 let mut total = 0u32;
                 for kid in kids.iter() {
-                    if let Ok(kid_ref) = kid.as_reference() {
-                        if let Ok(count) = self.get_pages_tree_count(kid_ref, seen) {
-                            total += count;
-                        }
+                    if let Ok(kid_ref) = kid.as_reference()
+                        && let Ok(count) = self.get_pages_tree_count(kid_ref, seen)
+                    {
+                        total += count;
                     }
                 }
                 Ok(total)
@@ -772,12 +771,11 @@ impl Reader<'_> {
 
         //The binary_mark is in line 2 after the pdf version. If at other line number, then will be declared as invalid
         // pdf.
-        if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n') {
-            if let Some(binary_mark) = parser::binary_mark(&self.buffer[pos + 1..]) {
-                if binary_mark.iter().all(|&byte| byte >= 128) {
-                    self.document.binary_mark = binary_mark;
-                }
-            }
+        if let Some(pos) = self.buffer.iter().position(|&byte| byte == b'\n')
+            && let Some(binary_mark) = parser::binary_mark(&self.buffer[pos + 1..])
+            && binary_mark.iter().all(|&byte| byte >= 128)
+        {
+            self.document.binary_mark = binary_mark;
         }
 
         let xref_start = Self::get_xref_start(self.buffer)?;
@@ -888,10 +886,10 @@ impl Reader<'_> {
                 .and_then(|o| o.as_reference().ok());
 
             for (obj_id, raw_bytes) in &self.raw_objects {
-                if let Some(enc_ref) = encrypt_ref {
-                    if *obj_id == enc_ref {
-                        continue;
-                    }
+                if let Some(enc_ref) = encrypt_ref
+                    && *obj_id == enc_ref
+                {
+                    continue;
                 }
 
                 if let Ok((id, mut obj)) = self.parse_raw_object(raw_bytes) {
@@ -910,19 +908,19 @@ impl Reader<'_> {
             }
 
             for (container_id, objects_in_stream) in streams_to_process {
-                if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0)) {
-                    if let Ok(stream) = container_obj.as_stream_mut() {
-                        match ObjectStream::new(stream) {
-                            Ok(object_stream) => {
-                                for (obj_num, _index) in objects_in_stream {
-                                    let obj_id = (obj_num, 0);
-                                    if let Some(obj) = object_stream.objects.get(&obj_id) {
-                                        self.document.objects.insert(obj_id, obj.clone());
-                                    }
+                if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0))
+                    && let Ok(stream) = container_obj.as_stream_mut()
+                {
+                    match ObjectStream::new(stream) {
+                        Ok(object_stream) => {
+                            for (obj_num, _index) in objects_in_stream {
+                                let obj_id = (obj_num, 0);
+                                if let Some(obj) = object_stream.objects.get(&obj_id) {
+                                    self.document.objects.insert(obj_id, obj.clone());
                                 }
                             }
-                            Err(_e) => {}
                         }
+                        Err(_e) => {}
                     }
                 }
             }
@@ -1129,10 +1127,10 @@ impl Reader<'_> {
         }
         already_seen.insert(id);
 
-        if let Some(entry) = self.document.reference_table.get(id.0) {
-            if matches!(entry, XrefEntry::Compressed { .. }) {
-                return self.get_compressed_object(id);
-            }
+        if let Some(entry) = self.document.reference_table.get(id.0)
+            && matches!(entry, XrefEntry::Compressed { .. })
+        {
+            return self.get_compressed_object(id);
         }
 
         let offset = self.get_offset(id)?;
@@ -1145,10 +1143,10 @@ impl Reader<'_> {
                 .get(b"Encrypt")
                 .ok()
                 .and_then(|o| o.as_reference().ok());
-            if let Some(enc_ref) = encrypt_ref {
-                if id != enc_ref {
-                    encryption::decrypt_object(state, id, &mut obj).map_err(Error::Decryption)?;
-                }
+            if let Some(enc_ref) = encrypt_ref
+                && id != enc_ref
+            {
+                encryption::decrypt_object(state, id, &mut obj).map_err(Error::Decryption)?;
             }
         }
 
@@ -1161,10 +1159,10 @@ impl Reader<'_> {
                 let offset = self.get_offset(encrypt_ref)?;
                 let (_, encrypt_obj) = self.read_object(offset as usize, Some(encrypt_ref), &mut HashSet::new())?;
                 self.document.objects.insert(encrypt_ref, encrypt_obj);
-            } else if let Some(raw_bytes) = self.raw_objects.get(&encrypt_ref) {
-                if let Ok((_, obj)) = self.parse_raw_object(raw_bytes) {
-                    self.document.objects.insert(encrypt_ref, obj);
-                }
+            } else if let Some(raw_bytes) = self.raw_objects.get(&encrypt_ref)
+                && let Ok((_, obj)) = self.parse_raw_object(raw_bytes)
+            {
+                self.document.objects.insert(encrypt_ref, obj);
             }
         }
         Ok(())
@@ -1288,7 +1286,7 @@ impl Reader<'_> {
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {
         let seek_pos = buffer.len() - cmp::min(buffer.len(), 512);
         Self::search_substring(buffer, b"%%EOF", seek_pos)
-            .and_then(|eof_pos| if eof_pos > 25 { Some(eof_pos) } else { None })
+            .filter(|&eof_pos| eof_pos > 25)
             .and_then(|eof_pos| Self::search_substring(&buffer[..eof_pos], b"startxref", eof_pos - 25))
             .ok_or(Error::Xref(XrefError::Start))
             .and_then(|xref_pos| {

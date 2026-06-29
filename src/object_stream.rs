@@ -253,31 +253,30 @@ impl ObjectStream {
         }
 
         // Rule 3: Only encryption dictionary cannot be compressed from trailer references
-        if let Ok(Object::Reference(encrypt_ref)) = doc.trailer.get(b"Encrypt") {
-            if id == *encrypt_ref {
-                return false;
-            }
+        if let Ok(Object::Reference(encrypt_ref)) = doc.trailer.get(b"Encrypt")
+            && id == *encrypt_ref
+        {
+            return false;
         }
 
         // Rule 4: Specific object types that cannot be compressed
-        if let Object::Dictionary(dict) = obj {
-            if let Ok(type_obj) = dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    match type_name {
-                        // Cross-reference streams and object streams cannot be compressed
-                        b"XRef" => return false,
-                        b"ObjStm" => return false,
+        if let Object::Dictionary(dict) = obj
+            && let Ok(type_obj) = dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+        {
+            match type_name {
+                // Cross-reference streams and object streams cannot be compressed
+                b"XRef" => return false,
+                b"ObjStm" => return false,
 
-                        // Catalog can only be excluded in linearized PDFs
-                        b"Catalog" if Self::is_linearized(doc) => {
-                            return false;
-                        }
-                        b"Catalog" => {}
-
-                        // Page, Pages, and all other types CAN be compressed
-                        _ => {}
-                    }
+                // Catalog can only be excluded in linearized PDFs
+                b"Catalog" if Self::is_linearized(doc) => {
+                    return false;
                 }
+                b"Catalog" => {}
+
+                // Page, Pages, and all other types CAN be compressed
+                _ => {}
             }
         }
 
@@ -291,10 +290,10 @@ impl ObjectStream {
         // linearization dictionary with /Linearized entry
         // For simplicity, we check if any object has a /Linearized entry
         for obj in doc.objects.values() {
-            if let Object::Dictionary(dict) = obj {
-                if dict.has(b"Linearized") {
-                    return true;
-                }
+            if let Object::Dictionary(dict) = obj
+                && dict.has(b"Linearized")
+            {
+                return true;
             }
         }
         false

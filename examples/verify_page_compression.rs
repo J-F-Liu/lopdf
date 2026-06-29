@@ -30,21 +30,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut total_compressed = 0;
 
     for (id, obj) in &doc.objects {
-        if let Object::Stream(stream) = obj {
-            if let Ok(type_obj) = stream.dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    if type_name == b"ObjStm" {
-                        objstm_count += 1;
+        if let Object::Stream(stream) = obj
+            && let Ok(type_obj) = stream.dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+            && type_name == b"ObjStm"
+        {
+            objstm_count += 1;
 
-                        // Get number of objects in this stream
-                        if let Ok(n) = stream.dict.get(b"N") {
-                            if let Ok(n_val) = n.as_i64() {
-                                total_compressed += n_val;
-                                println!("Object stream {} 0 R contains {} objects", id.0, n_val);
-                            }
-                        }
-                    }
-                }
+            // Get number of objects in this stream
+            if let Ok(n) = stream.dict.get(b"N")
+                && let Ok(n_val) = n.as_i64()
+            {
+                total_compressed += n_val;
+                println!("Object stream {} 0 R contains {} objects", id.0, n_val);
             }
         }
     }
@@ -57,17 +55,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut pages_count = 0;
     let mut catalog_count = 0;
 
-    for (_id, obj) in &doc.objects {
-        if let Object::Dictionary(dict) = obj {
-            if let Ok(type_obj) = dict.get(b"Type") {
-                if let Ok(type_name) = type_obj.as_name() {
-                    match type_name {
-                        b"Page" => page_count += 1,
-                        b"Pages" => pages_count += 1,
-                        b"Catalog" => catalog_count += 1,
-                        _ => {}
-                    }
-                }
+    for obj in doc.objects.values() {
+        if let Object::Dictionary(dict) = obj
+            && let Ok(type_obj) = dict.get(b"Type")
+            && let Ok(type_name) = type_obj.as_name()
+        {
+            match type_name {
+                b"Page" => page_count += 1,
+                b"Pages" => pages_count += 1,
+                b"Catalog" => catalog_count += 1,
+                _ => {}
             }
         }
     }
