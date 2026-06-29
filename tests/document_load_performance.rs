@@ -6,7 +6,7 @@ use std::time::Instant;
 #[cfg(not(feature = "async"))]
 #[test]
 fn page_count_meta_data_performance_test() {
-    let document_path = "tests/regression/test.pdf";
+    let document_path = "assets/test.pdf";
     let start_time = Instant::now();
     let doc = Document::load_metadata(document_path).expect("Failed to load document");
     let result = doc.page_count;
@@ -24,7 +24,7 @@ fn page_count_meta_data_performance_test() {
 #[cfg(not(feature = "async"))]
 #[test]
 fn page_count_performance_test() {
-    let document_path = "tests/regression/test.pdf";
+    let document_path = "assets/test.pdf";
     let start_time = Instant::now();
     let doc = Document::load(document_path).expect("Failed to load document");
     let result = doc.get_pages().len();

@@ -355,7 +355,7 @@ pub mod tests {
     #[test]
     fn test_add_font_embeds_font_correctly() {
         // Create a dummy TTF font in memory (fake content, just to test structure)
-        let font_file = std::fs::read("./tests/resources/fonts/Montserrat-Regular.ttf").unwrap();
+        let font_file = std::fs::read("./assets/fonts/Montserrat-Regular.ttf").unwrap();
 
         // Construct FontData manually
         let mut font_data = FontData::new(&font_file, "MyFont".to_string());
