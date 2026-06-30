@@ -49,7 +49,7 @@ time = { version = "0.3", features = [
 ], optional = true }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.2"
-ttf-parser = "0.25.1"
+ttf-parser = { version = "0.25.1", optional = true }
 
 [dev-dependencies]
 clap = { version = "4.6", features = ["derive"] }
@@ -66,6 +66,7 @@ async = ["tokio/rt-multi-thread", "tokio/macros"]
 chrono = ["dep:chrono"]
 default = ["chrono", "jiff", "rayon", "time"]
 embed_image = ["image"]
+font_embedding = ["dep:ttf-parser"]
 jiff = ["dep:jiff"]
 wasm_js = ["getrandom/wasm_js"]
 serde = ["dep:serde"]
