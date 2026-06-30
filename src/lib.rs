@@ -33,6 +33,7 @@ mod parser_aux;
 mod reader;
 mod save_options;
 
+#[cfg(feature = "font_embedding")]
 mod font;
 
 pub use document::Document;
@@ -55,4 +56,5 @@ pub use toc::Toc;
 pub use parser_aux::substr;
 pub use parser_aux::substring;
 
+#[cfg(feature = "font_embedding")]
 pub use font::FontData;

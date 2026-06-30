@@ -1,5 +1,7 @@
 use crate::Result;
-use crate::{Dictionary, Document, FontData, Object, ObjectId, Stream};
+use crate::{Dictionary, Document, Object, ObjectId};
+#[cfg(feature = "font_embedding")]
+use crate::{FontData, Stream};
 
 impl Document {
     /// Create new PDF document with version.
@@ -154,6 +156,7 @@ impl Document {
     ///     },
     /// });
     /// ```
+    #[cfg(feature = "font_embedding")]
     pub fn add_font(&mut self, font_data: FontData) -> Result<ObjectId> {
         // Create embedded font stream
         let font_stream = Stream::new(
@@ -202,7 +205,9 @@ pub mod tests {
     use std::path::PathBuf;
 
     use crate::content::*;
-    use crate::{Document, FontData, Object, Stream};
+    use crate::{Document, Object, Stream};
+    #[cfg(feature = "font_embedding")]
+    use crate::FontData;
 
     #[cfg(not(feature = "time"))]
     pub fn get_timestamp() -> Object {
@@ -352,6 +357,7 @@ pub mod tests {
         assert!(file_path.exists());
     }
 
+    #[cfg(feature = "font_embedding")]
     #[test]
     fn test_add_font_embeds_font_correctly() {
         // Create a dummy TTF font in memory (fake content, just to test structure)
