@@ -11,7 +11,7 @@ fn get_page_content_separates_streams_at_token_boundary() {
         "Contents" => vec![s1.into(), s2.into()],
     });
 
-    let bytes = doc.get_page_content(page_id).unwrap();
+    let bytes = doc.get_page_content(page_id);
     let content = Content::decode(&bytes).unwrap();
 
     assert_eq!(content.operations.len(), 1);
@@ -33,7 +33,7 @@ fn get_page_content_terminates_trailing_comment() {
         "Contents" => vec![s1.into(), s2.into()],
     });
 
-    let bytes = doc.get_page_content(page_id).unwrap();
+    let bytes = doc.get_page_content(page_id);
     let content = Content::decode(&bytes).unwrap();
 
     assert_eq!(content.operations.len(), 1);

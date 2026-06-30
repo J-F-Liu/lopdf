@@ -8,7 +8,6 @@ use crate::{Error, ObjectStream, Result, Stream};
 use log::debug;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::Write;
 use std::str;
 use std::sync::Arc;
 
@@ -586,19 +585,19 @@ impl Document {
     }
 
     /// Get content of a page.
-    pub fn get_page_content(&self, page_id: ObjectId) -> Result<Vec<u8>> {
+    pub fn get_page_content(&self, page_id: ObjectId) -> Vec<u8> {
         let mut content = Vec::new();
         let content_streams = self.get_page_contents(page_id);
         for object_id in content_streams {
             if let Ok(content_stream) = self.get_object(object_id).and_then(Object::as_stream) {
                 match content_stream.decompressed_content() {
-                    Ok(data) => content.write_all(&data)?,
-                    Err(_) => content.write_all(&content_stream.content)?,
+                    Ok(data) => content.extend_from_slice(&data),
+                    Err(_) => content.extend_from_slice(&content_stream.content),
                 };
                 content.push(b'\n');
             }
         }
-        Ok(content)
+        content
     }
 
     /// Get resources used by a page.
