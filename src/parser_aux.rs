@@ -37,7 +37,7 @@ impl Stream {
 impl Document {
     /// Get decoded page content;
     pub fn get_and_decode_page_content(&self, page_id: ObjectId) -> Result<Content<Vec<Operation>>> {
-        let content_data = self.get_page_content(page_id)?;
+        let content_data = self.get_page_content(page_id);
         Content::decode(&content_data)
     }
 
@@ -90,7 +90,7 @@ impl Document {
                 }
             })
             .collect();
-        let content_data = self.get_page_content(page_id)?;
+        let content_data = self.get_page_content(page_id);
         let content = Content::decode(&content_data)?;
 
         // each text with different encoding is extracted as separate chunk
@@ -191,7 +191,7 @@ impl Document {
             .into_iter()
             .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
             .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
-        let content_data = self.get_page_content(page_id)?;
+        let content_data = self.get_page_content(page_id);
         let mut content = Content::decode(&content_data)?;
         let mut current_encoding = None;
         for operation in &mut content.operations {
@@ -234,7 +234,7 @@ impl Document {
             .map(|(name, font)| font.get_font_encoding(self).map(|it| (name, it)))
             .collect::<Result<BTreeMap<Vec<u8>, Encoding>>>()?;
 
-        let content_data = self.get_page_content(page_id)?;
+        let content_data = self.get_page_content(page_id);
         let mut content = Content::decode(&content_data)?;
         let mut current_encoding = None;
         let mut replacement_count = 0;
