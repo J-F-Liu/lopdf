@@ -1,3 +1,4 @@
+#[cfg(feature = "font_embedding")]
 #[test]
 fn test_font_data_creation() {
     // Load a sample TTF font file from the test resources
