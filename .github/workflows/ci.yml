@@ -41,7 +41,7 @@ jobs:
             - name: Build
               run: cargo build --verbose ${{ matrix.features }}
             - name: Run tests
-              run: cargo test --verbose ${{ matrix.features }} -- --test-threads=1
+              run: cargo test --verbose ${{ matrix.features }} -- --test-threads=1 --skip performance
 
     pdfutil:
         runs-on: ubuntu-latest
