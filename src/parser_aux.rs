@@ -49,7 +49,25 @@ impl Document {
     }
 
     pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
-        let text_fragments = self.extract_text_chunks(page_numbers);
+        self.extract_text_inner(page_numbers, None)
+    }
+
+    /// Extract text from the given pages, bounding the total decompressed content
+    /// of each page to `max_decompressed_size` bytes.
+    ///
+    /// This is the decompression-bomb-safe counterpart to
+    /// [`Document::extract_text`]: page content is decoded via
+    /// [`Document::get_page_content_with_limit`], so a small compressed content
+    /// stream cannot inflate without limit. Prefer it over [`Document::extract_text`]
+    /// for PDFs from an untrusted source. Returns
+    /// [`DecompressError::MemoryLimitExceeded`](crate::DecompressError::MemoryLimitExceeded)
+    /// if any requested page's content would exceed the limit.
+    pub fn extract_text_with_limit(&self, page_numbers: &[u32], max_decompressed_size: usize) -> Result<String> {
+        self.extract_text_inner(page_numbers, Some(max_decompressed_size))
+    }
+
+    fn extract_text_inner(&self, page_numbers: &[u32], limit: Option<usize>) -> Result<String> {
+        let text_fragments = self.extract_text_chunks_inner(page_numbers, limit);
         let mut text = String::new();
         for maybe_text_fragment in text_fragments.into_iter() {
             let text_fragment = maybe_text_fragment?;
@@ -60,11 +78,25 @@ impl Document {
     }
 
     pub fn extract_text_chunks(&self, page_numbers: &[u32]) -> Vec<Result<String>> {
+        self.extract_text_chunks_inner(page_numbers, None)
+    }
+
+    /// Bomb-safe counterpart to [`Document::extract_text_chunks`], bounding the
+    /// total decompressed content of each page to `max_decompressed_size` bytes.
+    /// A page whose content exceeds the limit yields an `Err` chunk carrying
+    /// [`DecompressError::MemoryLimitExceeded`](crate::DecompressError::MemoryLimitExceeded).
+    pub fn extract_text_chunks_with_limit(
+        &self, page_numbers: &[u32], max_decompressed_size: usize,
+    ) -> Vec<Result<String>> {
+        self.extract_text_chunks_inner(page_numbers, Some(max_decompressed_size))
+    }
+
+    fn extract_text_chunks_inner(&self, page_numbers: &[u32], limit: Option<usize>) -> Vec<Result<String>> {
         let pages: BTreeMap<u32, (u32, u16)> = self.get_pages();
         page_numbers
             .iter()
             .flat_map(|page_number| {
-                let result = self.extract_text_chunks_from_page(&pages, *page_number);
+                let result = self.extract_text_chunks_from_page(&pages, *page_number, limit);
                 match result {
                     Ok(text_chunks) => text_chunks,
                     Err(err) => vec![Err(err)],
@@ -74,7 +106,7 @@ impl Document {
     }
 
     fn extract_text_chunks_from_page(
-        &self, pages: &BTreeMap<u32, (u32, u16)>, page_number: u32,
+        &self, pages: &BTreeMap<u32, (u32, u16)>, page_number: u32, limit: Option<usize>,
     ) -> Result<Vec<Result<String>>> {
         let mut collected_chunks_and_errs: Vec<std::result::Result<String, Error>> = Vec::new();
 
@@ -82,15 +114,24 @@ impl Document {
         let fonts = self.get_page_fonts(page_id)?;
         let encodings: BTreeMap<Vec<u8>, Encoding> = fonts
             .into_iter()
-            .filter_map(|(name, font)| match font.get_font_encoding(self) {
-                Ok(it) => Some((name, it)),
-                Err(err) => {
-                    collected_chunks_and_errs.push(Err(err));
-                    None
+            .filter_map(|(name, font)| {
+                let encoding = match limit {
+                    Some(max) => font.get_font_encoding_with_limit(self, max),
+                    None => font.get_font_encoding(self),
+                };
+                match encoding {
+                    Ok(it) => Some((name, it)),
+                    Err(err) => {
+                        collected_chunks_and_errs.push(Err(err));
+                        None
+                    }
                 }
             })
             .collect();
-        let content_data = self.get_page_content(page_id);
+        let content_data = match limit {
+            Some(max) => self.get_page_content_with_limit(page_id, max)?,
+            None => self.get_page_content(page_id),
+        };
         let content = Content::decode(&content_data)?;
 
         // each text with different encoding is extracted as separate chunk
@@ -647,6 +688,133 @@ mod tests {
         let doc = create_document_with_texts(&[text1, text2]);
         let extracted_text = doc.extract_text(&[1, 2]);
         assert_eq!(extracted_text.unwrap(), format!("{text1}\n{text2}\n"));
+    }
+
+    const BOMB_MIB: usize = 1024 * 1024;
+
+    /// A FlateDecode-compressed stream that inflates to `target` zero-bytes, built
+    /// by streaming zeros through the compressor so the test process never holds
+    /// `target` bytes at once.
+    fn flate_bomb(target: usize) -> Vec<u8> {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+        let zeros = [0u8; 64 * 1024];
+        let mut remaining = target;
+        while remaining > 0 {
+            let n = remaining.min(zeros.len());
+            encoder.write_all(&zeros[..n]).unwrap();
+            remaining -= n;
+        }
+        encoder.finish().unwrap()
+    }
+
+    /// A `create_document_with_texts` document whose first page's content stream
+    /// has been swapped for a FlateDecode bomb that inflates to `target` bytes.
+    fn doc_with_page_content_bomb(target: usize) -> crate::Document {
+        use crate::{Dictionary, Object, Stream};
+
+        let mut doc = create_document_with_texts(&["Hello"]);
+        let page_id = *doc.get_pages().get(&1).expect("page 1 exists");
+        let content_id = doc.get_page_contents(page_id)[0];
+        let mut dict = Dictionary::new();
+        dict.set("Filter", "FlateDecode");
+        doc.objects.insert(content_id, Object::Stream(Stream::new(dict, flate_bomb(target))));
+        doc
+    }
+
+    /// A `create_document_with_texts` document whose font carries a `/ToUnicode`
+    /// CMap that is a FlateDecode bomb. Font encodings are resolved (and thus this
+    /// stream is decoded) during text extraction, *before* the page content — so
+    /// this exercises a decompression vector distinct from page content.
+    fn doc_with_tounicode_font_bomb(target: usize) -> crate::Document {
+        use crate::{Dictionary, Object, Stream};
+
+        let mut doc = create_document_with_texts(&["Hello"]);
+        let font_id = doc
+            .objects
+            .iter()
+            .find(|(_, obj)| obj.as_dict().map(|d| d.has_type(b"Font")).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .expect("font object exists");
+
+        let mut tounicode_dict = Dictionary::new();
+        tounicode_dict.set("Filter", "FlateDecode");
+        let tounicode_id = doc.add_object(Object::Stream(Stream::new(tounicode_dict, flate_bomb(target))));
+
+        let font = doc.get_object_mut(font_id).and_then(Object::as_dict_mut).unwrap();
+        font.set("ToUnicode", Object::Reference(tounicode_id));
+        doc
+    }
+
+    use crate::creator::tests::create_document_with_texts;
+
+    /// Under a generous limit, `extract_text_with_limit` returns exactly the same
+    /// text as the unbounded `extract_text`.
+    #[test]
+    fn extract_text_with_limit_matches_unbounded_under_limit() {
+        use crate::creator::tests::create_document_with_texts;
+
+        let text1 = "Hello world!";
+        let text2 = "Ferris is the best!";
+        let doc = create_document_with_texts(&[text1, text2]);
+
+        let bounded = doc.extract_text_with_limit(&[1, 2], BOMB_MIB).unwrap();
+        let unbounded = doc.extract_text(&[1, 2]).unwrap();
+        assert_eq!(bounded, unbounded);
+    }
+
+    /// A page-content decompression bomb is rejected end-to-end by
+    /// `extract_text_with_limit` instead of inflating without bound.
+    #[test]
+    fn extract_text_with_limit_rejects_page_content_bomb() {
+        use crate::{DecompressError, Error};
+
+        let doc = doc_with_page_content_bomb(32 * BOMB_MIB);
+
+        match doc.extract_text_with_limit(&[1], 4 * BOMB_MIB).map(|s| s.len()) {
+            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+                assert_eq!(limit, 4 * BOMB_MIB);
+            }
+            other => panic!("expected MemoryLimitExceeded, got {other:?}"),
+        }
+    }
+
+    /// The chunked variant surfaces the same bomb as an `Err` chunk rather than
+    /// panicking or silently truncating.
+    #[test]
+    fn extract_text_chunks_with_limit_surfaces_limit_error() {
+        use crate::{DecompressError, Error};
+
+        let doc = doc_with_page_content_bomb(32 * BOMB_MIB);
+        let chunks = doc.extract_text_chunks_with_limit(&[1], 4 * BOMB_MIB);
+
+        assert!(
+            chunks.iter().any(|chunk| matches!(
+                chunk,
+                Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. }))
+            )),
+            "expected a MemoryLimitExceeded error chunk"
+        );
+    }
+
+    /// A bomb reached through a font's `/ToUnicode` CMap (decoded during encoding
+    /// resolution, before page content) is also bounded by `extract_text_with_limit`
+    /// — otherwise the "safe for untrusted input" guarantee has a hole.
+    #[test]
+    fn extract_text_with_limit_rejects_tounicode_font_bomb() {
+        use crate::{DecompressError, Error};
+
+        let doc = doc_with_tounicode_font_bomb(32 * BOMB_MIB);
+
+        match doc.extract_text_with_limit(&[1], 4 * BOMB_MIB).map(|s| s.len()) {
+            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+                assert_eq!(limit, 4 * BOMB_MIB);
+            }
+            other => panic!("expected MemoryLimitExceeded from ToUnicode font bomb, got {other:?}"),
+        }
     }
 
     #[test]
