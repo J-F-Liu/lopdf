@@ -14,7 +14,7 @@ use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::io::Write;
 
-use lopdf::{DecompressError, Dictionary, Document, Error, LoadOptions, Object, ObjectStream, Stream};
+use lopdf::{DecompressError, Dictionary, Document, Error, LoadOptions, Object, ObjectId, ObjectStream, Stream};
 
 const MIB: usize = 1024 * 1024;
 
@@ -203,6 +203,91 @@ fn load_time_xref_stream_bomb_is_rejected_with_limit() {
         Err(other) => panic!("expected MemoryLimitExceeded during load, got {other:?}"),
         Ok(_) => panic!("bomb PDF loaded without hitting the decompression limit"),
     }
+}
+
+// Page content is decompressed on demand by `Document::get_page_content` (and
+// thus `extract_text`), which is unbounded. `get_page_content_with_limit` bounds
+// the whole concatenated page content to a caller-supplied budget.
+
+/// Build a single-page document whose `/Contents` is the given streams, and
+/// return the document plus the page's object id. No page tree / fonts, so this
+/// exercises `get_page_content_with_limit` directly (not the full extract path).
+fn doc_with_page_streams(streams: Vec<Stream>) -> (Document, ObjectId) {
+    let mut doc = Document::with_version("1.5");
+    let content_refs: Vec<Object> = streams.into_iter().map(|s| doc.add_object(s).into()).collect();
+    let mut page = Dictionary::new();
+    page.set("Type", "Page");
+    page.set("Contents", Object::Array(content_refs));
+    let page_id = doc.add_object(page);
+    (doc, page_id)
+}
+
+/// A bomb in a page's content stream is rejected by `get_page_content_with_limit`
+/// before the full output is allocated.
+#[test]
+fn page_content_bomb_is_rejected_with_limit() {
+    let (doc, page_id) = doc_with_page_streams(vec![flate_stream(flate_bomb(32 * MIB))]);
+    assert_limit_err(doc.get_page_content_with_limit(page_id, 4 * MIB), 4 * MIB);
+}
+
+/// A page comfortably under the limit yields exactly the same bytes as the
+/// unbounded `get_page_content` (including the inter-stream `\n` separators).
+#[test]
+fn page_content_under_limit_matches_unbounded() {
+    let (doc, page_id) = doc_with_page_streams(vec![
+        flate_stream(zlib_compress(b"1 0 0 1 50 100 cm")),
+        flate_stream(zlib_compress(b"BT /F1 12 Tf (hi) Tj ET")),
+    ]);
+
+    let bounded = doc
+        .get_page_content_with_limit(page_id, MIB)
+        .expect("small page content should decode under the limit");
+    assert_eq!(bounded, doc.get_page_content(page_id));
+}
+
+/// The limit is a *total-page* budget, not a per-stream one: two streams that are
+/// each individually under the limit but together exceed it are rejected. (A
+/// per-stream bound would have let this through.)
+#[test]
+fn page_content_limit_is_total_across_streams() {
+    let (doc, page_id) = doc_with_page_streams(vec![
+        flate_stream(flate_bomb(3 * MIB)),
+        flate_stream(flate_bomb(3 * MIB)),
+    ]);
+
+    // Each stream (3 MiB) is under 4 MiB, but 3 + 3 > 4, so the page is rejected.
+    assert_limit_err(doc.get_page_content_with_limit(page_id, 4 * MIB), 4 * MIB);
+}
+
+/// A large *uncompressed* (no `/Filter`) content stream is also bounded: the raw
+/// bytes count against the budget, so it can't bypass the guard.
+#[test]
+fn page_content_uncompressed_over_limit_is_rejected() {
+    let raw = Stream::new(Dictionary::new(), vec![b'x'; 2 * MIB]);
+    let (doc, page_id) = doc_with_page_streams(vec![raw]);
+    assert_limit_err(doc.get_page_content_with_limit(page_id, MIB), MIB);
+}
+
+/// When a stream can't be decoded for a reason *other* than the size limit (here
+/// an unimplemented filter), the code falls back to the raw bytes — but that
+/// fallback is still bounded, so oversized raw content is rejected rather than
+/// silently appended.
+#[test]
+fn page_content_raw_fallback_stays_bounded() {
+    let mut dict = Dictionary::new();
+    dict.set("Filter", "DCTDecode"); // not implemented → decode fails with a non-limit error
+    let undecodable = Stream::new(dict, vec![b'x'; 2 * MIB]);
+
+    let (doc, page_id) = doc_with_page_streams(vec![undecodable]);
+    assert_limit_err(doc.get_page_content_with_limit(page_id, MIB), MIB);
+}
+
+/// A zero limit rejects any non-empty page content without panicking (the
+/// `remaining` budget uses `saturating_sub`).
+#[test]
+fn page_content_zero_limit_rejects_nonempty() {
+    let (doc, page_id) = doc_with_page_streams(vec![flate_stream(zlib_compress(b"BT ET"))]);
+    assert_limit_err(doc.get_page_content_with_limit(page_id, 0), 0);
 }
 
 /// An object stream (`/ObjStm`) is decompressed eagerly during load; the bounded

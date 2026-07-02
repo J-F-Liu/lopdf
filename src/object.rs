@@ -406,6 +406,24 @@ impl Dictionary {
     }
 
     pub fn get_font_encoding<'a>(&'a self, doc: &'a Document) -> Result<Encoding<'a>> {
+        self.get_font_encoding_inner(doc, None)
+    }
+
+    /// Resolve this font's encoding, bounding any decompression it performs (for
+    /// example decoding a `/ToUnicode` CMap stream) to `max_decompressed_size`
+    /// bytes. This is the decompression-bomb-safe counterpart to
+    /// [`Dictionary::get_font_encoding`]: it is used by
+    /// [`crate::Document::extract_text_with_limit`] so a crafted font stream
+    /// cannot inflate without limit. Unlike other encoding errors (which fall
+    /// back to standard encoding), a detected size-limit violation is propagated
+    /// as [`DecompressError::MemoryLimitExceeded`].
+    pub fn get_font_encoding_with_limit<'a>(
+        &'a self, doc: &'a Document, max_decompressed_size: usize,
+    ) -> Result<Encoding<'a>> {
+        self.get_font_encoding_inner(doc, Some(max_decompressed_size))
+    }
+
+    fn get_font_encoding_inner<'a>(&'a self, doc: &'a Document, limit: Option<usize>) -> Result<Encoding<'a>> {
         if !self.has_type(b"Font") {
             return Err(Error::DictType {
                 expected: "Font",
@@ -421,11 +439,11 @@ impl Dictionary {
         //   114 in 9.6.6.1 General under `BaseEncoding`).
         let result = (|| {
             if let Ok(object) = self.get(b"Encoding") {
-                return self.get_base_encoding(object, doc);
+                return self.get_base_encoding(object, doc, limit);
             }
 
             if let Ok(stream) = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream) {
-                return self.get_to_unicode_encoding(stream);
+                return self.get_to_unicode_encoding(stream, limit);
             }
 
             Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
@@ -433,6 +451,10 @@ impl Dictionary {
 
         match result {
             Ok(encoding) => Ok(encoding),
+            // A detected decompression bomb must surface, not be swallowed into a
+            // fallback encoding — otherwise the bounded caller's guard is silently
+            // defeated. Every other encoding error stays lenient, as before.
+            Err(err @ Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => Err(err),
             Err(err) => {
                 warn!(
                     "Could not parse the encoding, error: {err:#?}\nFont: {self:#?}. Using standard encoding as a fallback!"
@@ -443,14 +465,16 @@ impl Dictionary {
     }
 
     /// Get a simple encoding from the /Encoding entry of a font dictionary.
-    fn get_base_encoding<'a>(&'a self, mut object: &'a Object, doc: &'a Document) -> Result<Encoding<'a>> {
+    fn get_base_encoding<'a>(
+        &'a self, mut object: &'a Object, doc: &'a Document, limit: Option<usize>,
+    ) -> Result<Encoding<'a>> {
         // Set of visited to detect circular references.
         let mut visited = HashSet::new();
 
         loop {
             match *object {
                 Object::Name(ref name) => {
-                    return self.base_encoding(doc, name);
+                    return self.base_encoding(doc, name, limit);
                 }
                 Object::Reference(id) => {
                     if !visited.insert(id) {
@@ -473,7 +497,7 @@ impl Dictionary {
                             if let Ok(base_encoding) = dict.get(b"BaseEncoding")
                                 && let Ok(name) = base_encoding.as_name()
                             {
-                                base = Some(self.base_encoding(doc, name)?);
+                                base = Some(self.base_encoding(doc, name, limit)?);
                             }
 
                             let base = match base {
@@ -503,7 +527,7 @@ impl Dictionary {
         }
     }
 
-    fn base_encoding<'a>(&'a self, doc: &'a Document, name: &'a [u8]) -> Result<Encoding<'a>> {
+    fn base_encoding<'a>(&'a self, doc: &'a Document, name: &'a [u8], limit: Option<usize>) -> Result<Encoding<'a>> {
         match name {
             b"StandardEncoding" => Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
             b"MacRomanEncoding" => Ok(Encoding::OneByteEncoding(&encodings::MAC_ROMAN_ENCODING)),
@@ -515,7 +539,7 @@ impl Dictionary {
             }
             b"Identity-H" | b"Identity-V" => {
                 let stream = self.get_deref(b"ToUnicode", doc)?.as_stream()?;
-                self.get_to_unicode_encoding(stream)
+                self.get_to_unicode_encoding(stream, limit)
             }
             name => Ok(Encoding::SimpleEncoding(name)),
         }
@@ -562,8 +586,11 @@ impl Dictionary {
         })
     }
 
-    fn get_to_unicode_encoding(&'_ self, stream: &Stream) -> Result<Encoding<'_>> {
-        let content = stream.get_plain_content()?;
+    fn get_to_unicode_encoding(&'_ self, stream: &Stream, limit: Option<usize>) -> Result<Encoding<'_>> {
+        let content = match limit {
+            Some(max) => stream.get_plain_content_with_limit(max)?,
+            None => stream.get_plain_content()?,
+        };
         let cmap = ToUnicodeCMap::parse(content)?;
         Ok(Encoding::UnicodeMapEncoding(cmap))
     }
@@ -808,6 +835,22 @@ impl Stream {
         match self.filters() {
             Ok(vec) if !vec.is_empty() => self.decompressed_content(),
             _ => Ok(self.content.clone()),
+        }
+    }
+
+    /// Bomb-safe counterpart to [`Stream::get_plain_content`]: decode the stream,
+    /// rejecting it with [`DecompressError::MemoryLimitExceeded`] if the output
+    /// would exceed `max_output` bytes. An uncompressed stream whose raw content
+    /// already exceeds the limit is rejected too.
+    pub fn get_plain_content_with_limit(&self, max_output: usize) -> Result<Vec<u8>> {
+        match self.filters() {
+            Ok(vec) if !vec.is_empty() => self.decompressed_content_with_limit(max_output),
+            _ => {
+                if self.content.len() > max_output {
+                    return Err(DecompressError::MemoryLimitExceeded { limit: max_output }.into());
+                }
+                Ok(self.content.clone())
+            }
         }
     }
 

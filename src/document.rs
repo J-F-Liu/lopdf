@@ -4,7 +4,7 @@ use crate::encryption::crypt_filters::*;
 use crate::encryption::{self, EncryptionState, PasswordAlgorithm};
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefType};
-use crate::{Error, ObjectStream, Result, Stream};
+use crate::{DecompressError, Error, ObjectStream, Result, Stream};
 use log::debug;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -598,6 +598,58 @@ impl Document {
             }
         }
         content
+    }
+
+    /// Get the content of a page, bounding the total decompressed output to
+    /// `max_decompressed_size` bytes.
+    ///
+    /// This is the decompression-bomb-safe counterpart to
+    /// [`Document::get_page_content`]. A page's content can be split across
+    /// several streams; the whole concatenated result is bounded to roughly
+    /// `max_decompressed_size` bytes (each stream is decoded against the
+    /// *remaining* budget, so N streams cannot sum to N times the limit), which
+    /// stops a small compressed page stream from inflating without limit when
+    /// processing untrusted PDFs. Use it (and
+    /// [`Document::extract_text_with_limit`]) instead of the unbounded variants
+    /// for input you do not control.
+    ///
+    /// Returns [`DecompressError::MemoryLimitExceeded`](crate::DecompressError::MemoryLimitExceeded)
+    /// if the page content would exceed the limit. Like
+    /// [`Document::get_page_content`], a stream that fails to decode for a reason
+    /// *other* than the size limit falls back to its raw bytes, but that fallback
+    /// is also kept within the remaining budget.
+    pub fn get_page_content_with_limit(&self, page_id: ObjectId, max_decompressed_size: usize) -> Result<Vec<u8>> {
+        let mut content = Vec::new();
+        let content_streams = self.get_page_contents(page_id);
+        for object_id in content_streams {
+            if let Ok(content_stream) = self.get_object(object_id).and_then(Object::as_stream) {
+                let remaining = max_decompressed_size.saturating_sub(content.len());
+                match content_stream.decompressed_content_with_limit(remaining) {
+                    Ok(data) => content.extend_from_slice(&data),
+                    Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                        return Err(DecompressError::MemoryLimitExceeded {
+                            limit: max_decompressed_size,
+                        }
+                        .into());
+                    }
+                    // Mirror `get_page_content`'s lenient fallback to the raw
+                    // (still-compressed) bytes when a stream can't be decoded, but
+                    // keep that fallback within the page's remaining budget so a
+                    // large raw stream can't bypass the guard.
+                    Err(_) => {
+                        if content_stream.content.len() > remaining {
+                            return Err(DecompressError::MemoryLimitExceeded {
+                                limit: max_decompressed_size,
+                            }
+                            .into());
+                        }
+                        content.extend_from_slice(&content_stream.content);
+                    }
+                }
+                content.push(b'\n');
+            }
+        }
+        Ok(content)
     }
 
     /// Get resources used by a page.
