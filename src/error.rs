@@ -125,6 +125,12 @@ pub enum Error {
 pub enum DecompressError {
     #[error("decoding ASCII85 failed: {0}")]
     Ascii85(&'static str),
+    /// The decompressed output exceeded the allowed size limit. This guards
+    /// against decompression bombs: a small compressed stream that inflates to
+    /// an enormous size (potentially exhausting memory). The `limit` is the
+    /// maximum number of output bytes that were permitted.
+    #[error("decompressed output exceeded the {limit}-byte limit (possible decompression bomb)")]
+    MemoryLimitExceeded { limit: usize },
 }
 
 #[derive(Error, Debug)]
