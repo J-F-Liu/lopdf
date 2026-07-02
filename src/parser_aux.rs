@@ -484,9 +484,20 @@ fn encode_with_fallback(encoding: &Encoding, text: &str, default_char: &str) -> 
 }
 
 /// Decode CrossReferenceStream
-pub fn decode_xref_stream(mut stream: Stream) -> Result<(Xref, Dictionary)> {
+pub fn decode_xref_stream(stream: Stream) -> Result<(Xref, Dictionary)> {
+    decode_xref_stream_with_limit(stream, None)
+}
+
+/// Decode a cross-reference stream, rejecting it if its decompressed content
+/// would exceed `max_decompressed_size` bytes. `None` means no limit (the
+/// behavior of [`decode_xref_stream`]). Cross-reference streams are decoded
+/// early during loading, so this bounds the memory a `/XRef` stream can use.
+pub fn decode_xref_stream_with_limit(mut stream: Stream, max_decompressed_size: Option<usize>) -> Result<(Xref, Dictionary)> {
     if stream.is_compressed() {
-        stream.decompress()?;
+        match max_decompressed_size {
+            Some(max) => stream.decompress_with_limit(max)?,
+            None => stream.decompress()?,
+        }
     }
     let mut dict = stream.dict;
     let mut reader = Cursor::new(stream.content);

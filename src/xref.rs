@@ -166,7 +166,7 @@ impl XrefSection {
     }
 }
 
-pub use crate::parser_aux::decode_xref_stream;
+pub use crate::parser_aux::{decode_xref_stream, decode_xref_stream_with_limit};
 
 /// Encode a field value as big-endian bytes with specified width
 fn encode_field(value: u64, width: usize, output: &mut Vec<u8>) {

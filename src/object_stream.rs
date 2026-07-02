@@ -37,9 +37,27 @@ impl Default for ObjectStreamConfig {
 }
 
 impl ObjectStream {
-    /// Parse an existing object stream
+    /// Parse an existing object stream.
+    ///
+    /// This decompresses the stream without any size limit. For untrusted input,
+    /// prefer [`ObjectStream::new_with_limit`] to guard against decompression
+    /// bombs.
     pub fn new(stream: &mut Stream) -> Result<ObjectStream> {
-        let _ = stream.decompress();
+        Self::new_with_limit(stream, None)
+    }
+
+    /// Parse an existing object stream, rejecting it if its decompressed content
+    /// would exceed `max_decompressed_size` bytes. `None` means no limit (the
+    /// behavior of [`ObjectStream::new`]).
+    pub fn new_with_limit(stream: &mut Stream, max_decompressed_size: Option<usize>) -> Result<ObjectStream> {
+        match max_decompressed_size {
+            // Object streams are decompressed while the document is loaded, so
+            // enforcing the limit here bounds the memory a single stream can use.
+            Some(max) => stream.decompress_with_limit(max)?,
+            None => {
+                let _ = stream.decompress();
+            }
+        }
 
         if stream.content.is_empty() {
             return Ok(ObjectStream {

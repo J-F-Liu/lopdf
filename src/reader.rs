@@ -85,6 +85,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: options.password,
             strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
         }
         .read(options.filter)
     }
@@ -103,6 +104,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: options.password,
             strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
         }
         .read(options.filter)
     }
@@ -152,6 +154,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: None,
             strict: false,
+            max_decompressed_size: None,
         }
         .read_metadata()
     }
@@ -166,6 +169,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: Some(password.to_string()),
             strict: false,
+            max_decompressed_size: None,
         }
         .read_metadata()
     }
@@ -183,6 +187,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password,
             strict: false,
+            max_decompressed_size: None,
         }
         .read_metadata()
     }
@@ -225,6 +230,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: options.password,
             strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
         }
         .read(options.filter)
     }
@@ -243,6 +249,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: options.password,
             strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
         }
         .read(options.filter)
     }
@@ -288,6 +295,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: None,
             strict: false,
+            max_decompressed_size: None,
         }
         .read_metadata()
     }
@@ -302,6 +310,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password: Some(password.to_string()),
             strict: false,
+            max_decompressed_size: None,
         }
         .read_metadata()
     }
@@ -321,6 +330,7 @@ impl Document {
             raw_objects: BTreeMap::new(),
             password,
             strict: false,
+            max_decompressed_size: None,
         }
         .read_metadata()
     }
@@ -337,6 +347,7 @@ impl TryInto<Document> for &[u8] {
             raw_objects: BTreeMap::new(),
             password: None,
             strict: false,
+            max_decompressed_size: None,
         }
         .read(None)
     }
@@ -369,6 +380,7 @@ impl IncrementalDocument {
             raw_objects: BTreeMap::new(),
             password: None,
             strict: false,
+            max_decompressed_size: None,
         }
         .read(None)?;
 
@@ -411,6 +423,7 @@ impl IncrementalDocument {
             raw_objects: BTreeMap::new(),
             password: None,
             strict: false,
+            max_decompressed_size: None,
         }
         .read(None)?;
 
@@ -434,6 +447,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
             raw_objects: BTreeMap::new(),
             password: None,
             strict: false,
+            max_decompressed_size: None,
         }
         .read(None)?;
 
@@ -448,6 +462,11 @@ pub struct Reader<'a> {
     pub raw_objects: BTreeMap<ObjectId, Vec<u8>>, // Store raw bytes for encrypted objects
     pub password: Option<String>,                 // Password for encrypted PDFs
     pub strict: bool,                             // Reject non-conforming PDFs when true
+    /// Maximum decompressed size, in bytes, allowed for any single stream
+    /// (object streams and cross-reference streams) decoded during loading.
+    /// `None` (the default) applies no limit; set it to guard against
+    /// decompression bombs. See [`crate::LoadOptions`].
+    pub max_decompressed_size: Option<usize>,
 }
 
 /// Maximum allowed embedding of literal strings.
@@ -911,7 +930,7 @@ impl Reader<'_> {
                 if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0))
                     && let Ok(stream) = container_obj.as_stream_mut()
                 {
-                    match ObjectStream::new(stream) {
+                    match ObjectStream::new_with_limit(stream, self.max_decompressed_size) {
                         Ok(object_stream) => {
                             for (obj_num, _index) in objects_in_stream {
                                 let obj_id = (obj_num, 0);
@@ -986,7 +1005,7 @@ impl Reader<'_> {
 
                 if let Ok(ref mut stream) = object.as_stream_mut() {
                     if stream.dict.has_type(b"ObjStm") && !is_encrypted {
-                        let obj_stream = ObjectStream::new(stream).ok()?;
+                        let obj_stream = ObjectStream::new_with_limit(stream, self.max_decompressed_size).ok()?;
                         let container_id = object_id.0;
                         let mut object_streams = object_streams.lock().unwrap();
                         if let Some(filter_func) = filter_func {
@@ -1116,7 +1135,7 @@ impl Reader<'_> {
         let mut already_seen = HashSet::new();
         let container_obj = self.get_object(container_id, &mut already_seen)?;
         let mut container_stream = container_obj.as_stream()?.clone();
-        let object_stream = ObjectStream::new(&mut container_stream)?;
+        let object_stream = ObjectStream::new_with_limit(&mut container_stream, self.max_decompressed_size)?;
         object_stream.objects.get(&id).cloned().ok_or(Error::MissingXrefEntry)
     }
 
