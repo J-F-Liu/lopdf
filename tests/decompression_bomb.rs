@@ -1,8 +1,11 @@
-//! Tests demonstrating that PDF stream decompression is unbounded.
+//! Tests for bounded stream decompression (decompression-bomb handling).
 //!
-//! `Stream::decompressed_content` inflates `FlateDecode` data into an unbounded
-//! `Vec`, so a small compressed stream can expand to an arbitrarily large
-//! output (a decompression bomb). Nested filters multiply the amplification.
+//! By default `Stream::decompressed_content` is unbounded, so a small compressed
+//! stream can inflate to an arbitrarily large output (a decompression bomb).
+//! These tests cover both the unbounded behavior and the bounded API
+//! (`decompressed_content_with_limit`, `decompress_to_writer`, and
+//! `LoadOptions::max_decompressed_size`) that rejects oversized output,
+//! including nested filters and streams decoded during `Document::load`.
 //!
 //! Bombs are built by streaming zeros through the compressor, so the test
 //! process itself never allocates the full (large) plaintext.
@@ -11,7 +14,7 @@ use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::io::Write;
 
-use lopdf::{Dictionary, Object, Stream};
+use lopdf::{DecompressError, Dictionary, Document, Error, LoadOptions, Object, ObjectStream, Stream};
 
 const MIB: usize = 1024 * 1024;
 
@@ -36,14 +39,29 @@ fn zlib_compress(data: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap()
 }
 
+fn flate_stream(content: Vec<u8>) -> Stream {
+    let mut dict = Dictionary::new();
+    dict.set("Filter", "FlateDecode");
+    Stream::new(dict, content)
+}
+
+/// Assert a result is the memory-limit error for `expected_limit`, without ever
+/// `Debug`-printing a multi-megabyte success value.
+fn assert_limit_err(result: lopdf::Result<Vec<u8>>, expected_limit: usize) {
+    match result.map(|v| v.len()) {
+        Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+            assert_eq!(limit, expected_limit, "error reported the wrong limit");
+        }
+        Ok(n) => panic!("expected MemoryLimitExceeded, but decompressed {n} bytes"),
+        Err(other) => panic!("expected MemoryLimitExceeded, got {other:?}"),
+    }
+}
+
 /// A single `FlateDecode` stream inflates ~32 KiB of input to 32 MiB of output
 /// (~1000x) with no cap — the library materializes the whole thing.
 #[test]
 fn single_filter_bomb_expands_without_limit() {
-    let mut dict = Dictionary::new();
-    dict.set("Filter", "FlateDecode");
-    let bomb = Stream::new(dict, flate_bomb(32 * MIB));
-
+    let bomb = flate_stream(flate_bomb(32 * MIB));
     assert!(
         bomb.content.len() < 128 * 1024,
         "input should be tiny: {} bytes",
@@ -56,7 +74,7 @@ fn single_filter_bomb_expands_without_limit() {
 
 /// Chained filters multiply the amplification: under 8 KiB of input expands to
 /// 32 MiB through `[FlateDecode FlateDecode]`. Additional layers reach petabyte
-/// scale — an instant out-of-memory kill.
+/// scale.
 #[test]
 fn chained_filter_bomb_expands_without_limit() {
     let inner = flate_bomb(32 * MIB); // layer 2 decodes this -> 32 MiB
@@ -74,4 +92,135 @@ fn chained_filter_bomb_expands_without_limit() {
 
     let output = stream.decompressed_content().expect("decodes");
     assert_eq!(output.len(), 32 * MIB, "nested filters expanded fully, no cap");
+}
+
+/// With a limit supplied, the same bomb is rejected before the full 32 MiB is
+/// allocated.
+#[test]
+fn flate_bomb_rejected_with_limit() {
+    let bomb = flate_stream(flate_bomb(32 * MIB));
+    assert_limit_err(bomb.decompressed_content_with_limit(4 * MIB), 4 * MIB);
+}
+
+/// A stream comfortably under the limit still decodes correctly.
+#[test]
+fn legit_stream_decompresses_under_limit() {
+    let payload: Vec<u8> = (0..64 * 1024).map(|i| (i % 251) as u8).collect();
+    let stream = flate_stream(zlib_compress(&payload));
+
+    let output = stream
+        .decompressed_content_with_limit(1 * MIB)
+        .expect("stream under the limit should decode");
+    assert_eq!(output, payload);
+}
+
+/// The same stream passes or fails based on the chosen limit.
+#[test]
+fn custom_limit_is_enforced() {
+    let stream = flate_stream(flate_bomb(2 * MIB));
+
+    // Limit below the output size: rejected.
+    assert_limit_err(stream.decompressed_content_with_limit(1 * MIB), 1 * MIB);
+
+    // Limit above the output size: decoded in full.
+    let output = stream
+        .decompressed_content_with_limit(4 * MIB)
+        .expect("2 MiB output fits under a 4 MiB limit");
+    assert_eq!(output.len(), 2 * MIB);
+}
+
+/// Nested filters (`/Filter [FlateDecode FlateDecode]`) amplify per layer. The
+/// limit bounds each layer, so the bomb is rejected at the second layer instead
+/// of expanding.
+#[test]
+fn chained_flate_filters_are_bounded() {
+    let inner = flate_bomb(32 * MIB); // layer 2 decodes this -> 32 MiB
+    let outer = zlib_compress(&inner); // layer 1 decodes to `inner` (tiny)
+
+    let mut dict = Dictionary::new();
+    dict.set("Filter", vec![Object::from("FlateDecode"), Object::from("FlateDecode")]);
+    let stream = Stream::new(dict, outer);
+
+    assert_limit_err(stream.decompressed_content_with_limit(4 * MIB), 4 * MIB);
+}
+
+/// `decompress_to_writer` enforces the same bound and leaves the caller's sink
+/// untouched on rejection.
+#[test]
+fn decompress_to_writer_bounds_output() {
+    let bomb = flate_stream(flate_bomb(32 * MIB));
+
+    let mut sink: Vec<u8> = Vec::new();
+    let result = bomb.decompress_to_writer(&mut sink, 4 * MIB);
+
+    match result {
+        Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+            assert_eq!(limit, 4 * MIB);
+        }
+        other => panic!("expected MemoryLimitExceeded, got {:?}", other.map(|n| format!("Ok({n})"))),
+    }
+    assert!(sink.is_empty(), "sink should be untouched on rejection, got {} bytes", sink.len());
+}
+
+// Object streams and cross-reference streams are decompressed while the document
+// is loaded, so the limit is supplied through `LoadOptions` to reach them.
+
+/// Build a PDF whose cross-reference stream (`/Type /XRef`) is a FlateDecode
+/// bomb. The reference stream is decoded during `Document::load` to build the
+/// xref table.
+fn xref_stream_bomb_pdf(bomb: &[u8]) -> Vec<u8> {
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.5\n");
+    let obj_offset = pdf.len();
+    pdf.extend_from_slice(b"1 0 obj\n");
+    pdf.extend_from_slice(
+        format!(
+            "<< /Type /XRef /Size 1 /W [1 1 1] /Root 1 0 R /Filter /FlateDecode /Length {} >>\n",
+            bomb.len()
+        )
+        .as_bytes(),
+    );
+    // Framing matches lopdf's parser: `stream<eol><exactly Length bytes><eol>endstream`.
+    pdf.extend_from_slice(b"stream\n");
+    pdf.extend_from_slice(bomb);
+    pdf.extend_from_slice(b"\nendstream\nendobj\n");
+    pdf.extend_from_slice(format!("startxref\n{obj_offset}\n%%EOF").as_bytes());
+    pdf
+}
+
+/// A bomb in the cross-reference stream is rejected during load when
+/// `max_decompressed_size` is set.
+#[test]
+fn load_time_xref_stream_bomb_is_rejected_with_limit() {
+    let pdf = xref_stream_bomb_pdf(&flate_bomb(64 * MIB));
+
+    let result = Document::load_mem_with_options(&pdf, LoadOptions::with_max_decompressed_size(4 * MIB));
+
+    match result {
+        Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+            assert_eq!(limit, 4 * MIB);
+        }
+        Err(other) => panic!("expected MemoryLimitExceeded during load, got {other:?}"),
+        Ok(_) => panic!("bomb PDF loaded without hitting the decompression limit"),
+    }
+}
+
+/// An object stream (`/ObjStm`) is decompressed eagerly during load; the bounded
+/// constructor rejects an oversized stream.
+#[test]
+fn object_stream_bomb_is_rejected_with_limit() {
+    let mut dict = Dictionary::new();
+    dict.set("Type", "ObjStm");
+    dict.set("N", 1i64);
+    dict.set("First", 0i64);
+    dict.set("Filter", "FlateDecode");
+    let mut stream = Stream::new(dict, flate_bomb(64 * MIB));
+
+    match ObjectStream::new_with_limit(&mut stream, Some(4 * MIB)) {
+        Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+            assert_eq!(limit, 4 * MIB);
+        }
+        Err(other) => panic!("expected MemoryLimitExceeded, got {other:?}"),
+        Ok(_) => panic!("object stream bomb was not caught"),
+    }
 }

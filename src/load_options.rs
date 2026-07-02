@@ -37,6 +37,18 @@ pub struct LoadOptions {
     /// When `true`, reject non-conforming PDFs instead of silently accepting them.
     /// Defaults to `false` (lenient parsing).
     pub strict: bool,
+    /// Maximum number of bytes any single stream may decompress to during
+    /// loading (object streams and cross-reference streams).
+    ///
+    /// Compression filters can inflate a tiny input into an enormous output (a
+    /// "decompression bomb"). Because object and xref streams are decoded eagerly
+    /// while the document is loaded, an unbounded stream can exhaust memory
+    /// before any of your code runs. Set this to bound that per-stream cost when
+    /// loading untrusted PDFs; a stream that would exceed it fails with
+    /// [`crate::DecompressError::MemoryLimitExceeded`].
+    ///
+    /// `None` (the default) applies no limit.
+    pub max_decompressed_size: Option<usize>,
 }
 
 impl std::fmt::Debug for LoadOptions {
@@ -45,6 +57,7 @@ impl std::fmt::Debug for LoadOptions {
             .field("password", &self.password.as_ref().map(|_| "***"))
             .field("filter", &self.filter.map(|_| "fn(..)"))
             .field("strict", &self.strict)
+            .field("max_decompressed_size", &self.max_decompressed_size)
             .finish()
     }
 }
@@ -62,6 +75,16 @@ impl LoadOptions {
     pub fn with_filter(filter: FilterFunc) -> Self {
         Self {
             filter: Some(filter),
+            ..Default::default()
+        }
+    }
+
+    /// Create options that bound how large any single stream may decompress to
+    /// during loading, to defend against decompression bombs in untrusted PDFs.
+    /// See [`LoadOptions::max_decompressed_size`].
+    pub fn with_max_decompressed_size(max_decompressed_size: usize) -> Self {
+        Self {
+            max_decompressed_size: Some(max_decompressed_size),
             ..Default::default()
         }
     }
