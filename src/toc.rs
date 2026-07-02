@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::{Document, Error, Object, Outline, Result};
+use super::{Document, Error, Object, ObjectId, Outline, Result};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
@@ -58,7 +58,7 @@ impl Destination {
     }
 }
 
-type OutlinePageIds = IndexMap<Vec<u8>, ((u32, u16), usize, usize)>;
+type OutlinePageIds = Vec<(Vec<u8>, ObjectId, usize)>;
 
 fn setup_outline_page_ids<'a>(
     outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, level: usize,
@@ -66,10 +66,11 @@ fn setup_outline_page_ids<'a>(
     for outline in outlines.iter() {
         match outline {
             Outline::Destination(destination) => {
-                result.insert(
+                result.push((
                     destination.title()?.as_str()?.to_vec(),
-                    (destination.page()?.as_reference()?, result.len(), level),
-                );
+                    destination.page()?.as_reference()?,
+                    level,
+                ));
             }
             Outline::SubOutlines(sub_outlines) => {
                 setup_outline_page_ids(sub_outlines, result, level + 1)?;
@@ -99,10 +100,10 @@ impl Document {
             return Err(Error::NoOutline);
         };
 
-        let mut outline_page_ids = IndexMap::new();
+        let mut outline_page_ids = Vec::new();
         setup_outline_page_ids(&outlines, &mut outline_page_ids, 1)?;
         let page_id_to_page_numbers = self.setup_page_id_to_num();
-        for (title, (page_id, _page_idx, level)) in outline_page_ids {
+        for (title, page_id, level) in outline_page_ids {
             if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
                 let s;
                 if title.len() < 2 {
