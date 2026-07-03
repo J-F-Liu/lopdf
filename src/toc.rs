@@ -3,10 +3,10 @@ use indexmap::IndexMap;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::{Document, Error, Object, Outline, Result};
+use super::{Document, Error, Object, ObjectId, Outline, Result};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TocType {
     pub level: usize,
     pub title: String,
@@ -58,7 +58,7 @@ impl Destination {
     }
 }
 
-type OutlinePageIds = IndexMap<Vec<u8>, ((u32, u16), usize, usize)>;
+type OutlinePageIds = Vec<(Vec<u8>, ObjectId, usize)>;
 
 fn setup_outline_page_ids<'a>(
     outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, level: usize,
@@ -66,10 +66,11 @@ fn setup_outline_page_ids<'a>(
     for outline in outlines.iter() {
         match outline {
             Outline::Destination(destination) => {
-                result.insert(
+                result.push((
                     destination.title()?.as_str()?.to_vec(),
-                    (destination.page()?.as_reference()?, result.len(), level),
-                );
+                    destination.page()?.as_reference()?,
+                    level,
+                ));
             }
             Outline::SubOutlines(sub_outlines) => {
                 setup_outline_page_ids(sub_outlines, result, level + 1)?;
@@ -99,10 +100,10 @@ impl Document {
             return Err(Error::NoOutline);
         };
 
-        let mut outline_page_ids = IndexMap::new();
+        let mut outline_page_ids = Vec::new();
         setup_outline_page_ids(&outlines, &mut outline_page_ids, 1)?;
         let page_id_to_page_numbers = self.setup_page_id_to_num();
-        for (title, (page_id, _page_idx, level)) in outline_page_ids {
+        for (title, page_id, level) in outline_page_ids {
             if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
                 let s;
                 if title.len() < 2 {
@@ -142,5 +143,81 @@ impl Document {
             }
         }
         Ok(toc)
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[cfg(test)]
+mod tests {
+    use crate::{Document, TocType};
+
+    #[test]
+    fn parse_toc() {
+        let expected = vec![
+            TocType {
+                level: 1,
+                title: String::from("1. Flesh Fruits"),
+                page: 1,
+            },
+            TocType {
+                level: 2,
+                title: String::from("1.1. Stone Fruits"),
+                page: 2,
+            },
+            TocType {
+                level: 3,
+                title: String::from("1.1.1. Peaches"),
+                page: 3,
+            },
+            TocType {
+                level: 3,
+                title: String::from("1.1.2. Plums"),
+                page: 6,
+            },
+            TocType {
+                level: 2,
+                title: String::from("1.2. Pomes"),
+                page: 28,
+            },
+            TocType {
+                level: 3,
+                title: String::from("1.2.1. Apples"),
+                page: 30,
+            },
+            TocType {
+                level: 3,
+                title: String::from("1.2.2. Pears"),
+                page: 35,
+            },
+            TocType {
+                level: 2,
+                title: String::from("Summary"),
+                page: 36,
+            },
+            TocType {
+                level: 1,
+                title: String::from("2. Berries & Hesperidia"),
+                page: 40,
+            },
+            TocType {
+                level: 2,
+                title: String::from("2.1. True Berries"),
+                page: 40,
+            },
+            TocType {
+                level: 2,
+                title: String::from("Summary"),
+                page: 41,
+            },
+            TocType {
+                level: 1,
+                title: String::from("3. The End"),
+                page: 100,
+            },
+        ];
+
+        let doc = Document::load("assets/test.pdf").unwrap();
+        let toc = doc.get_toc().unwrap();
+        assert_eq!(toc.toc, expected);
     }
 }
