@@ -216,6 +216,11 @@ pub struct EncryptionState {
     pub(crate) user_encrypted: Vec<u8>,
     pub(crate) permissions: Permissions,
     pub(crate) permission_encrypted: Vec<u8>,
+    /// Object id of the `/Encrypt` dictionary in the previous revision, recorded
+    /// during `Document::decrypt_raw` before the reference is stripped from the
+    /// trailer. Used by `IncrementalDocument` to restore the `/Encrypt` reference
+    /// in the appended trailer.
+    pub(crate) encrypt_object_id: Option<ObjectId>,
 }
 
 impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
@@ -405,6 +410,7 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     user_encrypted: algorithm.user_encrypted,
                     permissions: algorithm.permissions,
                     permission_encrypted: algorithm.permission_encrypted,
+                    encrypt_object_id: None,
                 })
             }
             EncryptionVersion::V5 {
@@ -463,6 +469,7 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                     user_encrypted: algorithm.user_encrypted,
                     permissions: algorithm.permissions,
                     permission_encrypted: algorithm.permission_encrypted,
+                    encrypt_object_id: None,
                 })
             }
         }
@@ -524,6 +531,14 @@ impl EncryptionState {
 
     pub fn permission_encrypted(&self) -> &[u8] {
         self.permission_encrypted.as_ref()
+    }
+
+    /// Object id of the original `/Encrypt` dictionary, when known. This is
+    /// recorded during `Document::decrypt_raw`; the dictionary bytes themselves
+    /// are left intact in the previous revision so that an incremental save can
+    /// point back at them via `/Encrypt N G R` without re-emitting the dictionary.
+    pub fn encrypt_object_id(&self) -> Option<ObjectId> {
+        self.encrypt_object_id
     }
 
     pub fn decode<P>(document: &Document, password: P) -> Result<Self, Error>

@@ -41,6 +41,47 @@ fn minimal_encryptable_document() -> Document {
     doc
 }
 
+/// After `decrypt`, `EncryptionState::encrypt_object_id()` must expose the
+/// object id of the `/Encrypt` dictionary that was in the trailer before
+/// decryption — an incremental save needs it to restore `/Encrypt` in the
+/// appended trailer.
+#[test]
+fn decrypt_records_encrypt_object_id() {
+    let mut doc = minimal_encryptable_document();
+
+    let encryption_version = EncryptionVersion::V1 {
+        document: &doc,
+        owner_password: "owner",
+        user_password: "user",
+        permissions: Permissions::all(),
+    };
+    let encryption_state = EncryptionState::try_from(encryption_version).unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    let mut prev_bytes = Vec::new();
+    doc.save_to(&mut prev_bytes).unwrap();
+
+    // Capture the /Encrypt reference id from the on-disk trailer before decrypt.
+    let expected_id = Document::load_mem(&prev_bytes)
+        .unwrap()
+        .trailer
+        .get(b"Encrypt")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+
+    let mut loaded = Document::load_mem(&prev_bytes).unwrap();
+    loaded.decrypt("user").unwrap();
+
+    let recorded = loaded
+        .encryption_state
+        .as_ref()
+        .expect("encryption_state set after decrypt")
+        .encrypt_object_id()
+        .expect("encrypt_object_id recorded during decrypt");
+    assert_eq!(recorded, expected_id);
+}
+
 /// Incremental save of a *decrypted* document (regression test for
 /// https://github.com/J-F-Liu/lopdf/issues/520): the appended trailer would
 /// lack `/Encrypt` while the original bytes remain ciphertext, so this must

@@ -457,7 +457,7 @@ impl Document {
         // Find the ID of the encryption dict; we'll want to skip it when decrypting
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
-        let state = EncryptionState::decode(&*self, password)?;
+        let mut state = EncryptionState::decode(&*self, password)?;
 
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
@@ -496,6 +496,12 @@ impl Document {
 
         let object_id = self.trailer.remove(b"Encrypt").unwrap().as_reference()?;
         self.objects.remove(&object_id);
+
+        // Remember the object id of the original /Encrypt dictionary so that
+        // callers doing an incremental save can point the appended trailer's
+        // /Encrypt back at the (still-intact) dictionary bytes in the previous
+        // revision. See `IncrementalDocument::save_internal`.
+        state.encrypt_object_id = Some(object_id);
 
         self.encryption_state = Some(state);
 
