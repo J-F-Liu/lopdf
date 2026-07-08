@@ -276,6 +276,15 @@ impl IncrementalDocument {
     }
 
     fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
+        if self.get_prev_documents().was_encrypted() || self.get_prev_documents().is_encrypted() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "incremental update of an encrypted PDF is not supported yet: \
+                 saving would write unencrypted objects into an encrypted file and corrupt it \
+                 (see https://github.com/J-F-Liu/lopdf/issues/520)",
+            ));
+        }
+
         let mut target = CountingWrite {
             inner: target,
             bytes_written: 0,
