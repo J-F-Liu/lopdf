@@ -1,4 +1,5 @@
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
+use lopdf::xref::XrefType;
 use lopdf::{
     Document, EncryptionState, EncryptionVersion, IncrementalDocument, LoadOptions, Object, Permissions, Result,
     Stream, dictionary,
@@ -196,6 +197,90 @@ fn incremental_save_of_decrypted_document_v2_round_trip() {
     })
     .unwrap();
     encrypted_incremental_round_trip("V2", state);
+}
+
+/// V2 (RC4-128) × `CrossReferenceTable`: exercises the classical
+/// `trailer <<...>>` writer path (`Document::write_trailer`) rather than the
+/// xref-stream path (`Document::write_cross_reference_stream`). Both paths
+/// serialize `self.new_document.trailer`, and the `/Encrypt` swap in
+/// `IncrementalDocument::save_internal` targets exactly that field, so a
+/// table-based prior revision must produce an appended trailer that carries
+/// `/Encrypt` — verified via `read_encrypt_id` plus a byte-level check that
+/// the classical `trailer` keyword appears in the appended region.
+#[test]
+fn incremental_save_of_decrypted_document_v2_cross_reference_table_round_trip() {
+    let mut doc = minimal_encryptable_document();
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    let state = EncryptionState::try_from(EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "owner",
+        user_password: "user",
+        key_length: 128,
+        permissions: Permissions::all(),
+    })
+    .unwrap();
+    doc.encrypt(&state).unwrap();
+    let mut prev_bytes = Vec::new();
+    doc.save_to(&mut prev_bytes).unwrap();
+
+    // Sanity check on the fixture: the base revision must use the classical
+    // `trailer` keyword. If this fails, the test setup slipped back to the
+    // xref-stream path and no longer covers what it claims to cover.
+    let trailer_keyword: &[u8] = b"trailer\n";
+    assert!(
+        prev_bytes
+            .windows(trailer_keyword.len())
+            .any(|w| w == trailer_keyword),
+        "base revision must use classical trailer for this test to be meaningful"
+    );
+
+    let original_encrypt_id = read_encrypt_id(&prev_bytes);
+
+    let loaded = load_and_decrypt(&prev_bytes, "user");
+    assert!(
+        matches!(loaded.reference_table.cross_reference_type, XrefType::CrossReferenceTable),
+        "loaded document must retain the CrossReferenceTable format"
+    );
+
+    let mut incremental = IncrementalDocument::create_from(prev_bytes.clone(), loaded);
+    let marker: Vec<u8> = b"PR520-MARKER-V2-Table".to_vec();
+    let stream = Stream::new(dictionary! {}, marker.clone()).with_compression(false);
+    let new_stream_id = incremental.new_document.add_object(Object::Stream(stream));
+
+    let mut out = Vec::new();
+    incremental.save_to(&mut out).unwrap();
+
+    let appended = &out[prev_bytes.len()..];
+
+    // The appended region must go through the classical `trailer` path,
+    // which is where `write_trailer` reads `self.trailer` — the swap target.
+    assert!(
+        appended
+            .windows(trailer_keyword.len())
+            .any(|w| w == trailer_keyword),
+        "appended region must use classical trailer (CrossReferenceTable path)"
+    );
+
+    // Assert A: no plaintext leak in the appended region.
+    assert!(
+        !appended.windows(marker.len()).any(|w| w == marker.as_slice()),
+        "V2/table: plaintext marker leaked in the appended region"
+    );
+
+    // Assert B: round-trip.
+    let reloaded = load_and_decrypt(&out, "user");
+    let stream = reloaded.get_object(new_stream_id).unwrap().as_stream().unwrap();
+    assert_eq!(
+        stream.content, marker,
+        "V2/table: appended stream content mismatch after round-trip"
+    );
+
+    // Assert C: the trailer's /Encrypt reference resolves to the original id.
+    let round_encrypt_id = read_encrypt_id(&out);
+    assert_eq!(
+        round_encrypt_id, original_encrypt_id,
+        "V2/table: trailer /Encrypt reference mismatch after round-trip"
+    );
 }
 
 #[test]
