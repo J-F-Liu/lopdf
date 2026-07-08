@@ -5,6 +5,7 @@ use std::vec;
 
 use super::Object::*;
 use super::{Dictionary, Document, Object, Stream, StringFormat};
+use crate::encryption;
 use crate::{IncrementalDocument, xref::*};
 
 impl Document {
@@ -275,15 +276,43 @@ impl IncrementalDocument {
         self.save_internal(target)
     }
 
-    fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
-        if self.get_prev_documents().was_encrypted() || self.get_prev_documents().is_encrypted() {
+    /// Reject the two cases we still cannot handle: a document that arrived
+    /// still-encrypted (no password was supplied), and the inconsistent case
+    /// of `encryption_state` set but `encrypt_object_id` missing (which should
+    /// not occur in practice — `decrypt_raw` records the id — but we guard
+    /// against it defensively).
+    fn check_incremental_save_supported(&self) -> Result<()> {
+        let prev = self.get_prev_documents();
+        if prev.is_encrypted() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
-                "incremental update of an encrypted PDF is not supported yet: \
-                 saving would write unencrypted objects into an encrypted file and corrupt it \
+                "incremental update of a still-encrypted PDF is not supported: \
+                 call `Document::decrypt` on the previous revision first \
                  (see https://github.com/J-F-Liu/lopdf/issues/520)",
             ));
         }
+        if let Some(state) = prev.encryption_state.as_ref()
+            && state.encrypt_object_id().is_none()
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "cannot incrementally save this decrypted document: \
+                 the /Encrypt object id was not recorded during decryption",
+            ));
+        }
+        Ok(())
+    }
+
+    fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
+        self.check_incremental_save_supported()?;
+
+        // If the previous revision was encrypted (and successfully decrypted),
+        // we need to re-encrypt every appended object with the same encryption
+        // state and restore the trailer's `/Encrypt` reference.
+        //
+        // Cloning `EncryptionState` (small, mostly `Vec<u8>`) avoids borrow
+        // conflicts between `&self.prev_documents` and `&mut self.new_document`.
+        let encryption_state = self.get_prev_documents().encryption_state.as_ref().cloned();
 
         let mut target = CountingWrite {
             inner: target,
@@ -311,6 +340,10 @@ impl IncrementalDocument {
 
         Writer::write_binary_mark(&mut target, &self.new_document.binary_mark)?;
 
+        // Write each newly added indirect object. When the document is
+        // encrypted, each object is cloned first and the clone is encrypted;
+        // the in-memory objects are left as plaintext so that further edits
+        // and repeated saves do not double-encrypt.
         for (&(id, generation), object) in &self.new_document.objects {
             if object
                 .type_name()
@@ -318,28 +351,60 @@ impl IncrementalDocument {
                 .ok()
                 != Some(true)
             {
-                Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
+                if let Some(state) = encryption_state.as_ref() {
+                    let mut encrypted = object.clone();
+                    encryption::encrypt_object(state, (id, generation), &mut encrypted)
+                        .map_err(std::io::Error::other)?;
+                    Writer::write_indirect_object(&mut target, id, generation, &encrypted, &mut xref)?;
+                } else {
+                    Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
+                }
             }
         }
+
+        // For an encrypted document, install a modified copy of the trailer
+        // that restores the /Encrypt reference. We swap it in temporarily so
+        // that `write_trailer` / `write_cross_reference_stream` — which
+        // already mutate the trailer to update Size/W/Length/etc — operate
+        // on the modified copy, and swap it back afterwards so that the
+        // in-memory `new_document.trailer` stays clean for subsequent saves.
+        let saved_trailer = if let Some(state) = encryption_state.as_ref() {
+            let encrypt_id = state
+                .encrypt_object_id()
+                .expect("encrypt_object_id presence checked by check_incremental_save_supported");
+            let mut modified = self.new_document.trailer.clone();
+            modified.set(b"Encrypt", Object::Reference(encrypt_id));
+            Some(std::mem::replace(&mut self.new_document.trailer, modified))
+        } else {
+            None
+        };
 
         let xref_start = target.bytes_written;
 
         // Pick right cross reference stream.
-        match xref.cross_reference_type {
-            XrefType::CrossReferenceTable => {
-                Writer::write_xref(&mut target, &xref)?;
-                self.new_document.write_trailer(&mut target)?;
+        let write_result: Result<()> = (|| {
+            match xref.cross_reference_type {
+                XrefType::CrossReferenceTable => {
+                    Writer::write_xref(&mut target, &xref)?;
+                    self.new_document.write_trailer(&mut target)?;
+                }
+                XrefType::CrossReferenceStream => {
+                    // Cross Reference Stream instead of XRef and Trailer
+                    self.new_document
+                        .write_cross_reference_stream(&mut target, &mut xref, xref_start as u32)?;
+                }
             }
-            XrefType::CrossReferenceStream => {
-                // Cross Reference Stream instead of XRef and Trailer
-                self.new_document
-                    .write_cross_reference_stream(&mut target, &mut xref, xref_start as u32)?;
-            }
-        }
-        // Write `startxref` part of trailer
-        write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
+            // Write `startxref` part of trailer
+            write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
+            Ok(())
+        })();
 
-        Ok(())
+        // Restore the original in-memory trailer even if writing failed.
+        if let Some(saved) = saved_trailer {
+            self.new_document.trailer = saved;
+        }
+
+        write_result
     }
 }
 
