@@ -263,8 +263,13 @@ impl Document {
 
 impl IncrementalDocument {
     /// Save PDF document to specified file path.
+    ///
+    /// The `check_incremental_save_supported` guard is invoked before
+    /// `File::create` so an unsupported input (e.g. a still-encrypted
+    /// previous revision) does not truncate a pre-existing file at `path`.
     #[inline]
     pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
+        self.check_incremental_save_supported()?;
         let mut file = BufWriter::new(File::create(path)?);
         self.save_internal(&mut file)?;
         Ok(file.into_inner()?)

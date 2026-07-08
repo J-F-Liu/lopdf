@@ -4,6 +4,7 @@ use lopdf::{
     Stream, dictionary,
 };
 use std::collections::BTreeMap;
+use std::fs;
 use std::io;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -313,4 +314,42 @@ fn incremental_save_of_still_encrypted_document_is_rejected() {
     let mut out = Vec::new();
     let err = incremental.save_to(&mut out).unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::Unsupported);
+}
+
+/// `IncrementalDocument::save(path)` must not truncate a pre-existing file
+/// when the incremental save is unsupported. Prior to this check the guard
+/// ran only after `File::create` had already zeroed the target.
+#[test]
+fn incremental_save_to_path_does_not_truncate_on_unsupported_input() {
+    let mut doc = minimal_encryptable_document();
+    let encryption_state = EncryptionState::try_from(EncryptionVersion::V1 {
+        document: &doc,
+        owner_password: "owner",
+        user_password: "user",
+        permissions: Permissions::all(),
+    })
+    .unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    let mut prev_bytes = Vec::new();
+    doc.save_to(&mut prev_bytes).unwrap();
+
+    // Load without decrypting: this is the still-encrypted (unsupported) case.
+    let loaded = Document::load_mem(&prev_bytes).unwrap();
+    let mut incremental = IncrementalDocument::create_from(prev_bytes, loaded);
+
+    let temp_dir = tempdir().unwrap();
+    let target_path = temp_dir.path().join("existing.pdf");
+    let sentinel: &[u8] = b"do-not-truncate-me";
+    fs::write(&target_path, sentinel).unwrap();
+
+    let err = incremental.save(&target_path).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::Unsupported);
+
+    // File must be untouched on disk.
+    let on_disk = fs::read(&target_path).unwrap();
+    assert_eq!(
+        on_disk, sentinel,
+        "unsupported save must not truncate or overwrite the target file"
+    );
 }
