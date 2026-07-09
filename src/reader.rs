@@ -944,7 +944,12 @@ impl Reader<'_> {
                 }
             }
 
-            self.document.encryption_state = Some(state.clone());
+            let mut stored_state = state.clone();
+            // Record the /Encrypt dictionary's object id so that a later
+            // incremental save can restore `/Encrypt N G R` in the appended
+            // trailer. See `IncrementalDocument::save_internal`.
+            stored_state.encrypt_object_id = encrypt_ref;
+            self.document.encryption_state = Some(stored_state);
 
             if let Some(enc_ref) = encrypt_ref {
                 self.document.objects.remove(&enc_ref);
