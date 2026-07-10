@@ -1,3 +1,41 @@
+<a name="v0.44.0"></a>
+## [v0.44.0](https://github.com/J-F-Liu/lopdf/compare/v0.43.0...v0.44.0) (2026-07-10)
+
+### Add
+
+* Add back assets/test.pdf
+
+### Feat
+
+* Support incremental save of encrypted documents (#522)
+* Bound text extraction against decompression bombs
+* Bound load-time decompression via LoadOptions.max_decompressed_size
+* Bound stream decompression to guard against bombs
+* Make ttf-parser optional behind font_embedding feature
+
+### Fix
+
+* Reject incremental save of encrypted documents (#521)
+* Fix Document::get_toc() dropping entries when outline titles repeat (#517)
+* Add feature flag to font test
+* Only use criterion for non-wasm tests/benches
+
+### Move
+
+* Move resource files in tests to assets
+
+### Refactor
+
+* Make `Document::get_page_content` return `Vec<u8>` since it cannot fail
+
+### Test
+
+* Add tests demonstrating unbounded stream decompression
+
+### CI
+
+* CI skip performance test
+* Actually pass --no-default-features in the no-default-features matrix cell (#510)
 
 <a name="v0.43.0"></a>
 ## [v0.43.0](https://github.com/J-F-Liu/lopdf/compare/v0.42.0...v0.43.0) (2026-06-25)
