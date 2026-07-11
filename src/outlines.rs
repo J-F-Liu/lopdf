@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 
 use super::{Destination, Dictionary, Document, Error, Object, ObjectId, Result};
 
+#[derive(Debug, Clone)]
 pub enum Outline {
     Destination(Destination),
     SubOutlines(Vec<Outline>),
