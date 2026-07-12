@@ -1,7 +1,8 @@
 use indexmap::IndexMap;
 
-use super::{Destination, Dictionary, Document, Error, Object, Result};
+use super::{Destination, Dictionary, Document, Error, Object, ObjectId, Result};
 
+#[derive(Debug, Clone)]
 pub enum Outline {
     Destination(Destination),
     SubOutlines(Vec<Outline>),
@@ -91,6 +92,23 @@ impl Document {
         Ok(outlines)
     }
 
+    pub fn delete_outlines(&mut self) -> Result<()> {
+        if let Some(outlines_id) = self
+            .catalog()?
+            .get(b"Outlines")
+            .ok()
+            .and_then(|v| v.as_reference().ok())
+        {
+            let outlines = self.get_dictionary(outlines_id)?;
+            if let Ok(Object::Reference(first)) = outlines.get(b"First") {
+                self.walk_outlines_del(*first)?;
+            }
+            self.delete_object(outlines_id);
+        }
+
+        Ok(())
+    }
+
     fn build_outline_result(
         &self, dest: &Object, title: &Object, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<Option<Outline>> {
@@ -114,5 +132,23 @@ impl Document {
             _ => return Err(Error::InvalidOutline(format!("Unexpected destination {dest:?}"))),
         };
         Ok(Some(outline))
+    }
+
+    fn walk_outlines_del(&mut self, outline: ObjectId) -> Result<()> {
+        let mut cur = Some(outline);
+
+        while let Some(id) = cur.take() {
+            let outline = self.get_dictionary(id)?;
+            let first = outline.get(b"First").ok().and_then(|v| v.as_reference().ok());
+            let next = outline.get(b"Next").ok().and_then(|v| v.as_reference().ok());
+
+            if let Some(first) = first {
+                self.walk_outlines_del(first)?;
+            }
+            cur = next;
+            self.delete_object(id);
+        }
+
+        Ok(())
     }
 }
