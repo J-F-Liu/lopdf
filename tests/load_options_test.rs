@@ -1,6 +1,7 @@
 #[cfg(not(feature = "async"))]
 mod sync_tests {
-    use lopdf::{Document, LoadOptions, Object};
+    use lopdf::{Document, Error, LoadOptions, Object, ParseError};
+    use std::assert_matches;
     use std::fs::File;
 
     #[test]
@@ -194,11 +195,7 @@ mod sync_tests {
                 ..Default::default()
             },
         );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("invalid file header"),
-            "expected InvalidFileHeader, got: {err}"
-        );
+        assert_matches!(result.unwrap_err(), Error::Parse(ParseError::InvalidFileHeader));
     }
 
     #[test]
