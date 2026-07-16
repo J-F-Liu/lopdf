@@ -92,18 +92,26 @@ mod jiff_impl {
 #[cfg(feature = "time")]
 mod time_impl {
     use crate::Object;
-    use time::{OffsetDateTime, Time, format_description::FormatItem};
+    use time::{OffsetDateTime, PrimitiveDateTime};
 
-    impl From<Time> for Object {
-        fn from(date: Time) -> Self {
-            // can only fail if the TIME_FMT_ENCODE_STR would be invalid
-            Object::string_literal(
-                format!(
-                    "D:{}",
-                    date.format(&FormatItem::StringLiteral("%Y%m%d%H%M%SZ")).unwrap()
+    /// The naive datetime is taken to be UTC and rendered with the `Z` suffix
+    /// (PDF 32000-1 §7.9.4) — the `time`-crate counterpart of the
+    /// `chrono::DateTime<Utc>` and `jiff::Timestamp` impls above.
+    ///
+    /// (This replaces a `From<time::Time>` impl that never compiled — see
+    /// issue #518: it referenced a nonexistent `FormatItem::StringLiteral`
+    /// with a strftime pattern, and a bare time-of-day cannot form a valid
+    /// PDF date anyway, which must start at the year.)
+    impl From<PrimitiveDateTime> for Object {
+        fn from(date: PrimitiveDateTime) -> Self {
+            Object::string_literal({
+                // D:%Y%m%d%H%M%SZ
+                let format = time::format_description::parse_borrowed::<3>(
+                    "D:[year][month][day][hour][minute][second]Z",
                 )
-                .into_bytes(),
-            )
+                .unwrap();
+                date.format(&format).unwrap()
+            })
         }
     }
 
@@ -253,6 +261,22 @@ fn parse_datetime_time_missing_jiff() {
     let text = Object::string_literal("D:20040229");
     let dt: Option<Zoned> = text.as_datetime().and_then(|dt| dt.try_into().ok());
     assert!(dt.is_some());
+}
+
+#[cfg(feature = "time")]
+#[test]
+fn format_primitive_datetime_as_utc() {
+    use time::{Date, Month, PrimitiveDateTime, Time};
+
+    // The example date from the PDF reference (1.7, §3.8.3), as a naive
+    // datetime: it must serialize with the year first and the `Z` suffix.
+    let date = Date::from_calendar_date(1998, Month::December, 23).unwrap();
+    let time = Time::from_hms(19, 52, 0).unwrap();
+    let text: Object = PrimitiveDateTime::new(date, time).into();
+    match &text {
+        Object::String(bytes, _) => assert_eq!(bytes.as_slice(), b"D:19981223195200Z"),
+        other => panic!("expected a string literal, got {other:?}"),
+    }
 }
 
 #[cfg(feature = "time")]
