@@ -1326,11 +1326,11 @@ fn test_load_encrypted_pdf_with_object_streams() {
     // Check if document has object streams
     let mut has_obj_stream = false;
     for (id, obj) in &doc.objects {
-        if let Object::Stream(stream) = obj {
-            if stream.dict.has_type(b"ObjStm") {
-                has_obj_stream = true;
-                println!("Found object stream: {:?}", id);
-            }
+        if let Object::Stream(stream) = obj
+            && stream.dict.has_type(b"ObjStm")
+        {
+            has_obj_stream = true;
+            println!("Found object stream: {:?}", id);
         }
     }
     println!("Has object streams: {}", has_obj_stream);
@@ -1344,7 +1344,7 @@ fn test_load_encrypted_pdf_with_object_streams() {
     let text = doc.extract_text(&page_numbers).unwrap();
     println!("Extracted {} characters of text", text.len());
 
-    assert!(pages.len() > 0, "Should have at least one page");
+    assert!(!pages.is_empty(), "Should have at least one page");
 
     // Now save and reload to verify round-trip
     let temp_dir = tempfile::tempdir().unwrap();

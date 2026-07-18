@@ -109,7 +109,7 @@ fn legit_stream_decompresses_under_limit() {
     let stream = flate_stream(zlib_compress(&payload));
 
     let output = stream
-        .decompressed_content_with_limit(1 * MIB)
+        .decompressed_content_with_limit(MIB)
         .expect("stream under the limit should decode");
     assert_eq!(output, payload);
 }
@@ -120,7 +120,7 @@ fn custom_limit_is_enforced() {
     let stream = flate_stream(flate_bomb(2 * MIB));
 
     // Limit below the output size: rejected.
-    assert_limit_err(stream.decompressed_content_with_limit(1 * MIB), 1 * MIB);
+    assert_limit_err(stream.decompressed_content_with_limit(MIB), MIB);
 
     // Limit above the output size: decoded in full.
     let output = stream

@@ -96,8 +96,7 @@ fn filter_func(object_id: (u32, u16), object: &mut Object) -> Option<((u32, u16)
 
 #[cfg(not(feature = "async"))]
 fn load_pdf<P: AsRef<Path>>(path: P) -> Result<Document, Error> {
-    Document::load_with_options(path, LoadOptions::with_filter(filter_func))
-        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+    Document::load_with_options(path, LoadOptions::with_filter(filter_func)).map_err(|e| Error::other(e.to_string()))
 }
 
 #[cfg(feature = "async")]

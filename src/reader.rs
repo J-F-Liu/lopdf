@@ -1506,7 +1506,7 @@ fn get_xref_start_ignores_startxref_past_eof() {
     let _startxref_pos = buf.len();
     buf.extend_from_slice(startxref_block.as_bytes());
     // Second (corrupted) revision: another startxref pointing elsewhere, with %%EO\0
-    let bad_block = format!("startxref\n999\n%%EO\x00\n");
+    let bad_block = "startxref\n999\n%%EO\x00\n".to_string();
     buf.extend_from_slice(bad_block.as_bytes());
 
     let result = Reader::get_xref_start(&buf).unwrap();
