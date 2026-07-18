@@ -69,7 +69,8 @@ pub fn decode_row(filter: FilterType, bpp: usize, previous: &[u8], current: &mut
             }
 
             for i in bpp..len {
-                current[i] = current[i].wrapping_add((i16::from(current[i - bpp]) + i16::from(previous[i]) / 2) as u8);
+                current[i] =
+                    current[i].wrapping_add(((i16::from(current[i - bpp]) + i16::from(previous[i])) / 2) as u8);
             }
         }
         Paeth => {
@@ -132,7 +133,8 @@ pub fn encode_row(method: FilterType, bpp: usize, previous: &[u8], current: &mut
         }
         Avg => {
             for i in (bpp..len).rev() {
-                current[i] = current[i].wrapping_sub(current[i - bpp].wrapping_add(previous[i]) / 2);
+                current[i] =
+                    current[i].wrapping_sub(((u16::from(current[i - bpp]) + u16::from(previous[i])) / 2) as u8);
             }
 
             for i in 0..bpp {
