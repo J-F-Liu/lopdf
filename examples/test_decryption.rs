@@ -20,7 +20,7 @@ fn main() {
     println!("Number of pages: {}", pages.len());
 
     // Try to extract text
-    if pages.len() > 0 {
+    if !pages.is_empty() {
         let page_numbers: Vec<u32> = pages.keys().cloned().collect();
         match doc.extract_text(&page_numbers) {
             Ok(text) => {
@@ -40,7 +40,7 @@ fn main() {
     println!("\nChecking object access:");
     let max_check = 10;
     for i in 1..=max_check {
-        if let Ok(_) = doc.get_object((i, 0)) {
+        if doc.get_object((i, 0)).is_ok() {
             println!("  Object ({}, 0) found", i);
         }
     }
@@ -99,7 +99,7 @@ async fn main() {
     println!("\nChecking object access:");
     let max_check = 10;
     for i in 1..=max_check {
-        if let Ok(_obj) = doc.get_object((i, 0)) {
+        if doc.get_object((i, 0)).is_ok() {
             println!("  Object ({}, 0) found", i);
         }
     }
