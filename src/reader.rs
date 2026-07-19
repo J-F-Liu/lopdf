@@ -730,10 +730,16 @@ impl Reader<'_> {
             Err(_) => return Ok(0),
         };
 
-        self.get_pages_tree_count(pages_ref, &mut HashSet::new()).or(Ok(0))
+        self.get_pages_tree_count(pages_ref, &mut HashSet::new(), 0).or(Ok(0))
     }
 
-    fn get_pages_tree_count(&self, pages_id: ObjectId, seen: &mut HashSet<ObjectId>) -> Result<u32> {
+    fn get_pages_tree_count(&self, pages_id: ObjectId, seen: &mut HashSet<ObjectId>, depth: usize) -> Result<u32> {
+        // `seen` catches a repeated node (a cycle); it does not bound the depth of a long,
+        // non-cyclic /Pages chain with no /Count, which recurses once per level. Cap that
+        // separately, matching this crate's existing MAX_NESTING_DEPTH budget.
+        if depth >= MAX_NESTING_DEPTH {
+            return Ok(0);
+        }
         if seen.contains(&pages_id) {
             return Err(Error::ReferenceCycle(pages_id));
         }
@@ -768,7 +774,7 @@ impl Reader<'_> {
                 let mut total = 0u32;
                 for kid in kids.iter() {
                     if let Ok(kid_ref) = kid.as_reference()
-                        && let Ok(count) = self.get_pages_tree_count(kid_ref, seen)
+                        && let Ok(count) = self.get_pages_tree_count(kid_ref, seen, depth + 1)
                     {
                         total += count;
                     }

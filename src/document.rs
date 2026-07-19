@@ -779,7 +779,10 @@ impl Document {
                 let height = dict.get(b"Height")?.as_i64()?;
                 let color_space = match dict.get(b"ColorSpace") {
                     Ok(cs) => match cs {
-                        Object::Array(array) => Some(String::from_utf8_lossy(array[0].as_name()?).to_string()),
+                        Object::Array(array) => match array.first() {
+                            Some(first) => Some(String::from_utf8_lossy(first.as_name()?).to_string()),
+                            None => None,
+                        },
                         Object::Name(name) => Some(String::from_utf8_lossy(name).to_string()),
                         _ => None,
                     },
