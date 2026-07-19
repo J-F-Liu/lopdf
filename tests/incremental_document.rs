@@ -228,9 +228,7 @@ fn incremental_save_of_decrypted_document_v2_cross_reference_table_round_trip() 
     // xref-stream path and no longer covers what it claims to cover.
     let trailer_keyword: &[u8] = b"trailer\n";
     assert!(
-        prev_bytes
-            .windows(trailer_keyword.len())
-            .any(|w| w == trailer_keyword),
+        prev_bytes.windows(trailer_keyword.len()).any(|w| w == trailer_keyword),
         "base revision must use classical trailer for this test to be meaningful"
     );
 
@@ -238,7 +236,10 @@ fn incremental_save_of_decrypted_document_v2_cross_reference_table_round_trip() 
 
     let loaded = load_and_decrypt(&prev_bytes, "user");
     assert!(
-        matches!(loaded.reference_table.cross_reference_type, XrefType::CrossReferenceTable),
+        matches!(
+            loaded.reference_table.cross_reference_type,
+            XrefType::CrossReferenceTable
+        ),
         "loaded document must retain the CrossReferenceTable format"
     );
 
@@ -255,9 +256,7 @@ fn incremental_save_of_decrypted_document_v2_cross_reference_table_round_trip() 
     // The appended region must go through the classical `trailer` path,
     // which is where `write_trailer` reads `self.trailer` — the swap target.
     assert!(
-        appended
-            .windows(trailer_keyword.len())
-            .any(|w| w == trailer_keyword),
+        appended.windows(trailer_keyword.len()).any(|w| w == trailer_keyword),
         "appended region must use classical trailer (CrossReferenceTable path)"
     );
 

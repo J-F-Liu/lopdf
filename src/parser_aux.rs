@@ -533,7 +533,9 @@ pub fn decode_xref_stream(stream: Stream) -> Result<(Xref, Dictionary)> {
 /// would exceed `max_decompressed_size` bytes. `None` means no limit (the
 /// behavior of [`decode_xref_stream`]). Cross-reference streams are decoded
 /// early during loading, so this bounds the memory a `/XRef` stream can use.
-pub fn decode_xref_stream_with_limit(mut stream: Stream, max_decompressed_size: Option<usize>) -> Result<(Xref, Dictionary)> {
+pub fn decode_xref_stream_with_limit(
+    mut stream: Stream, max_decompressed_size: Option<usize>,
+) -> Result<(Xref, Dictionary)> {
     if stream.is_compressed() {
         match max_decompressed_size {
             Some(max) => stream.decompress_with_limit(max)?,
@@ -696,8 +698,8 @@ mod tests {
     /// by streaming zeros through the compressor so the test process never holds
     /// `target` bytes at once.
     fn flate_bomb(target: usize) -> Vec<u8> {
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         use std::io::Write;
 
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
@@ -721,7 +723,8 @@ mod tests {
         let content_id = doc.get_page_contents(page_id)[0];
         let mut dict = Dictionary::new();
         dict.set("Filter", "FlateDecode");
-        doc.objects.insert(content_id, Object::Stream(Stream::new(dict, flate_bomb(target))));
+        doc.objects
+            .insert(content_id, Object::Stream(Stream::new(dict, flate_bomb(target))));
         doc
     }
 

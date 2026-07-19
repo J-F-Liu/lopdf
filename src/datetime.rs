@@ -106,10 +106,9 @@ mod time_impl {
         fn from(date: PrimitiveDateTime) -> Self {
             Object::string_literal({
                 // D:%Y%m%d%H%M%SZ
-                let format = time::format_description::parse_borrowed::<3>(
-                    "D:[year][month][day][hour][minute][second]Z",
-                )
-                .unwrap();
+                let format =
+                    time::format_description::parse_borrowed::<3>("D:[year][month][day][hour][minute][second]Z")
+                        .unwrap();
                 date.format(&format).unwrap()
             })
         }

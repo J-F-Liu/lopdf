@@ -204,10 +204,10 @@ impl Document {
 pub mod tests {
     use std::path::PathBuf;
 
-    use crate::content::*;
-    use crate::{Document, Object, Stream};
     #[cfg(feature = "font_embedding")]
     use crate::FontData;
+    use crate::content::*;
+    use crate::{Document, Object, Stream};
 
     #[cfg(not(feature = "time"))]
     pub fn get_timestamp() -> Object {

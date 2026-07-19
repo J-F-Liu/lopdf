@@ -10,8 +10,8 @@
 use std::io::Write;
 use std::time::Instant;
 
-use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use lopdf::{Dictionary, Document, LoadOptions, Object, Stream};
 
 const MIB: usize = 1024 * 1024;
@@ -96,7 +96,10 @@ fn main() {
     }
     match Document::load_mem_with_options(&pdf, LoadOptions::with_max_decompressed_size(limit)) {
         Ok(_) => println!("  UNEXPECTED: guarded load succeeded"),
-        Err(e) => println!("  load_mem_with_options(max_decompressed_size = {} MiB): {e}", limit / MIB),
+        Err(e) => println!(
+            "  load_mem_with_options(max_decompressed_size = {} MiB): {e}",
+            limit / MIB
+        ),
     }
 }
 
