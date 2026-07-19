@@ -667,7 +667,7 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
         // If we have an image mask then we don't have a colorspace
         Ok(true) => 1,
         _ => {
-            let colorspace = get_abbr(b"CS", b"ColorSpace").unwrap().as_name()?;
+            let colorspace = get_abbr(b"CS", b"ColorSpace")?.as_name()?;
             match colorspace {
                 b"DeviceGray" | b"Gray" => 1,
                 b"DeviceRGB" | b"RGB" => 3,
