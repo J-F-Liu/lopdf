@@ -34,9 +34,19 @@ impl Document {
     }
 
     pub fn get_outlines(
-        &self, mut node: Option<Object>, mut outlines: Option<Vec<Outline>>,
+        &self, node: Option<Object>, outlines: Option<Vec<Outline>>,
         named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<Option<Vec<Outline>>> {
+        self.get_outlines_impl(node, outlines, named_destinations, 0)
+    }
+
+    fn get_outlines_impl(
+        &self, mut node: Option<Object>, mut outlines: Option<Vec<Outline>>,
+        named_destinations: &mut IndexMap<Vec<u8>, Destination>, depth: usize,
+    ) -> Result<Option<Vec<Outline>>> {
+        if depth >= crate::reader::MAX_NESTING_DEPTH {
+            return Err(Error::RecursionLimit);
+        }
         if outlines.is_none() {
             outlines = Some(Vec::new());
             let catalog = self.catalog()?;
@@ -76,7 +86,8 @@ impl Document {
             }
             if let Ok(first) = node.get(b"First") {
                 let sub_outlines = Vec::new();
-                let sub_outlines = self.get_outlines(Some(first.clone()), Some(sub_outlines), named_destinations)?;
+                let sub_outlines =
+                    self.get_outlines_impl(Some(first.clone()), Some(sub_outlines), named_destinations, depth + 1)?;
                 if let Some(sub_outlines) = sub_outlines
                     && !sub_outlines.is_empty()
                     && let Some(ref mut outlines) = outlines
@@ -101,7 +112,7 @@ impl Document {
         {
             let outlines = self.get_dictionary(outlines_id)?;
             if let Ok(Object::Reference(first)) = outlines.get(b"First") {
-                self.walk_outlines_del(*first)?;
+                self.walk_outlines_del(*first, 0)?;
             }
             self.delete_object(outlines_id);
         }
@@ -134,7 +145,10 @@ impl Document {
         Ok(Some(outline))
     }
 
-    fn walk_outlines_del(&mut self, outline: ObjectId) -> Result<()> {
+    fn walk_outlines_del(&mut self, outline: ObjectId, depth: usize) -> Result<()> {
+        if depth >= crate::reader::MAX_NESTING_DEPTH {
+            return Err(Error::RecursionLimit);
+        }
         let mut cur = Some(outline);
 
         while let Some(id) = cur.take() {
@@ -143,7 +157,7 @@ impl Document {
             let next = outline.get(b"Next").ok().and_then(|v| v.as_reference().ok());
 
             if let Some(first) = first {
-                self.walk_outlines_del(first)?;
+                self.walk_outlines_del(first, depth + 1)?;
             }
             cur = next;
             self.delete_object(id);

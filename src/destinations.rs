@@ -33,10 +33,19 @@ impl Document {
     pub fn get_named_destinations(
         &self, tree: &Dictionary, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<()> {
+        self.get_named_destinations_impl(tree, named_destinations, 0)
+    }
+
+    fn get_named_destinations_impl(
+        &self, tree: &Dictionary, named_destinations: &mut IndexMap<Vec<u8>, Destination>, depth: usize,
+    ) -> Result<()> {
+        if depth >= crate::reader::MAX_NESTING_DEPTH {
+            return Err(crate::Error::RecursionLimit);
+        }
         if let Ok(kids) = tree.get(b"Kids") {
             for kid in kids.as_array()? {
                 if let Ok(kid) = kid.as_reference().and_then(move |id| self.get_dictionary(id)) {
-                    self.get_named_destinations(kid, named_destinations)?;
+                    self.get_named_destinations_impl(kid, named_destinations, depth + 1)?;
                 }
             }
         }

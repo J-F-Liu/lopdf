@@ -671,6 +671,9 @@ impl Document {
                 if already_seen.contains(&parent_id) {
                     return Err(Error::ReferenceCycle(parent_id));
                 }
+                if already_seen.len() >= crate::reader::MAX_NESTING_DEPTH {
+                    return Err(Error::RecursionLimit);
+                }
                 already_seen.insert(parent_id);
                 let parent_dict = doc.get_dictionary(parent_id)?;
                 collect_resources(parent_dict, resource_ids, doc, already_seen)?;

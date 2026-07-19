@@ -86,6 +86,11 @@ pub enum Error {
     /// This might indicate a reference loop.
     #[error("dereferencing object reached limit, may indicate a reference cycle")]
     ReferenceLimit,
+    /// Traversal of the document's object graph (e.g. a `/Kids`, `/First`, or `/Parent` chain)
+    /// exceeded the supported nesting depth.
+    /// This might indicate a reference cycle or a maliciously deep structure.
+    #[error("object graph traversal reached the nesting-depth limit, may indicate a reference cycle")]
+    RecursionLimit,
     /// Decoding text string failed.
     #[error("decoding text string failed")]
     TextStringDecode,
