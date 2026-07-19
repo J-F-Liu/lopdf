@@ -43,6 +43,21 @@ jobs:
             - name: Run tests
               run: cargo test --verbose ${{ matrix.features }} -- --test-threads=1 --skip performance
 
+    fmt:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v7
+            - uses: hecrj/setup-rust-action@v2
+              with:
+                  rust-version: nightly
+                  components: rustfmt
+
+            - name: rustfmt for lopdf
+              run: cargo fmt --all -- --check
+            - name: rustfmt for pdfutil
+              run: cargo fmt --manifest-path pdfutil/Cargo.toml -- --check
+
     pdfutil:
         runs-on: ubuntu-latest
 
