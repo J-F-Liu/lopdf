@@ -160,13 +160,9 @@ fn main() -> Result<()> {
                 }
             } else {
                 // Replace on specific page
-                match doc.replace_partial_text(page, &search, &replace, default_char.as_deref()) {
-                    Ok(count) => {
-                        println!("Page {}: Replaced {} occurrences", page, count);
-                        total_replacements = count;
-                    }
-                    Err(e) => return Err(e),
-                }
+                let count = doc.replace_partial_text(page, &search, &replace, default_char.as_deref())?;
+                println!("Page {}: Replaced {} occurrences", page, count);
+                total_replacements = count;
             }
 
             if total_replacements > 0 {

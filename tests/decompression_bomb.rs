@@ -10,8 +10,8 @@
 //! Bombs are built by streaming zeros through the compressor, so the test
 //! process itself never allocates the full (large) plaintext.
 
-use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use std::io::Write;
 
 use lopdf::{DecompressError, Dictionary, Document, Error, LoadOptions, Object, ObjectId, ObjectStream, Stream};
@@ -157,9 +157,16 @@ fn decompress_to_writer_bounds_output() {
         Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
             assert_eq!(limit, 4 * MIB);
         }
-        other => panic!("expected MemoryLimitExceeded, got {:?}", other.map(|n| format!("Ok({n})"))),
+        other => panic!(
+            "expected MemoryLimitExceeded, got {:?}",
+            other.map(|n| format!("Ok({n})"))
+        ),
     }
-    assert!(sink.is_empty(), "sink should be untouched on rejection, got {} bytes", sink.len());
+    assert!(
+        sink.is_empty(),
+        "sink should be untouched on rejection, got {} bytes",
+        sink.len()
+    );
 }
 
 // Object streams and cross-reference streams are decompressed while the document

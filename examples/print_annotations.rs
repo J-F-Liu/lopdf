@@ -78,7 +78,7 @@ fn main() {
 
     match Document::load(&args[1]) {
         Ok(doc) => _ = handle_pdf_page(doc),
-        Err(e) => eprintln!("Error opening {:?}: {:?}", &args[1], e),
+        Err(e) => eprintln!("Error opening {:?}: {:?}", args[1], e),
     }
 }
 
