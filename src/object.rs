@@ -1085,10 +1085,14 @@ impl Stream {
             if !(b'!'..=b'u').contains(&ch) {
                 break;
             }
+            // A base-85 group encodes a value in 0..2^32; reject any group whose
+            // value reaches 2^32. Both the multiply and the add can carry past
+            // u32::MAX (2^32-1 == 85 * 50529027, so a prefix of 50529027 leaves
+            // the multiply in range yet the add still overflows), so guard both.
             buffer = buffer
                 .checked_mul(85)
-                .ok_or(DecompressError::Ascii85("multiplication overflow"))?;
-            buffer += (ch - b'!') as u32;
+                .and_then(|b| b.checked_add((ch - b'!') as u32))
+                .ok_or(DecompressError::Ascii85("group value out of range"))?;
             count += 1;
 
             if count == 5 {
@@ -1102,8 +1106,8 @@ impl Stream {
             for _ in count..5 {
                 buffer = buffer
                     .checked_mul(85)
-                    .ok_or(DecompressError::Ascii85("multiplication overflow"))?;
-                buffer += 84;
+                    .and_then(|b| b.checked_add(84))
+                    .ok_or(DecompressError::Ascii85("group value out of range"))?;
             }
 
             let bytes = buffer.to_be_bytes();
@@ -1118,7 +1122,15 @@ impl Stream {
 
         if let Some(params) = params {
             let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
-            if (10..=15).contains(&predictor) {
+            if predictor == 2 {
+                // TIFF Predictor 2 (horizontal differencing). Distinct from the PNG
+                // predictors below and previously ignored, so `/Predictor 2` streams
+                // silently decoded to the un-differenced (wrong) bytes.
+                let columns = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
+                let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
+                let bits = max(1, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
+                data = Self::reverse_tiff_predictor2(data, columns, colors, bits)?;
+            } else if (10..=15).contains(&predictor) {
                 let pixels_per_row = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
                 let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
                 let bits = max(8, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
@@ -1129,6 +1141,46 @@ impl Stream {
         } else {
             Ok(data)
         }
+    }
+
+    /// Reverse TIFF Predictor 2 (horizontal differencing): each sample is the
+    /// running sum of the encoded differences of the same colour component along
+    /// its row (PDF 32000-1:2008 Table 10). Rows are `Columns * Colors` samples of
+    /// `BitsPerComponent` bits; sums wrap modulo `2^BitsPerComponent`. Only the
+    /// byte-aligned 8- and 16-bit cases are supported; sub-byte depths are rejected
+    /// rather than silently corrupting the output.
+    fn reverse_tiff_predictor2(mut data: Vec<u8>, columns: usize, colors: usize, bits: usize) -> Result<Vec<u8>> {
+        match bits {
+            8 => {
+                let stride = columns * colors;
+                if stride > 0 {
+                    for row in data.chunks_mut(stride) {
+                        for i in colors..row.len() {
+                            row[i] = row[i].wrapping_add(row[i - colors]);
+                        }
+                    }
+                }
+            }
+            16 => {
+                let stride = columns * colors * 2;
+                if stride > 0 {
+                    for row in data.chunks_mut(stride) {
+                        let samples = row.len() / 2;
+                        for s in colors..samples {
+                            let prev = u16::from_be_bytes([row[(s - colors) * 2], row[(s - colors) * 2 + 1]]);
+                            let cur = u16::from_be_bytes([row[s * 2], row[s * 2 + 1]]);
+                            row[s * 2..s * 2 + 2].copy_from_slice(&cur.wrapping_add(prev).to_be_bytes());
+                        }
+                    }
+                }
+            }
+            _ => {
+                return Err(
+                    DecompressError::Predictor("TIFF Predictor 2 supports only 8- or 16-bit components").into(),
+                );
+            }
+        }
+        Ok(data)
     }
 
     pub fn decompress(&mut self) -> Result<()> {
@@ -1181,6 +1233,91 @@ mod test {
         let output = Stream::decode_ascii85(input, None);
         // let expected: Result<Vec<u8>, Error> = Err(Error::ContentDecode);
         assert!(matches!(output, Err(Error::Decompress(DecompressError::Ascii85(_)))));
+    }
+
+    #[test]
+    fn test_decode_ascii85_group_value_out_of_range() {
+        // A base-85 group must be < 2^32. 85 * 50529027 == u32::MAX, so the prefix
+        // "s8W-" reaches the multiply ceiling and the 5th digit overflows the add;
+        // the multiply-only guard missed this. The value == u32::MAX case ("s8W-!")
+        // is in range and must still decode.
+        assert_eq!(
+            Stream::decode_ascii85(b"s8W-!~>", None).unwrap(),
+            vec![255, 255, 255, 255]
+        );
+
+        for input in [
+            &b"s8W-\"~>"[..], // value == 2^32 (issue #442)
+            &b"s8W-~>"[..],   // same overflow via the partial-group padding
+            &b"uuuuu~>"[..],  // overflow caught by the multiply
+        ] {
+            let out = Stream::decode_ascii85(input, None);
+            assert!(
+                matches!(out, Err(Error::Decompress(DecompressError::Ascii85(_)))),
+                "expected {input:?} to be rejected, got {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_decode_ascii85_valid_vectors() {
+        let cases: &[(&[u8], &[u8])] = &[
+            (b"88/~>", &[72, 105]),
+            (b"87cURD_*#4DfTZ)+T~>", b"Hello, World!"),
+            (b"z~>", &[0, 0, 0, 0]),
+            (b":ddb~>", b"PDF"),
+            (
+                b"!!*-'\"9eu7#RLhG$k3[W&.oNg~>",
+                &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                &Stream::decode_ascii85(input, None).unwrap(),
+                expected,
+                "input {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_decompress_tiff_predictor2() {
+        use crate::Dictionary;
+
+        fn params(colors: i64, columns: i64, bits: i64) -> Dictionary {
+            let mut p = Dictionary::new();
+            p.set("Predictor", 2i64);
+            p.set("Colors", colors);
+            p.set("Columns", columns);
+            p.set("BitsPerComponent", bits);
+            p
+        }
+
+        // 8-bit single component: running sum along the row, wrapping mod 256.
+        assert_eq!(
+            Stream::decompress_predictor(vec![10, 5, 250, 1], Some(&params(1, 4, 8))).unwrap(),
+            vec![10, 15, 9, 10]
+        );
+        // 8-bit, 3 colours: differencing is per component.
+        assert_eq!(
+            Stream::decompress_predictor(vec![255, 0, 128, 1, 2, 3], Some(&params(3, 2, 8))).unwrap(),
+            vec![255, 0, 128, 0, 2, 131]
+        );
+        // 8-bit: rows reconstruct independently.
+        assert_eq!(
+            Stream::decompress_predictor(vec![1, 2, 3, 10, 20, 30], Some(&params(1, 3, 8))).unwrap(),
+            vec![1, 3, 6, 10, 30, 60]
+        );
+        // 16-bit big-endian samples, sums wrap mod 2^16.
+        assert_eq!(
+            Stream::decompress_predictor(vec![0xFF, 0xFF, 0x00, 0x02], Some(&params(1, 2, 16))).unwrap(),
+            vec![0xFF, 0xFF, 0x00, 0x01]
+        );
+        // Sub-byte depths are rejected rather than silently corrupted.
+        assert!(matches!(
+            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(1, 8, 1))),
+            Err(Error::Decompress(DecompressError::Predictor(_)))
+        ));
     }
 
     #[test]
