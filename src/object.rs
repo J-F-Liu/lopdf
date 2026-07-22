@@ -942,6 +942,8 @@ impl Stream {
                 b"FlateDecode" => Self::decompress_zlib(input, params, limit)?,
                 b"LZWDecode" => Self::decompress_lzw(input, params, limit)?,
                 b"ASCII85Decode" => Self::decode_ascii85(input, limit)?,
+                b"ASCIIHexDecode" => Self::decode_ascii_hex(input, limit)?,
+                b"RunLengthDecode" => Self::decode_run_length(input, limit)?,
                 _ => return Err(Error::Unimplemented("decompression algorithms")),
             };
             if let Some(max) = limit
@@ -1114,6 +1116,70 @@ impl Stream {
             output.extend_from_slice(&bytes[..count - 1]);
         }
 
+        Ok(output)
+    }
+
+    /// ASCIIHexDecode (PDF 32000-1:2008, 7.4.2): each byte is two hexadecimal
+    /// digits, ASCII whitespace is ignored, and `>` ends the data. A final odd
+    /// digit is treated as if followed by `0`; any other non-hex byte is an error.
+    fn decode_ascii_hex(input: &[u8], limit: Option<usize>) -> Result<Vec<u8>> {
+        let mut output = vec![];
+        let mut high: Option<u8> = None;
+        for &ch in input {
+            if let Some(max) = limit
+                && output.len() > max
+            {
+                return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
+            }
+            if ch == b'>' {
+                break;
+            }
+            if ch.is_ascii_whitespace() {
+                continue;
+            }
+            let nibble = (ch as char)
+                .to_digit(16)
+                .ok_or(DecompressError::AsciiHex("invalid hexadecimal character"))? as u8;
+            match high.take() {
+                Some(h) => output.push((h << 4) | nibble),
+                None => high = Some(nibble),
+            }
+        }
+        if let Some(h) = high {
+            output.push(h << 4);
+        }
+        Ok(output)
+    }
+
+    /// RunLengthDecode (PDF 32000-1:2008, 7.4.5): a length byte `l` where
+    /// `0..=127` copies the next `l + 1` bytes literally, `129..=255` repeats the
+    /// next byte `257 - l` times, and `128` marks the end of data. A stream that
+    /// ends mid-run is decoded best-effort rather than treated as fatal.
+    fn decode_run_length(input: &[u8], limit: Option<usize>) -> Result<Vec<u8>> {
+        let mut output = vec![];
+        let mut i = 0;
+        while i < input.len() {
+            if let Some(max) = limit
+                && output.len() > max
+            {
+                return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
+            }
+            let length = input[i];
+            i += 1;
+            match length {
+                128 => break,
+                0..=127 => {
+                    let end = (i + length as usize + 1).min(input.len());
+                    output.extend_from_slice(&input[i..end]);
+                    i = end;
+                }
+                _ => {
+                    let Some(&byte) = input.get(i) else { break };
+                    output.resize(output.len() + (257 - length as usize), byte);
+                    i += 1;
+                }
+            }
+        }
         Ok(output)
     }
 
@@ -1441,5 +1507,80 @@ mod test {
         // Unbounded default still round-trips fully (proves the pairing is valid,
         // so the rejection above is real and not a decode failure).
         assert_eq!(stream.decompressed_content().unwrap().len(), 8 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_decode_ascii_hex() {
+        use crate::Dictionary;
+
+        // Whole-stream path: a `/Filter /ASCIIHexDecode` stream decodes to bytes.
+        let mut dict = Dictionary::new();
+        dict.set("Filter", "ASCIIHexDecode");
+        let stream = Stream::new(dict, b"48656C6C6F>".to_vec());
+        assert_eq!(stream.decompressed_content().unwrap(), b"Hello");
+
+        // Spec vectors (PDF 32000-1 7.4.2). Whitespace is ignored, `>` ends the
+        // data, and a trailing odd digit is padded with 0.
+        let cases: &[(&[u8], &[u8])] = &[
+            (b"48 65 6C\n6C6F>", b"Hello"),
+            (b"901FA3>", &[0x90, 0x1F, 0xA3]),
+            (b"4A5>", &[0x4A, 0x50]),
+            (b"4>", &[0x40]),
+            (b">", &[]),
+            (b"4865>ffff", b"He"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                &Stream::decode_ascii_hex(input, None).unwrap(),
+                expected,
+                "input {input:?}"
+            );
+        }
+
+        // A byte that is neither a hex digit, whitespace, nor `>` is rejected.
+        assert!(matches!(
+            Stream::decode_ascii_hex(b"48XY>", None),
+            Err(Error::Decompress(DecompressError::AsciiHex(_)))
+        ));
+    }
+
+    #[test]
+    fn test_decode_run_length() {
+        use crate::Dictionary;
+
+        // Whole-stream path: literal run of 5, then 3 copies of 'A', then EOD.
+        let mut dict = Dictionary::new();
+        dict.set("Filter", "RunLengthDecode");
+        let mut data = vec![0x04];
+        data.extend_from_slice(b"Hello");
+        data.extend_from_slice(&[0xFE, b'A', 0x80]);
+        let stream = Stream::new(dict, data);
+        assert_eq!(stream.decompressed_content().unwrap(), b"HelloAAA");
+
+        // Spec vectors (PDF 32000-1 7.4.5). Length 0x81 = 128 copies, 0xFF = 2,
+        // 0x80 = end of data (trailing bytes are dropped), and a run that ends
+        // without an EOD marker is decoded best-effort.
+        let cases: &[(&[u8], Vec<u8>)] = &[
+            (&[0x81, b'Z', 0x80], vec![b'Z'; 128]),
+            (&[0xFF, b'Q', 0x00, b'!', 0x80], b"QQ!".to_vec()),
+            (&[0x02, b'a', b'b', b'c', 0x80, b'x', b'y'], b"abc".to_vec()),
+            (&[0x01, b'H', b'i'], b"Hi".to_vec()),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                &Stream::decode_run_length(input, None).unwrap(),
+                expected,
+                "input {input:?}"
+            );
+        }
+
+        // Run-length can amplify up to 128x, so an over-limit stream must be
+        // rejected instead of allocating the full expansion (bomb guard).
+        let bomb: Vec<u8> = std::iter::repeat_n([0x81u8, b'x'], 4096).flatten().collect();
+        assert_eq!(Stream::decode_run_length(&bomb, None).unwrap().len(), 128 * 4096);
+        assert!(matches!(
+            Stream::decode_run_length(&bomb, Some(64 * 1024)),
+            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) if limit == 64 * 1024
+        ));
     }
 }
