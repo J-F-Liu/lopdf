@@ -1197,11 +1197,17 @@ impl Stream {
                 let bits = max(1, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
                 data = Self::reverse_tiff_predictor2(data, columns, colors, bits)?;
             } else if (10..=15).contains(&predictor) {
-                let pixels_per_row = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
+                // PNG predictors 10-15. Rows are packed to a byte boundary, so a
+                // sub-byte component depth still occupies ceil(Columns*Colors*bits/8)
+                // bytes per row; the old max(8, bits) width over-read and failed on
+                // valid 1/2/4-bit images. The filter's left reference is whole bytes,
+                // rounded up to one.
+                let columns = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
                 let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
-                let bits = max(8, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
-                let bytes_per_pixel = colors * bits / 8;
-                data = png::decode_frame(data.as_slice(), bytes_per_pixel, pixels_per_row)?;
+                let bits = max(1, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
+                let bytes_per_row = (columns * colors * bits).div_ceil(8);
+                let bpp = (colors * bits).div_ceil(8);
+                data = png::decode_frame(data.as_slice(), bpp, bytes_per_row)?;
             }
             Ok(data)
         } else {
@@ -1212,9 +1218,9 @@ impl Stream {
     /// Reverse TIFF Predictor 2 (horizontal differencing): each sample is the
     /// running sum of the encoded differences of the same colour component along
     /// its row (PDF 32000-1:2008 Table 10). Rows are `Columns * Colors` samples of
-    /// `BitsPerComponent` bits; sums wrap modulo `2^BitsPerComponent`. Only the
-    /// byte-aligned 8- and 16-bit cases are supported; sub-byte depths are rejected
-    /// rather than silently corrupting the output.
+    /// `BitsPerComponent` bits; sums wrap modulo `2^BitsPerComponent`. The 1-, 2-,
+    /// 4-, 8- and 16-bit depths PDF allows are all supported; sub-byte samples are
+    /// unpacked, summed and repacked (see [`reverse_tiff_predictor2_subbyte`]).
     fn reverse_tiff_predictor2(mut data: Vec<u8>, columns: usize, colors: usize, bits: usize) -> Result<Vec<u8>> {
         match bits {
             8 => {
@@ -1240,13 +1246,59 @@ impl Stream {
                     }
                 }
             }
+            1 | 2 | 4 => {
+                let stride = (columns * colors * bits).div_ceil(8);
+                if stride > 0 {
+                    for row in data.chunks_mut(stride) {
+                        Self::reverse_tiff_predictor2_subbyte(row, columns, colors, bits);
+                    }
+                }
+            }
             _ => {
-                return Err(
-                    DecompressError::Predictor("TIFF Predictor 2 supports only 8- or 16-bit components").into(),
-                );
+                return Err(DecompressError::Predictor(
+                    "TIFF Predictor 2 supports only 1-, 2-, 4-, 8- or 16-bit components",
+                )
+                .into());
             }
         }
         Ok(data)
+    }
+
+    /// Reverse TIFF Predictor 2 for one sub-byte (1/2/4-bit) packed row in place.
+    /// Samples are unpacked MSB-first, summed per colour component modulo
+    /// `2^bits`, then repacked MSB-first; the row's trailing padding bits are kept.
+    fn reverse_tiff_predictor2_subbyte(row: &mut [u8], columns: usize, colors: usize, bits: usize) {
+        let mask = (1u16 << bits) - 1;
+        let samples = (columns * colors).min(row.len() * 8 / bits);
+        let mut acc = vec![0u16; colors];
+        let mut out = vec![0u8; row.len()];
+        let mut in_bit = 0usize;
+        let mut out_buf = 0u32;
+        let mut out_bits = 0u32;
+        let mut out_idx = 0usize;
+        for s in 0..samples {
+            let byte = in_bit / 8;
+            let off = (in_bit % 8) as u32;
+            let window = ((row[byte] as u16) << 8) | *row.get(byte + 1).unwrap_or(&0) as u16;
+            let sample = (window >> (16 - off - bits as u32)) & mask;
+            in_bit += bits;
+
+            let c = s % colors;
+            acc[c] = (acc[c] + sample) & mask;
+
+            out_buf = (out_buf << bits) | acc[c] as u32;
+            out_bits += bits as u32;
+            if out_bits >= 8 {
+                out[out_idx] = (out_buf >> (out_bits - 8)) as u8;
+                out_idx += 1;
+                out_bits -= 8;
+            }
+        }
+        if out_bits > 0 && out_idx < out.len() {
+            let keep = 8 - out_bits;
+            out[out_idx] = ((out_buf << keep) as u8) | (row[out_idx] & ((1u8 << keep) - 1));
+        }
+        row.copy_from_slice(&out);
     }
 
     pub fn decompress(&mut self) -> Result<()> {
@@ -1379,11 +1431,77 @@ mod test {
             Stream::decompress_predictor(vec![0xFF, 0xFF, 0x00, 0x02], Some(&params(1, 2, 16))).unwrap(),
             vec![0xFF, 0xFF, 0x00, 0x01]
         );
-        // Sub-byte depths are rejected rather than silently corrupted.
+        // Sub-byte depths (1/2/4-bit) are now reconstructed instead of rejected;
+        // values verified against pdf.js. 1-bit, 8 columns: running sum mod 2.
+        assert_eq!(
+            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(1, 8, 1))).unwrap(),
+            vec![0b1100_1100]
+        );
+        // 1-bit, 16 columns, two rows.
+        assert_eq!(
+            Stream::decompress_predictor(vec![255, 170, 8, 255], Some(&params(1, 16, 1))).unwrap(),
+            vec![170, 204, 15, 85]
+        );
+        // 2-bit and 4-bit, single component (rows have trailing padding bits).
+        assert_eq!(
+            Stream::decompress_predictor(vec![85, 179], Some(&params(1, 6, 2))).unwrap(),
+            vec![108, 147]
+        );
+        assert_eq!(
+            Stream::decompress_predictor(vec![25, 16], Some(&params(1, 3, 4))).unwrap(),
+            vec![26, 176]
+        );
+        // 4-bit, 2 colours: differencing stays per component.
+        assert_eq!(
+            Stream::decompress_predictor(vec![18, 34], Some(&params(2, 2, 4))).unwrap(),
+            vec![18, 52]
+        );
+        // A depth PDF never uses (not 1/2/4/8/16) is still rejected.
         assert!(matches!(
-            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(1, 8, 1))),
+            Stream::decompress_predictor(vec![0, 0, 0], Some(&params(1, 4, 3))),
             Err(Error::Decompress(DecompressError::Predictor(_)))
         ));
+    }
+
+    #[test]
+    fn test_decompress_png_predictor_subbyte() {
+        use crate::Dictionary;
+
+        // Predictor 15 (PNG). Each row carries a leading filter-type byte. Decoded
+        // bytes verified against pdf.js and a real libpng-encoded 1-bit PNG.
+        fn params(colors: i64, columns: i64, bits: i64) -> Dictionary {
+            let mut p = Dictionary::new();
+            p.set("Predictor", 15i64);
+            p.set("Colors", colors);
+            p.set("Columns", columns);
+            p.set("BitsPerComponent", bits);
+            p
+        }
+
+        // 1-bit grayscale, 16 columns: 2 packed bytes/row. Before the fix this
+        // decoded with a 16-byte row width and failed with UnexpectedEof on a
+        // valid image. Filters None/Sub/Up.
+        assert_eq!(
+            Stream::decompress_predictor(vec![0, 170, 204, 1, 15, 70, 2, 225, 65], Some(&params(1, 16, 1))).unwrap(),
+            vec![170, 204, 15, 85, 240, 150]
+        );
+        // 2-bit grayscale, 6 columns (Sub, Average).
+        assert_eq!(
+            Stream::decompress_predictor(vec![1, 108, 36, 3, 144, 141], Some(&params(1, 6, 2))).unwrap(),
+            vec![108, 144, 198, 56]
+        );
+        // 4-bit grayscale, 3 columns (Up, Paeth).
+        assert_eq!(
+            Stream::decompress_predictor(vec![2, 26, 176, 4, 171, 107], Some(&params(1, 3, 4))).unwrap(),
+            vec![26, 176, 197, 48]
+        );
+        // 2-bit RGB (3 colours), 4 columns: 3 bytes/row, left reference = 1 byte.
+        // The old bytes_per_pixel * pixels_per_row factorisation could not express
+        // this row width.
+        assert_eq!(
+            Stream::decompress_predictor(vec![1, 108, 48, 72, 4, 175, 202, 241], Some(&params(3, 4, 2))).unwrap(),
+            vec![108, 156, 228, 27, 54, 141]
+        );
     }
 
     #[test]
