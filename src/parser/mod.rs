@@ -610,7 +610,9 @@ fn operand(input: ParserInput) -> NomResult<Object> {
 fn operation(input: ParserInput) -> NomResult<Operation> {
     map(
         preceded(
-            many0(comment),
+            // A comment consumes its end-of-line marker, so also skip any
+            // white space that follows it (e.g. an indented next line).
+            many0(terminated(comment, content_space)),
             alt((inline_image, terminated(pair(many0(operand), operator), content_space))),
         ),
         |(operands, operator)| Operation { operator, operands },
@@ -942,6 +944,21 @@ startxref
         let out_strict = content_strict(test_span(input)).unwrap();
         assert_eq!(out.operations.len(), out_strict.operations.len());
         assert_eq!(out.operations.len(), 3);
+    }
+
+    #[test]
+    fn content_with_comment_followed_by_indented_line() {
+        // A comment is equivalent to a single white-space character
+        // (ISO 32000-2, 7.2.4), so a line starting with white space right
+        // after a comment must not stop the parser (issue #535).
+        let input = b"BT /F1 24 Tf
+% comment
+  100 100 Td (Hello World) Tj ET";
+        let out = content(test_span(input)).unwrap();
+        let out_strict = content_strict(test_span(input)).unwrap();
+        assert_eq!(out.operations.len(), out_strict.operations.len());
+        let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+        assert_eq!(ops, vec!["BT", "Tf", "Td", "Tj", "ET"]);
     }
 
     #[test]
