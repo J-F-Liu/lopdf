@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use lopdf::{Document, Result};
+use lopdf::{Document, Object, Result};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -11,6 +11,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Merge PDF documents
+    Merge {
+        /// Input PDF files
+        #[arg(required = true, num_args = 1..)]
+        inputs: Vec<PathBuf>,
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+    },
     /// Extract text from PDF
     Extract {
         /// Input PDF file
@@ -106,6 +115,15 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Merge { inputs, output } => {
+            let documents = inputs
+                .iter()
+                .map(Document::load)
+                .collect::<Result<Vec<_>>>()?;
+            let mut document = merge_documents(documents)?;
+            document.save(&output)?;
+            println!("PDFs merged. Saved to: {:?}", output);
+        }
         Commands::Extract { input, pages } => {
             let doc = Document::load(&input)?;
             let page_numbers = if let Some(pages) = pages {
@@ -231,6 +249,53 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn merge_documents(documents: Vec<Document>) -> Result<Document> {
+    let mut max_id = 1;
+    let mut page_roots = Vec::new();
+    let mut page_count = 0;
+    let mut document = Document::with_version("1.5");
+
+    for mut input in documents {
+        input.renumber_objects_with(max_id);
+        max_id = input.max_id + 1;
+
+        let catalog = input.catalog()?;
+        let pages_id = catalog.get(b"Pages")?.as_reference()?;
+        page_count += input.get_pages().len();
+        page_roots.push(pages_id);
+
+        document.objects.extend(input.objects);
+    }
+
+    document.max_id = max_id.saturating_sub(1);
+    let pages_id = document.new_object_id();
+    for page_root in &page_roots {
+        document
+            .get_object_mut(*page_root)?
+            .as_dict_mut()?
+            .set("Parent", pages_id);
+    }
+    document.objects.insert(
+        pages_id,
+        Object::Dictionary(lopdf::dictionary! {
+            "Type" => "Pages",
+            "Count" => page_count as u32,
+            "Kids" => page_roots.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+        }),
+    );
+
+    // Do not merge input catalog entries: document-level references from one
+    // input are not necessarily meaningful in the combined document.
+    let catalog_id = document.add_object(lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.renumber_objects();
+
+    Ok(document)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +304,90 @@ mod tests {
         content::{Content, Operation},
         dictionary,
     };
+
+    fn document_with_pages(markers: &[i64]) -> Document {
+        let mut document = Document::with_version("1.5");
+        let pages_id = document.new_object_id();
+        let mut page_ids = markers
+            .iter()
+            .rev()
+            .map(|marker| {
+                document.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "Marker" => *marker,
+                })
+            })
+            .collect::<Vec<_>>();
+        page_ids.reverse();
+
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => markers.len() as u32,
+            }),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        document
+    }
+
+    #[test]
+    fn merge_documents_preserves_document_and_page_order() -> Result<()> {
+        let document = merge_documents(vec![document_with_pages(&[1, 2]), document_with_pages(&[3, 4])])?;
+
+        assert_eq!(document.get_pages().len(), 4);
+        let markers = document
+            .get_pages()
+            .into_values()
+            .map(|id| document.get_object(id)?.as_dict()?.get(b"Marker")?.as_i64())
+            .collect::<Result<Vec<_>>>()?;
+        assert_eq!(markers, vec![1, 2, 3, 4]);
+        Ok(())
+    }
+
+    #[test]
+    fn merge_documents_preserves_page_tree_inheritance_and_rebuilds_catalog() -> Result<()> {
+        let mut input = document_with_pages(&[1]);
+        let catalog_id = input.trailer.get(b"Root")?.as_reference()?;
+        let pages_id = input.catalog()?.get(b"Pages")?.as_reference()?;
+        let page_id = input.get_pages()[&1];
+        let resource_id = input.add_object(dictionary! { "Inherited" => true });
+        let child_id = input.add_object(dictionary! {
+            "Type" => "Pages",
+            "Parent" => pages_id,
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+            "Resources" => resource_id,
+        });
+        input.get_object_mut(page_id)?.as_dict_mut()?.set("Parent", child_id);
+        let pages = input.get_object_mut(pages_id)?.as_dict_mut()?;
+        pages.set("Kids", vec![Object::Reference(child_id)]);
+        pages.set("MediaBox", vec![0.into(), 0.into(), 200.into(), 300.into()]);
+        input
+            .get_object_mut(catalog_id)?
+            .as_dict_mut()?
+            .set("Names", resource_id);
+
+        let document = merge_documents(vec![input])?;
+        let page_id = document.get_pages()[&1];
+        let child_id = document.get_object(page_id)?.as_dict()?.get(b"Parent")?.as_reference()?;
+        let input_root_id = document
+            .get_object(child_id)?
+            .as_dict()?
+            .get(b"Parent")?
+            .as_reference()?;
+
+        assert!(document.get_object(child_id)?.as_dict()?.has(b"Resources"));
+        assert!(document.get_object(input_root_id)?.as_dict()?.has(b"MediaBox"));
+        assert!(!document.catalog()?.has(b"Names"));
+        Ok(())
+    }
 
     #[test]
     fn test_replace_partial_command() -> Result<()> {
