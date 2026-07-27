@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use lopdf::{Document, Object, Result};
+use lopdf::{Document, Object, Result, dictionary};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -116,10 +116,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Merge { inputs, output } => {
-            let documents = inputs
-                .iter()
-                .map(Document::load)
-                .collect::<Result<Vec<_>>>()?;
+            let documents = inputs.iter().map(Document::load).collect::<Result<Vec<_>>>()?;
             let mut document = merge_documents(documents)?;
             document.save(&output)?;
             println!("PDFs merged. Saved to: {:?}", output);
@@ -376,7 +373,11 @@ mod tests {
 
         let document = merge_documents(vec![input])?;
         let page_id = document.get_pages()[&1];
-        let child_id = document.get_object(page_id)?.as_dict()?.get(b"Parent")?.as_reference()?;
+        let child_id = document
+            .get_object(page_id)?
+            .as_dict()?
+            .get(b"Parent")?
+            .as_reference()?;
         let input_root_id = document
             .get_object(child_id)?
             .as_dict()?
