@@ -33,6 +33,62 @@ fn load_incremental_file() -> Result<()> {
     Ok(())
 }
 
+/// An incremental update must not open with a file header. ISO 32000-1,
+/// 7.5.6 defines it as the original bytes followed by the changed objects, a
+/// cross-reference section and a trailer: the header belongs to the *file*,
+/// and the previous revision already carries it.
+///
+/// Two things went wrong with the second `%PDF-x.y`. A file that appears to
+/// start another document halfway through misleads anything that locates a
+/// PDF by scanning for the header. And because `new_document`'s version
+/// defaults to 1.4, appending to a 1.7 file wrote a line claiming 1.4.
+#[test]
+fn incremental_save_appends_no_second_file_header() {
+    let mut doc = Document::with_version("1.7");
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog" });
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+    let mut prev_bytes = Vec::new();
+    doc.save_to(&mut prev_bytes).unwrap();
+
+    let loaded = Document::load_mem(&prev_bytes).unwrap();
+    let mut incremental = IncrementalDocument::create_from(prev_bytes.clone(), loaded);
+    let marker: Vec<u8> = b"header-guard".to_vec();
+    let stream = Stream::new(dictionary! {}, marker.clone()).with_compression(false);
+    let new_id = incremental.new_document.add_object(Object::Stream(stream));
+
+    let mut out = Vec::new();
+    incremental.save_to(&mut out).unwrap();
+
+    // The previous revision is reproduced untouched.
+    assert_eq!(&out[..prev_bytes.len()], &prev_bytes[..]);
+
+    // The appended region carries neither a header nor a binary marker: it
+    // begins directly with an indirect object.
+    let appended = &out[prev_bytes.len()..];
+    assert!(
+        !appended.windows(b"%PDF-".len()).any(|w| w == b"%PDF-"),
+        "appended region must not open a second document"
+    );
+    let first = appended
+        .iter()
+        .position(|b| !b" \r\n".contains(b))
+        .expect("appended region is not empty");
+    assert!(
+        appended[first].is_ascii_digit(),
+        "appended region must begin with an indirect object, found {:?}",
+        String::from_utf8_lossy(&appended[first..(first + 16).min(appended.len())])
+    );
+
+    // The result still parses, keeps the version it was built with, and the
+    // appended object reads back.
+    let reloaded = Document::load_mem(&out).unwrap();
+    assert_eq!(reloaded.version, "1.7", "the file's version was rewritten");
+    assert_eq!(
+        reloaded.get_object(new_id).unwrap().as_stream().unwrap().content,
+        marker
+    );
+}
+
 /// Build a minimal document that has everything `EncryptionVersion::V1`
 /// needs to derive an encryption key (a `Root` entry and a file `ID`).
 fn minimal_encryptable_document() -> Document {

@@ -341,9 +341,16 @@ impl IncrementalDocument {
             // Add a newline if it was not already present
             writeln!(target)?;
         }
-        writeln!(target, "%PDF-{}", self.new_document.version)?;
 
-        Writer::write_binary_mark(&mut target, &self.new_document.binary_mark)?;
+        // No file header and no binary marker here. An incremental update is
+        // defined (ISO 32000-1, 7.5.6) as the original file followed by the
+        // changed objects, a cross-reference section and a trailer — the
+        // header belongs to the file, which the previous revision already
+        // carries. Emitting a second "%PDF-x.y" makes the appended region
+        // look like the start of another document to anything that locates a
+        // PDF by scanning for the header, and because `new_document`'s
+        // version defaults to 1.4 it also understated the format of every
+        // file built on a later version.
 
         // Write each newly added indirect object. When the document is
         // encrypted, each object is cloned first and the clone is encrypted;
