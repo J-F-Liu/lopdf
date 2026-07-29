@@ -23,7 +23,6 @@ bitflags = "2.13"
 cbc = "0.2"
 chrono = { version = "0.4", optional = true, default-features = false, features = [
     "std",
-    "clock",
 ] }
 ecb = "0.2"
 encoding_rs = "0.8"
@@ -66,8 +65,11 @@ criterion = "0.8"
 
 [features]
 async = ["tokio/rt-multi-thread", "tokio/macros"]
+# Fixed-offset and UTC conversions, which is all a PDF date can express.
 chrono = ["dep:chrono"]
-default = ["chrono", "jiff", "rayon", "time"]
+# The system-local conversions, and the iana-time-zone subtree they need.
+chrono-clock = ["chrono", "chrono/clock"]
+default = ["chrono-clock", "rayon"]
 embed_image = ["image"]
 font_embedding = ["dep:ttf-parser"]
 jiff = ["dep:jiff"]
@@ -85,7 +87,10 @@ required-features = ["serde"]
 
 [[example]]
 name = "print_annotations"
-required-features = ["default"]
+# No `required-features`: the example uses `env_logger` (a dev-dependency,
+# always available to an example) and `Document`/`Object`, none of which is
+# behind a feature. Naming `default` only made it silently unbuildable under
+# `--no-default-features`.
 
 [[example]]
 name = "rotate"

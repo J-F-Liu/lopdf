@@ -17,6 +17,25 @@ The PDF 2.0 specification is available [here](https://www.pdfa.org/announcing-no
 - To check your Rust version: `rustc --version`
 - To update Rust: `rustup update`
 
+## Cargo features
+
+| Feature | Default | What it adds |
+| --- | :---: | --- |
+| `chrono-clock` | ✅ | `chrono` plus its `clock` feature: conversions to and from `DateTime<Local>`, the reading machine's own zone. Brings `iana-time-zone` and its per-platform chain. |
+| `rayon` | ✅ | Parallel object-stream and cross-reference parsing. |
+| `chrono` | | Conversions to and from `DateTime<FixedOffset>` and `DateTime<Utc>`, which is all a PDF date can express. Costs `chrono` and `num-traits`, nothing else. |
+| `jiff` | | Conversions to and from `jiff::Zoned` and `jiff::Timestamp`. Resolves named zones, so it needs a timezone database — bundled into the binary on Windows and on any wasm target. |
+| `time` | | Conversions to and from `time::OffsetDateTime` and `time::PrimitiveDateTime`. |
+| `serde` | | `Serialize`/`Deserialize` for the object model. |
+| `async` | | Tokio-based asynchronous document loading. |
+| `embed_image` | | Embedding raster images, via the `image` crate. |
+| `font_embedding` | | Embedding TrueType fonts, via `ttf-parser`. |
+| `wasm_js` | | Selects `getrandom`'s `wasm_js` backend, needed for encryption on wasm. |
+
+The date backends are alternatives, not layers: each supplies conversions for the same [`DateTime`] value, so enabling more than one only adds dependencies. Enabling none is supported too — `Object::as_datetime` needs no backend, and `DateTime::as_str` returns the raw date for a caller that would rather parse it itself.
+
+A PDF date states a fixed offset from UT and never a named zone (ISO 32000-1, 7.9.4), so `chrono` without `clock` is enough to read one faithfully. `chrono-clock` is the default only because it is what earlier versions gave you.
+
 ## Example Code
 
 * Create PDF document
