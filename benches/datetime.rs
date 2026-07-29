@@ -1,7 +1,13 @@
+#[cfg(feature = "chrono-clock")]
 use chrono::prelude::{Local, Timelike};
 use criterion::{Criterion, criterion_group, criterion_main};
 use lopdf::Object;
 
+// Only the date benchmark needs a date backend, and only this one needs the
+// system clock. Without the gate the whole bench target fails to compile
+// under `--no-default-features`, which is why
+// `cargo clippy --all-targets --no-default-features` does not build.
+#[cfg(feature = "chrono-clock")]
 fn create_and_parse_datetime(c: &mut Criterion) {
     c.bench_function("create_and_parse_datetime", |b| {
         b.iter(|| {
@@ -9,6 +15,19 @@ fn create_and_parse_datetime(c: &mut Criterion) {
             let text: Object = time.into();
             let time2 = text.as_datetime();
             assert!(time2.is_some());
+        });
+    });
+}
+
+#[cfg(not(feature = "chrono-clock"))]
+fn create_and_parse_datetime(c: &mut Criterion) {
+    // The parse half still measures without any backend, through the
+    // accessor that needs none.
+    c.bench_function("create_and_parse_datetime", |b| {
+        b.iter(|| {
+            let text = Object::string_literal("D:20260710143000+02'00'");
+            let parsed = text.as_datetime();
+            assert!(parsed.is_some());
         });
     });
 }

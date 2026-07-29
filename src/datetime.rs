@@ -5,8 +5,8 @@ mod chrono_impl {
     use crate::{Object, datetime::convert_utc_offset};
     use chrono::prelude::*;
 
-    impl From<DateTime<Local>> for Object {
-        fn from(date: DateTime<Local>) -> Self {
+    impl From<DateTime<FixedOffset>> for Object {
+        fn from(date: DateTime<FixedOffset>) -> Self {
             let mut timezone_str = date.format("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
             convert_utc_offset(&mut timezone_str);
             Object::string_literal(timezone_str)
@@ -19,10 +19,14 @@ mod chrono_impl {
         }
     }
 
-    impl TryFrom<super::DateTime> for DateTime<Local> {
+    /// A PDF date states a fixed offset from UT and never a named zone
+    /// (ISO 32000-1, 7.9.4), so this is the conversion that keeps what the
+    /// file said. Re-expressing it in the machine's own zone is what the
+    /// `chrono-clock` feature adds.
+    impl TryFrom<super::DateTime> for DateTime<FixedOffset> {
         type Error = chrono::format::ParseError;
 
-        fn try_from(value: super::DateTime) -> Result<DateTime<Local>, Self::Error> {
+        fn try_from(value: super::DateTime) -> Result<DateTime<FixedOffset>, Self::Error> {
             let from_date = |date: NaiveDate| {
                 FixedOffset::east_opt(0)
                     .unwrap()
@@ -32,7 +36,33 @@ mod chrono_impl {
             DateTime::parse_from_str(&value.0, "%Y%m%d%H%M%S%#z")
                 .or_else(|_| DateTime::parse_from_str(&value.0, "%Y%m%d%H%M%#z"))
                 .or_else(|_| NaiveDate::parse_from_str(&value.0, "%Y%m%d").map(from_date))
-                .map(|date| date.with_timezone(&Local))
+        }
+    }
+}
+
+/// The system-local conversions, kept apart from `chrono` because `Local`
+/// exists only with chrono's `clock` feature — which brings `iana-time-zone`
+/// and its per-platform chain. A PDF date never names a zone, so a consumer
+/// that does not want the reading machine's offset applied to someone else's
+/// document can have dates for `chrono` and `num-traits` alone.
+#[cfg(feature = "chrono-clock")]
+mod chrono_clock_impl {
+    use crate::{Object, datetime::convert_utc_offset};
+    use chrono::prelude::*;
+
+    impl From<DateTime<Local>> for Object {
+        fn from(date: DateTime<Local>) -> Self {
+            let mut timezone_str = date.format("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
+            convert_utc_offset(&mut timezone_str);
+            Object::string_literal(timezone_str)
+        }
+    }
+
+    impl TryFrom<super::DateTime> for DateTime<Local> {
+        type Error = chrono::format::ParseError;
+
+        fn try_from(value: super::DateTime) -> Result<DateTime<Local>, Self::Error> {
+            DateTime::<FixedOffset>::try_from(value).map(|date| date.with_timezone(&Local))
         }
     }
 }
@@ -176,7 +206,60 @@ impl Object {
     }
 }
 
+impl DateTime {
+    /// The date's characters with `D`, `:` and `'` removed.
+    ///
+    /// Every typed conversion of this value needs a date backend — `chrono`,
+    /// `jiff` or `time` — but [`Object::as_datetime`] itself needs none. A
+    /// build that enables no backend could therefore obtain a `DateTime` and
+    /// have no way to read it. This is that way.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[test]
+fn a_datetime_is_readable_without_a_backend() {
+    let text = Object::string_literal("D:20260710143000+02'00'");
+    // The `D`, `:` and apostrophes are filtered out on the way in; the
+    // relation sign survives, because it is what the offset means.
+    assert_eq!(text.as_datetime().unwrap().as_str(), "20260710143000+0200");
+    assert!(Object::Integer(20260710).as_datetime().is_none());
+}
+
 #[cfg(feature = "chrono")]
+#[test]
+fn parse_datetime_fixed_offset_keeps_the_offset_the_file_stated() {
+    use chrono::prelude::*;
+
+    let text = Object::string_literal("D:20260710143000+02'00'");
+    let date: DateTime<FixedOffset> = text.as_datetime().unwrap().try_into().unwrap();
+    // Not shifted into UTC, and not into the reading machine's zone either.
+    assert_eq!(date.offset().local_minus_utc(), 2 * 3600);
+    assert_eq!(date.hour(), 14);
+    // And it round-trips back to the same text.
+    let back: Object = date.into();
+    assert_eq!(back, Object::string_literal("D:20260710143000+02'00'"));
+}
+
+#[cfg(feature = "chrono")]
+#[test]
+fn parse_datetime_fixed_offset_round_trip() {
+    use chrono::prelude::*;
+
+    // A fixed instant rather than `now()`: `Utc::now` needs chrono's `clock`
+    // feature, which this row deliberately does without, and a deterministic
+    // test is the better one regardless.
+    let time = FixedOffset::east_opt(-5 * 3600 - 30 * 60)
+        .unwrap()
+        .with_ymd_and_hms(2026, 7, 10, 14, 30, 0)
+        .unwrap();
+    let text: Object = time.into();
+    let time2: Option<DateTime<FixedOffset>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert_eq!(time2, Some(time));
+}
+
+#[cfg(feature = "chrono-clock")]
 #[test]
 fn parse_datetime_local() {
     use chrono::prelude::*;
@@ -192,10 +275,10 @@ fn parse_datetime_local() {
 fn parse_datetime_utc() {
     use chrono::prelude::*;
 
-    let time = Utc::now().with_nanosecond(0).unwrap();
+    let time = Utc.with_ymd_and_hms(2026, 7, 10, 14, 30, 0).unwrap();
     let text: Object = time.into();
-    let time2: Option<DateTime<Local>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
-    assert_eq!(time2, Some(time.with_timezone(&Local)));
+    let time2: Option<DateTime<FixedOffset>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert_eq!(time2, Some(time.fixed_offset()));
 }
 
 #[cfg(feature = "jiff")]
@@ -227,7 +310,7 @@ fn parse_datetime_seconds_missing_chrono() {
 
     // this is the example from the PDF reference, version 1.7, chapter 3.8.3
     let text = Object::string_literal("D:199812231952-08'00'");
-    let dt: Option<DateTime<Local>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    let dt: Option<DateTime<FixedOffset>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
     assert!(dt.is_some());
 }
 
@@ -237,7 +320,7 @@ fn parse_datetime_time_missing_chrono() {
     use chrono::prelude::*;
 
     let text = Object::string_literal("D:20040229");
-    let dt: Option<DateTime<Local>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    let dt: Option<DateTime<FixedOffset>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
     assert!(dt.is_some());
 }
 
