@@ -732,22 +732,32 @@ impl Document {
     /// Get the PDF annotations of a page. The /Subtype of each annotation dictionary defines the
     /// annotation type (Text, Link, Highlight, Underline, Ink, Popup, Widget, etc.). The /Rect of
     /// an annotation dictionary defines its location on the page.
+    ///
+    /// `/Annots` itself may be an array or a reference to one, and each entry of that array may be
+    /// a reference to an annotation dictionary or, equally legally, the dictionary written directly
+    /// (ISO 32000-1, 12.5.2 requires an indirect object only for an annotation that carries a
+    /// `/Popup` or is the target of an `/IRT` reply). Both forms are returned.
+    ///
+    /// An entry that is neither is skipped, as is a reference that does not resolve to a
+    /// dictionary: a damaged entry costs its own annotation rather than the whole page.
     pub fn get_page_annotations(&self, page_id: ObjectId) -> Result<Vec<&Dictionary>> {
-        let mut annotations = vec![];
-        if let Ok(page) = self.get_dictionary(page_id) {
-            match page.get(b"Annots") {
-                Ok(Object::Reference(id)) => self
-                    .get_object(*id)
-                    .and_then(Object::as_array)?
-                    .iter()
-                    .flat_map(Object::as_reference)
-                    .flat_map(|id| self.get_dictionary(id))
-                    .for_each(|a| annotations.push(a)),
-                Ok(Object::Array(a)) => a
-                    .iter()
-                    .flat_map(Object::as_reference)
-                    .flat_map(|id| self.get_dictionary(id))
-                    .for_each(|a| annotations.push(a)),
+        let Ok(page) = self.get_dictionary(page_id) else {
+            return Ok(vec![]);
+        };
+        let entries = match page.get(b"Annots") {
+            Ok(Object::Reference(id)) => self.get_object(*id).and_then(Object::as_array)?,
+            Ok(Object::Array(entries)) => entries,
+            _ => return Ok(vec![]),
+        };
+        let mut annotations = Vec::with_capacity(entries.len());
+        for entry in entries {
+            match entry {
+                Object::Reference(id) => {
+                    if let Ok(dictionary) = self.get_dictionary(*id) {
+                        annotations.push(dictionary);
+                    }
+                }
+                Object::Dictionary(dictionary) => annotations.push(dictionary),
                 _ => {}
             }
         }
