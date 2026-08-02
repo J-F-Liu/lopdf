@@ -957,6 +957,39 @@ mod tests {
     }
 
     #[test]
+    fn decrypt_v4_without_length() {
+        let mut document = create_document();
+
+        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+
+        let version = EncryptionVersion::V4 {
+            document: &document,
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: "user",
+            permissions: Permissions::all(),
+        };
+
+        let state = EncryptionState::try_from(version).unwrap();
+        document.encrypt(&state).unwrap();
+
+        // Length is optional for V4, which fixes the file encryption key at 128
+        // bits, and plenty of producers leave the entry out.
+        let encrypt_id = document.trailer.get(b"Encrypt").unwrap().as_reference().unwrap();
+        document
+            .get_object_mut(encrypt_id)
+            .unwrap()
+            .as_dict_mut()
+            .unwrap()
+            .remove(b"Length");
+
+        assert!(document.decrypt("user").is_ok());
+    }
+
+    #[test]
     fn encrypt_r5() {
         let mut document = create_document();
 
