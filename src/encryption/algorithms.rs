@@ -101,6 +101,16 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             _ => Err(DecryptionError::UnsupportedVersion)?,
         }
 
+        // V4 and V5 fix the length of the file encryption key at 128 and 256 bits, so the Length
+        // entry is optional for them and plenty of producers leave it out. Without a default here
+        // the key derivation below falls back to 40 bits and the password check fails on files
+        // that other readers open without complaint.
+        let length = length.or(match version {
+            4 => Some(128),
+            5 => Some(256),
+            _ => None,
+        });
+
         // The length of the file encryption key shall only be present if V is 2 or 3 (but
         // documents with higher values for V seem to have this field).
         if let Some(length) = length {
