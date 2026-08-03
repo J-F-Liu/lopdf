@@ -24,6 +24,9 @@ impl Document {
     }
 
     /// Save PDF with custom options
+    ///
+    /// Object streams are skipped for an encrypted document, which is written with every
+    /// object serialized individually instead. See [`Document::save_modern`].
     pub fn save_with_options<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
         if options.use_object_streams {
             self.save_with_object_streams(target, options)
@@ -33,6 +36,12 @@ impl Document {
     }
 
     /// Save PDF with modern features (object streams and cross-reference streams)
+    ///
+    /// An encrypted document is written without object streams. The objects are already
+    /// encrypted by the time they reach the writer and the file encryption key is gone,
+    /// so an object stream built here could only be written in the clear, contradicting
+    /// the document's `/Encrypt` dictionary. The requested cross-reference type is still
+    /// used; cross-reference streams are never encrypted.
     pub fn save_modern<W: Write>(&mut self, target: &mut W) -> Result<()> {
         let options = crate::SaveOptions {
             use_object_streams: true,
@@ -88,11 +97,6 @@ impl Document {
         use crate::ObjectStream;
         use std::collections::HashMap;
 
-        let mut target = CountingWrite {
-            inner: target,
-            bytes_written: 0,
-        };
-
         // Ensure PDF version is at least 1.5 (required for object streams)
         if self.version.as_str() < "1.5" {
             self.version = "1.5".to_string();
@@ -102,6 +106,23 @@ impl Document {
         if options.use_xref_streams {
             self.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
         }
+
+        // Object streams are built here, while serializing, but the document's objects were
+        // already encrypted by `Document::encrypt`, which drops the file encryption key once
+        // it is done. There is nothing left to encrypt a new stream with, so it would go out
+        // in the clear while the `/Encrypt` dictionary claims every stream is encrypted, and
+        // the strings packed into it would stay encrypted a second time: an object stream is
+        // itself the unit of encryption, and strings inside one shall not be encrypted
+        // separately. Write the objects out individually instead, as `save` does. The
+        // cross-reference type selected above still applies.
+        if self.is_encrypted() {
+            return self.save_internal(target);
+        }
+
+        let mut target = CountingWrite {
+            inner: target,
+            bytes_written: 0,
+        };
 
         let mut xref = Xref::new(self.max_id + 1, self.reference_table.cross_reference_type);
         writeln!(target, "%PDF-{}", self.version)?;
