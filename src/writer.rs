@@ -28,6 +28,18 @@ impl Document {
     /// Object streams are skipped for an encrypted document, which is written with every
     /// object serialized individually instead. See [`Document::save_modern`].
     pub fn save_with_options<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
+        // Cross-reference streams are independent of object streams: a document can use one
+        // without the other. Select the requested type here so the choice applies whichever
+        // path writes the body below. Both features arrived in PDF 1.5, so a document that is
+        // about to use one is moved up to that version.
+        if options.use_xref_streams {
+            self.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
+
+            if self.version.as_str() < "1.5" {
+                self.version = "1.5".to_string();
+            }
+        }
+
         if options.use_object_streams {
             self.save_with_object_streams(target, options)
         } else {
@@ -102,11 +114,6 @@ impl Document {
             self.version = "1.5".to_string();
         }
 
-        // Update cross-reference type if requested
-        if options.use_xref_streams {
-            self.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
-        }
-
         // Object streams are built here, while serializing, but the document's objects were
         // already encrypted by `Document::encrypt`, which drops the file encryption key once
         // it is done. There is nothing left to encrypt a new stream with, so it would go out
@@ -114,7 +121,7 @@ impl Document {
         // the strings packed into it would stay encrypted a second time: an object stream is
         // itself the unit of encryption, and strings inside one shall not be encrypted
         // separately. Write the objects out individually instead, as `save` does. The
-        // cross-reference type selected above still applies.
+        // cross-reference type chosen in `save_with_options` still applies.
         if self.is_encrypted() {
             return self.save_internal(target);
         }
