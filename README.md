@@ -13,7 +13,7 @@ The PDF 2.0 specification is available [here](https://www.pdfa.org/announcing-no
 
 ## Requirements
 
-- **Rust 1.85 or later** - Required for Rust 2024 edition features and object streams support
+- **Rust 1.88 or later**
 - To check your Rust version: `rustc --version`
 - To update Rust: `rustup update`
 

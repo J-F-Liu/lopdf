@@ -6,6 +6,22 @@ on:
         branches: [main]
 
 jobs:
+    msrv:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v7
+            - uses: hecrj/setup-rust-action@v2
+              with:
+                  rust-version: "1.88.0"
+
+            - name: Run tests with default features
+              run: cargo test --verbose -- --test-threads=1 --skip performance
+            - name: Run tests without default features
+              run: cargo test --verbose --no-default-features -- --test-threads=1 --skip performance
+            - name: Run tests with all features
+              run: cargo test --verbose --all-features -- --test-threads=1 --skip performance
+
     build:
         runs-on: ubuntu-latest
         continue-on-error: ${{ matrix.continue-on-error || false }}
