@@ -24,7 +24,7 @@ use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
-use crate::xref::XrefEntry;
+use crate::xref::{Xref, XrefEntry};
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 #[cfg(not(feature = "async"))]
@@ -526,6 +526,13 @@ struct InfoMetadata {
     custom: HashMap<Vec<u8>, Object>,
 }
 
+struct ReaderBootstrap {
+    version: String,
+    xref_start: usize,
+    reference_table: Xref,
+    trailer: Dictionary,
+}
+
 impl InfoMetadata {
     fn empty() -> Self {
         Self {
@@ -558,11 +565,7 @@ const STANDARD_INFO_KEYS: &[&[u8]] = &[
 ];
 
 impl Reader<'_> {
-    /// Read metadata (title and page count) without loading the entire document.
-    /// This is much faster for large PDFs when you only need basic information.
-    ///
-    /// For encrypted PDFs, use `Document::load_metadata_with_password()` instead.
-    pub fn read_metadata(mut self) -> Result<PdfMetadata> {
+    fn read_bootstrap(&mut self) -> Result<ReaderBootstrap> {
         let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
         self.buffer = &self.buffer[offset..];
 
@@ -573,8 +576,9 @@ impl Reader<'_> {
             return Err(Error::Xref(XrefError::Start));
         }
 
-        let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        let (mut reference_table, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], self)?;
 
+        // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
         let mut prev_xref_start = trailer.remove(b"Prev");
         while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
@@ -586,32 +590,53 @@ impl Reader<'_> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-            xref.merge(prev_xref);
+            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], self)?;
+            reference_table.merge(prev_xref);
 
+            // Read xref stream in hybrid-reference file.
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
             if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64().ok()) {
                 if prev < 0 || prev as usize > self.buffer.len() {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
 
-                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-                xref.merge(prev_xref);
+                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], self)?;
+                reference_table.merge(prev_xref);
             }
 
             prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
         }
-        let xref_entry_count = xref.max_id().checked_add(1).ok_or(ParseError::InvalidXref)?;
-        if xref.size != xref_entry_count {
+        let xref_entry_count = reference_table.max_id().checked_add(1).ok_or(ParseError::InvalidXref)?;
+        if reference_table.size != xref_entry_count {
             warn!(
                 "Size entry of trailer dictionary is {}, correct value is {}.",
-                xref.size, xref_entry_count
+                reference_table.size, xref_entry_count
             );
-            xref.size = xref_entry_count;
+            reference_table.size = xref_entry_count;
         }
 
-        self.document.reference_table = xref;
-        self.document.trailer = trailer.clone();
+        Ok(ReaderBootstrap {
+            version,
+            xref_start,
+            reference_table,
+            trailer,
+        })
+    }
+
+    /// Read metadata (title and page count) without loading the entire document.
+    /// This is much faster for large PDFs when you only need basic information.
+    ///
+    /// For encrypted PDFs, use `Document::load_metadata_with_password()` instead.
+    pub fn read_metadata(mut self) -> Result<PdfMetadata> {
+        let ReaderBootstrap {
+            version,
+            reference_table,
+            trailer,
+            ..
+        } = self.read_bootstrap()?;
+
+        self.document.reference_table = reference_table;
+        self.document.trailer = trailer;
 
         let encrypted = self.document.trailer.get(b"Encrypt").is_ok();
         // For encrypted PDFs, set up decryption so the Info dictionary can be
@@ -787,12 +812,7 @@ impl Reader<'_> {
 
     /// Read whole document.
     pub fn read(mut self, filter_func: Option<FilterFunc>) -> Result<Document> {
-        let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
-        self.buffer = &self.buffer[offset..];
-
-        // The document structure can be expressed in PEG as:
-        //   document <- header indirect_object* xref trailer xref_start
-        let version = parser::header(self.buffer, self.strict).ok_or(ParseError::InvalidFileHeader)?;
+        let bootstrap = self.read_bootstrap()?;
 
         //The binary_mark is in line 2 after the pdf version. If at other line number, then will be declared as invalid
         // pdf.
@@ -803,55 +823,11 @@ impl Reader<'_> {
             self.document.binary_mark = binary_mark;
         }
 
-        let xref_start = Self::get_xref_start(self.buffer)?;
-        if xref_start > self.buffer.len() {
-            return Err(Error::Xref(XrefError::Start));
-        }
-        self.document.xref_start = xref_start;
-
-        let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
-
-        // Read previous Xrefs of linearized or incremental updated document.
-        let mut already_seen = HashSet::new();
-        let mut prev_xref_start = trailer.remove(b"Prev");
-        while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
-            if already_seen.contains(&prev) {
-                break;
-            }
-            already_seen.insert(prev);
-            if prev < 0 || prev as usize > self.buffer.len() {
-                return Err(Error::Xref(XrefError::PrevStart));
-            }
-
-            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-            xref.merge(prev_xref);
-
-            // Read xref stream in hybrid-reference file
-            let prev_xref_stream_start = trailer.remove(b"XRefStm");
-            if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64().ok()) {
-                if prev < 0 || prev as usize > self.buffer.len() {
-                    return Err(Error::Xref(XrefError::StreamStart));
-                }
-
-                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-                xref.merge(prev_xref);
-            }
-
-            prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
-        }
-        let xref_entry_count = xref.max_id().checked_add(1).ok_or(ParseError::InvalidXref)?;
-        if xref.size != xref_entry_count {
-            warn!(
-                "Size entry of trailer dictionary is {}, correct value is {}.",
-                xref.size, xref_entry_count
-            );
-            xref.size = xref_entry_count;
-        }
-
-        self.document.version = version;
-        self.document.max_id = xref.size - 1;
-        self.document.trailer = trailer;
-        self.document.reference_table = xref;
+        self.document.version = bootstrap.version;
+        self.document.max_id = bootstrap.reference_table.size - 1;
+        self.document.xref_start = bootstrap.xref_start;
+        self.document.trailer = bootstrap.trailer;
+        self.document.reference_table = bootstrap.reference_table;
 
         // Check if encrypted
         let is_encrypted = self.document.trailer.get(b"Encrypt").is_ok();
