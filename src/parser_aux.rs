@@ -578,9 +578,27 @@ pub fn decode_xref_stream_with_limit(
         let mut bytes2 = vec![0_u8; field_widths[1] as usize];
         let mut bytes3 = vec![0_u8; field_widths[2] as usize];
 
+        // Total bytes one entry consumes. With every width zero an entry reads nothing, so the loop
+        // below would run purely on the attacker-controlled /Index counts and never reach the end of
+        // the stream. Such a stream carries no information and can only be malformed, so reject it
+        // (this also keeps max_entries below from dividing by zero).
+        let entry_width = field_widths[0] + field_widths[1] + field_widths[2];
+        if entry_width == 0 {
+            return Err(ParseError::InvalidXref.into());
+        }
+
+        // An entry can't be read from bytes that aren't there, so no section may declare more entries
+        // than the decoded stream could possibly hold. Without this a huge /Index [0 N] still fails
+        // eventually once the reader runs dry, but only after inserting N-ish map entries first.
+        let max_entries = reader.get_ref().len() as i64 / entry_width;
+
         for i in 0..section_indice.len() / 2 {
             let start = section_indice[2 * i];
             let count = section_indice[2 * i + 1];
+
+            if count > max_entries {
+                return Err(ParseError::InvalidXref.into());
+            }
 
             for j in 0..count {
                 let entry_type = if !bytes1.is_empty() {
