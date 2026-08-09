@@ -24,7 +24,7 @@ use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
-use crate::xref::XrefEntry;
+use crate::xref::{Xref, XrefEntry};
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 #[cfg(not(feature = "async"))]
@@ -573,7 +573,7 @@ impl Reader<'_> {
             return Err(Error::Xref(XrefError::Start));
         }
 
-        let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        let (mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
 
         let mut already_seen = HashSet::new();
         let mut prev_xref_start = trailer.remove(b"Prev");
@@ -586,7 +586,7 @@ impl Reader<'_> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+            let (prev_xref, prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
             xref.merge(prev_xref);
 
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
@@ -595,7 +595,7 @@ impl Reader<'_> {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
 
-                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+                let (prev_xref, _) = self.xref_and_trailer_at(prev as usize)?;
                 xref.merge(prev_xref);
             }
 
@@ -807,9 +807,10 @@ impl Reader<'_> {
         if xref_start > self.buffer.len() {
             return Err(Error::Xref(XrefError::Start));
         }
+        let xref_start = self.correct_xref_offset(xref_start);
         self.document.xref_start = xref_start;
 
-        let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        let (mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
@@ -823,7 +824,7 @@ impl Reader<'_> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+            let (prev_xref, prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
             xref.merge(prev_xref);
 
             // Read xref stream in hybrid-reference file
@@ -833,7 +834,7 @@ impl Reader<'_> {
                     return Err(Error::Xref(XrefError::StreamStart));
                 }
 
-                let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
+                let (prev_xref, _) = self.xref_and_trailer_at(prev as usize)?;
                 xref.merge(prev_xref);
             }
 
@@ -1313,6 +1314,79 @@ impl Reader<'_> {
         parser::indirect_object(self.buffer, offset, expected_id, self, already_seen)
     }
 
+    /// Parse the cross-reference section recorded at `offset`, first correcting
+    /// the offset if it is slightly miswritten (lenient mode only).
+    fn xref_and_trailer_at(&self, offset: usize) -> Result<(Xref, Dictionary)> {
+        let offset = self.correct_xref_offset(offset);
+        parser::xref_and_trailer(&self.buffer[offset..], self)
+    }
+
+    /// Some generators write `startxref` (or trailer `Prev`) values that are
+    /// slightly off — most commonly the offset of the line *after* the `xref`
+    /// keyword instead of the keyword itself. Such files are otherwise intact,
+    /// and common readers (Acrobat, poppler, mupdf, pdf.js) recover from them.
+    /// In lenient mode, if `offset` does not point at a cross-reference table
+    /// or an indirect object (cross-reference stream), scan a small window
+    /// around it for the `xref` keyword and use the nearest match instead.
+    fn correct_xref_offset(&self, offset: usize) -> usize {
+        const RECOVERY_WINDOW: usize = 64;
+
+        if self.strict || offset >= self.buffer.len() {
+            return offset;
+        }
+        let rest = &self.buffer[offset..];
+        if rest.starts_with(b"xref") || Self::starts_indirect_object(rest) {
+            return offset;
+        }
+
+        let window_start = offset.saturating_sub(RECOVERY_WINDOW);
+        let window_end = cmp::min(self.buffer.len(), offset + RECOVERY_WINDOW);
+        let mut corrected: Option<usize> = None;
+        for pos in window_start..window_end.saturating_sub(4) {
+            if !self.buffer[pos..].starts_with(b"xref") {
+                continue;
+            }
+            // `startxref` contains `xref`; never match inside it.
+            if pos >= 5 && &self.buffer[pos - 5..pos] == b"start" {
+                continue;
+            }
+            if corrected.is_none_or(|best: usize| pos.abs_diff(offset) < best.abs_diff(offset)) {
+                corrected = Some(pos);
+            }
+        }
+        match corrected {
+            Some(pos) => {
+                warn!(
+                    "Cross-reference offset {} does not point at an xref section; using nearby offset {} instead.",
+                    offset, pos
+                );
+                pos
+            }
+            None => offset,
+        }
+    }
+
+    /// Whether `input` begins with an indirect-object header (`N G obj`), the
+    /// form a cross-reference stream starts with.
+    fn starts_indirect_object(input: &[u8]) -> bool {
+        fn digits(input: &[u8]) -> Option<&[u8]> {
+            let n = input.iter().take_while(|b| b.is_ascii_digit()).count();
+            (n > 0).then(|| &input[n..])
+        }
+        fn spaces(input: &[u8]) -> Option<&[u8]> {
+            let n = input
+                .iter()
+                .take_while(|&&b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+                .count();
+            (n > 0).then(|| &input[n..])
+        }
+        digits(input)
+            .and_then(spaces)
+            .and_then(digits)
+            .and_then(spaces)
+            .is_some_and(|rest| rest.starts_with(b"obj"))
+    }
+
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {
         let seek_pos = buffer.len() - cmp::min(buffer.len(), 512);
         Self::search_substring(buffer, b"%%EOF", seek_pos)
@@ -1520,4 +1594,45 @@ fn get_xref_start_ignores_startxref_past_eof() {
     assert_eq!(result, xref_offset);
     // Verify it did NOT pick up 999 from the corrupted revision
     assert_ne!(result, 999);
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn recovers_from_miswritten_startxref_offset() {
+    // Some generators write the offset of the line *after* the `xref` keyword
+    // into `startxref` instead of the offset of the keyword itself. Lenient
+    // loading must recover; strict loading must still reject the file.
+    let header = "%PDF-1.5\n";
+    let obj1 = "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    let obj2 = "2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n";
+    let o1 = header.len();
+    let o2 = o1 + obj1.len();
+    let body = format!("{header}{obj1}{obj2}");
+    let xref_pos = body.len();
+    let doc = format!(
+        "{body}xref
+0 3
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 3>>
+startxref
+{}
+%%EOF",
+        xref_pos + 4 // past the `xref` keyword, onto the line after it
+    );
+
+    let loaded = Document::load_mem(doc.as_bytes()).unwrap();
+    assert!(loaded.trailer.get(b"Root").is_ok());
+    assert_eq!(loaded.xref_start, xref_pos);
+
+    let strict = Document::load_mem_with_options(
+        doc.as_bytes(),
+        LoadOptions {
+            strict: true,
+            ..Default::default()
+        },
+    );
+    assert!(strict.is_err());
 }
