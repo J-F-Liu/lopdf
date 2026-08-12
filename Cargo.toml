@@ -48,7 +48,7 @@ time = { version = "0.3", features = [
 ], optional = true }
 tokio = { version = "1", features = ["fs", "io-util"], optional = true }
 weezl = "0.2"
-ttf-parser = { version = "0.25.1", optional = true }
+skrifa = { version = "0.45.1", optional = true }
 
 [dev-dependencies]
 clap = { version = "4.6", features = ["derive"] }
@@ -58,7 +58,6 @@ serde_json = "1.0"
 shellexpand = "3.1"
 tempfile = "3.27"
 wasm-bindgen-test = "0.3"
-ttf-parser = "0.25.1"
 
 [target.'cfg(not(target_family="wasm"))'.dev-dependencies]
 criterion = "0.8"
@@ -71,7 +70,7 @@ chrono = ["dep:chrono"]
 chrono-clock = ["chrono", "chrono/clock"]
 default = ["chrono-clock", "rayon"]
 embed_image = ["image"]
-font_embedding = ["dep:ttf-parser"]
+font_embedding = ["dep:skrifa"]
 jiff = ["dep:jiff"]
 wasm_js = ["getrandom/wasm_js"]
 serde = ["dep:serde"]
