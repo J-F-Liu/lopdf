@@ -29,7 +29,7 @@ The PDF 2.0 specification is available [here](https://www.pdfa.org/announcing-no
 | `serde` | | `Serialize`/`Deserialize` for the object model. |
 | `async` | | Tokio-based asynchronous document loading. |
 | `embed_image` | | Embedding raster images, via the `image` crate. |
-| `font_embedding` | | Embedding TrueType fonts, via `ttf-parser`. |
+| `font_embedding` | | Embedding TrueType fonts, via `skrifa`. |
 | `wasm_js` | | Selects `getrandom`'s `wasm_js` backend, needed for encryption on wasm. |
 
 The date backends are alternatives, not layers: each supplies conversions for the same [`DateTime`] value, so enabling more than one only adds dependencies. Enabling none is supported too — `Object::as_datetime` needs no backend, and `DateTime::as_str` returns the raw date for a caller that would rather parse it itself.

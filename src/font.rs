@@ -65,23 +65,28 @@ impl FontData {
     /// Create a new `FontData` instance by parsing the provided TTF file.
     /// The TTF file is expected to be in bytes.
     pub fn new(font_file: &[u8], font_name: String) -> Self {
-        // Parse the TTF file using ttf_parser crate
-        let font = ttf_parser::Face::parse(font_file, 0).expect("Failed to parse font file");
+        use skrifa::MetadataProvider;
+        use skrifa::instance::{LocationRef, Size};
+
+        // Parse the TTF file using the skrifa crate
+        let font = skrifa::FontRef::new(font_file).expect("Failed to parse font file");
 
         // Extract font metadata
-        // Note: The ttf_parser crate provides methods to get font bounding box, ascent, descent, cap height, italic
+        // Note: The skrifa crate provides methods to get font bounding box, ascent, descent, cap height, italic
         // angle, and stemV.
-        let font_bbox = font.global_bounding_box();
-        let ascent = font.ascender();
-        let descent = font.descender();
-        let cap_height = font.capital_height().unwrap_or(ascent);
-        let italic_angle = font.italic_angle();
+        let metrics = font.metrics(Size::unscaled(), LocationRef::default());
+        let font_bbox = metrics.bounds.unwrap_or_default();
+        let ascent = metrics.ascent;
+        let descent = metrics.descent;
+        let cap_height = metrics.cap_height.unwrap_or(ascent);
+        let italic_angle = metrics.italic_angle;
         let flags = 1; // Default flags, can be modified later if needed
 
         // Calculate stemV based on the font bounding box
         // Reference: https://stackoverflow.com/questions/35485179/stemv-value-of-the-truetype-font
         // The stemV is typically calculated as 13% of the font's bbox width value.
-        let stem_v = (font_bbox.width() as f64 * 0.13).round() as i64;
+        let bbox_width = font_bbox.x_max - font_bbox.x_min;
+        let stem_v = (bbox_width as f64 * 0.13).round() as i64;
 
         Self {
             font_name,
