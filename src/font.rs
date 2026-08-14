@@ -29,6 +29,8 @@ pub struct FontData {
     /// (Required, except for Type 3 fonts) The thickness, measured horizontally, of the dominant vertical stems of
     /// glyphs in the font.
     pub stem_v: i64,
+
+    pub widths: Vec<i64>,
     /// (Required) The name of a predefined CMap, or a stream containing a CMap program, that maps character codes to
     /// font numbers and CIDs. If the descendant is a Type 2 CIDFont whose associated TrueType font program is not
     /// embedded in the PDF file, the Encoding entry must be a predefined CMap name Read more (page 422): https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.5_v6.pdf
@@ -88,6 +90,8 @@ impl FontData {
         let bbox_width = font_bbox.x_max - font_bbox.x_min;
         let stem_v = (bbox_width as f64 * 0.13).round() as i64;
 
+        let widths = Vec::new();
+
         Self {
             font_name,
             flags,
@@ -102,6 +106,7 @@ impl FontData {
             descent: descent as i64,
             cap_height: cap_height as i64,
             stem_v,
+            widths,
             encoding: "WinAnsiEncoding".to_string(), // Default encoding, can be modified later if needed
             font: font_file.to_vec(),
         }
@@ -139,6 +144,11 @@ impl FontData {
 
     pub fn set_stem_v(&mut self, stem_v: i64) -> &mut Self {
         self.stem_v = stem_v;
+        self
+    }
+
+    pub fn set_widths(&mut self, widths: Vec<i64>) -> &mut Self {
+        self.widths = widths;
         self
     }
 

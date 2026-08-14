@@ -168,6 +168,11 @@ impl Document {
         let font_file_id = self.add_object(font_stream);
         let font_name = font_data.font_name.clone();
 
+        let widths = font_data
+            .widths
+            .into_iter()
+            .map(|width| Object::Integer(width))
+            .collect();
         // Create font descriptor dictionary
         let font_descriptor_id = self.add_object(dictionary! {
             "Type" => "FontDescriptor",
@@ -193,6 +198,7 @@ impl Document {
             "Subtype" => "TrueType",
             "BaseFont" => Object::Name(font_name.clone().into_bytes()),
             "FontDescriptor" => Object::Reference(font_descriptor_id),
+            "Widths" => Object::Array(widths),
             "Encoding" => Object::Name(font_data.encoding.into_bytes()),
         });
 
