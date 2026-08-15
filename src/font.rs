@@ -29,12 +29,27 @@ pub struct FontData {
     /// (Required, except for Type 3 fonts) The thickness, measured horizontally, of the dominant vertical stems of
     /// glyphs in the font.
     pub stem_v: i64,
-
-    pub widths: Vec<i64>,
     /// (Required) The name of a predefined CMap, or a stream containing a CMap program, that maps character codes to
     /// font numbers and CIDs. If the descendant is a Type 2 CIDFont whose associated TrueType font program is not
     /// embedded in the PDF file, the Encoding entry must be a predefined CMap name Read more (page 422): https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.5_v6.pdf
     pub encoding: String,
+    /// (Required except for the standard 14 fonts) The first character code defined in
+    /// the font’s Widths array.
+    pub first_char: i64,
+    /// (Required except for the standard 14 fonts) The last character code defined in
+    /// the font’s Widths array.
+    pub last_char: i64,
+    /// (Required except for the standard 14 fonts; indirect reference preferred) An ar-
+    /// ray of (LastChar − FirstChar + 1) widths, each element being the glyph width
+    /// for the character code that equals FirstChar plus the array index. For charac-
+    /// ter codes outside the range FirstChar to LastChar, the value of MissingWidth
+    /// from the FontDescriptor entry for this font is used. The glyph widths are
+    /// measured in units in which 1000 units corresponds to 1 unit in text space.
+    /// These widths must be consistent with the actual widths given in the font pro-
+    /// gram itself. (See implementation note 53 in Appendix H.) For more informa-
+    /// tion on glyph widths and other glyph metrics, see Section 5.1.3, “Glyph
+    /// Positioning and Metrics.”
+    pub widths: Vec<i64>,
     /// Size of the font data in bytes.
     /// This is used to set the `Length1` key in the font stream dictionary.
     font: Vec<u8>,
@@ -90,6 +105,8 @@ impl FontData {
         let bbox_width = font_bbox.x_max - font_bbox.x_min;
         let stem_v = (bbox_width as f64 * 0.13).round() as i64;
 
+        let first_char = 33;
+        let last_char = 255;
         let widths = Vec::new();
 
         Self {
@@ -106,8 +123,10 @@ impl FontData {
             descent: descent as i64,
             cap_height: cap_height as i64,
             stem_v,
-            widths,
             encoding: "WinAnsiEncoding".to_string(), // Default encoding, can be modified later if needed
+            first_char: first_char as i64,
+            last_char: last_char as i64,
+            widths,
             font: font_file.to_vec(),
         }
     }
@@ -147,13 +166,23 @@ impl FontData {
         self
     }
 
-    pub fn set_widths(&mut self, widths: Vec<i64>) -> &mut Self {
-        self.widths = widths;
+    pub fn set_encoding(&mut self, encoding: String) -> &mut Self {
+        self.encoding = encoding;
         self
     }
 
-    pub fn set_encoding(&mut self, encoding: String) -> &mut Self {
-        self.encoding = encoding;
+    pub fn set_first_char(&mut self, first_char: i64) -> &mut Self {
+        self.first_char = first_char;
+        self
+    }
+
+    pub fn set_last_char(&mut self, last_char: i64) -> &mut Self {
+        self.last_char = last_char;
+        self
+    }
+
+    pub fn set_widths(&mut self, widths: Vec<i64>) -> &mut Self {
+        self.widths = widths;
         self
     }
 

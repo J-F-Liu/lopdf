@@ -198,6 +198,8 @@ impl Document {
             "Subtype" => "TrueType",
             "BaseFont" => Object::Name(font_name.clone().into_bytes()),
             "FontDescriptor" => Object::Reference(font_descriptor_id),
+            "FirstChar" => Object::Integer(font_data.first_char),
+            "LastChar" => Object::Integer(font_data.last_char),
             "Widths" => Object::Array(widths),
             "Encoding" => Object::Name(font_data.encoding.into_bytes()),
         });
