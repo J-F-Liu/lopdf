@@ -35,10 +35,10 @@ pub struct FontData {
     pub encoding: String,
     /// (Required except for the standard 14 fonts) The first character code defined in
     /// the font’s Widths array.
-    pub first_char: i64,
+    pub first_char: Option<i64>,
     /// (Required except for the standard 14 fonts) The last character code defined in
     /// the font’s Widths array.
-    pub last_char: i64,
+    pub last_char: Option<i64>,
     /// (Required except for the standard 14 fonts; indirect reference preferred) An ar-
     /// ray of (LastChar − FirstChar + 1) widths, each element being the glyph width
     /// for the character code that equals FirstChar plus the array index. For charac-
@@ -49,7 +49,7 @@ pub struct FontData {
     /// gram itself. (See implementation note 53 in Appendix H.) For more informa-
     /// tion on glyph widths and other glyph metrics, see Section 5.1.3, “Glyph
     /// Positioning and Metrics.”
-    pub widths: Vec<i64>,
+    pub widths: Option<Vec<i64>>,
     /// Size of the font data in bytes.
     /// This is used to set the `Length1` key in the font stream dictionary.
     font: Vec<u8>,
@@ -105,10 +105,6 @@ impl FontData {
         let bbox_width = font_bbox.x_max - font_bbox.x_min;
         let stem_v = (bbox_width as f64 * 0.13).round() as i64;
 
-        let first_char = 33;
-        let last_char = 255;
-        let widths = Vec::new();
-
         Self {
             font_name,
             flags,
@@ -124,9 +120,9 @@ impl FontData {
             cap_height: cap_height as i64,
             stem_v,
             encoding: "WinAnsiEncoding".to_string(), // Default encoding, can be modified later if needed
-            first_char: first_char as i64,
-            last_char: last_char as i64,
-            widths,
+            first_char: None,
+            last_char: None,
+            widths: None,
             font: font_file.to_vec(),
         }
     }
@@ -172,17 +168,17 @@ impl FontData {
     }
 
     pub fn set_first_char(&mut self, first_char: i64) -> &mut Self {
-        self.first_char = first_char;
+        self.first_char = Some(first_char);
         self
     }
 
     pub fn set_last_char(&mut self, last_char: i64) -> &mut Self {
-        self.last_char = last_char;
+        self.last_char = Some(last_char);
         self
     }
 
     pub fn set_widths(&mut self, widths: Vec<i64>) -> &mut Self {
-        self.widths = widths;
+        self.widths = Some(widths);
         self
     }
 

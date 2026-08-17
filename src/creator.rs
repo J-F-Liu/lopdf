@@ -168,11 +168,6 @@ impl Document {
         let font_file_id = self.add_object(font_stream);
         let font_name = font_data.font_name.clone();
 
-        let widths = font_data
-            .widths
-            .into_iter()
-            .map(|width| Object::Integer(width))
-            .collect();
         // Create font descriptor dictionary
         let font_descriptor_id = self.add_object(dictionary! {
             "Type" => "FontDescriptor",
@@ -198,11 +193,25 @@ impl Document {
             "Subtype" => "TrueType",
             "BaseFont" => Object::Name(font_name.clone().into_bytes()),
             "FontDescriptor" => Object::Reference(font_descriptor_id),
-            "FirstChar" => Object::Integer(font_data.first_char),
-            "LastChar" => Object::Integer(font_data.last_char),
-            "Widths" => Object::Array(widths),
             "Encoding" => Object::Name(font_data.encoding.into_bytes()),
         });
+
+        if let Some(first_char) = font_data.first_char {
+            self.get_dictionary_mut(font_id)
+                .unwrap()
+                .set("FirstChar", Object::Integer(first_char));
+        }
+        if let Some(last_char) = font_data.last_char {
+            self.get_dictionary_mut(font_id)
+                .unwrap()
+                .set("LastChar", Object::Integer(last_char));
+        }
+        if let Some(widths_array) = font_data.widths {
+            let widths = widths_array.into_iter().map(|width| Object::Integer(width)).collect();
+            self.get_dictionary_mut(font_id)
+                .unwrap()
+                .set("Widths", Object::Array(widths));
+        }
 
         Ok(font_id)
     }
