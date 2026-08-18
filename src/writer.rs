@@ -479,12 +479,16 @@ impl Writer {
         // Add first (0) entry
         xref_section.add_unusable_free_entry();
 
-        for obj_id in 1..xref.size {
-            // If section is empty change number of starting id.
-            if xref_section.is_empty() {
-                xref_section = XrefSection::new(obj_id);
-            }
+        // Iterate over the actual highest entry instead of `xref.size`:
+        // `size` is fixed before object streams (and the xref stream itself)
+        // are appended, so entries past it would never reach the table.
+        for obj_id in 1..=xref.max_id() {
             if let Some(entry) = xref.get(obj_id) {
+                // A section starts at the first *present* id; starting it at
+                // a missing id would shift every subsequent entry by one.
+                if xref_section.is_empty() {
+                    xref_section = XrefSection::new(obj_id);
+                }
                 match *entry {
                     XrefEntry::Normal { offset, generation } => {
                         // Add entry
@@ -504,7 +508,7 @@ impl Writer {
                 // Skip over `obj_id`, but finish section if not empty.
                 if !xref_section.is_empty() {
                     xref_section.write_xref_section(file)?;
-                    xref_section = XrefSection::new(obj_id);
+                    xref_section = XrefSection::new(0);
                 }
             }
         }
@@ -520,18 +524,22 @@ impl Writer {
         let mut xref_sections = Vec::new();
         let mut xref_section = XrefSection::new(0);
 
-        for obj_id in 1..xref.size {
-            // If section is empty change number of starting id.
-            if xref_section.is_empty() {
-                xref_section = XrefSection::new(obj_id);
-            }
+        // Iterate over the actual highest entry instead of `xref.size`:
+        // `size` is fixed before object streams (and the xref stream itself)
+        // are appended, so entries past it would never reach the stream.
+        for obj_id in 1..=xref.max_id() {
             if let Some(entry) = xref.get(obj_id) {
+                // A section starts at the first *present* id; starting it at
+                // a missing id would shift every subsequent entry by one.
+                if xref_section.is_empty() {
+                    xref_section = XrefSection::new(obj_id);
+                }
                 xref_section.add_entry(entry.clone());
             } else {
                 // Skip over but finish section if not empty
                 if !xref_section.is_empty() {
                     xref_sections.push(xref_section);
-                    xref_section = XrefSection::new(obj_id);
+                    xref_section = XrefSection::new(0);
                 }
             }
         }
