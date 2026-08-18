@@ -207,7 +207,7 @@ impl Document {
                 .set("LastChar", Object::Integer(last_char));
         }
         if let Some(widths_array) = font_data.widths {
-            let widths = widths_array.into_iter().map(|width| Object::Integer(width)).collect();
+            let widths = widths_array.into_iter().map(Object::Integer).collect();
             self.get_dictionary_mut(font_id)
                 .unwrap()
                 .set("Widths", Object::Array(widths));
