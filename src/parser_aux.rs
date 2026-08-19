@@ -534,7 +534,18 @@ pub fn decode_xref_stream(stream: Stream) -> Result<(Xref, Dictionary)> {
 /// behavior of [`decode_xref_stream`]). Cross-reference streams are decoded
 /// early during loading, so this bounds the memory a `/XRef` stream can use.
 pub fn decode_xref_stream_with_limit(
-    mut stream: Stream, max_decompressed_size: Option<usize>,
+    stream: Stream, max_decompressed_size: Option<usize>,
+) -> Result<(Xref, Dictionary)> {
+    decode_xref_stream_with_limits(stream, max_decompressed_size, None)
+}
+
+/// Decode a cross-reference stream with independent decompressed-size and
+/// entry-count limits. `None` leaves the corresponding resource unbounded.
+///
+/// The entry limit applies to the total count declared by the stream's
+/// `/Index` array and is checked before any entries are inserted.
+pub fn decode_xref_stream_with_limits(
+    mut stream: Stream, max_decompressed_size: Option<usize>, max_xref_entries: Option<usize>,
 ) -> Result<(Xref, Dictionary)> {
     if stream.is_compressed() {
         match max_decompressed_size {
@@ -574,31 +585,36 @@ pub fn decode_xref_stream_with_limit(
             return Err(ParseError::InvalidXref.into());
         }
 
-        let mut bytes1 = vec![0_u8; field_widths[0] as usize];
-        let mut bytes2 = vec![0_u8; field_widths[1] as usize];
-        let mut bytes3 = vec![0_u8; field_widths[2] as usize];
-
         // Total bytes one entry consumes. With every width zero an entry reads nothing, so the loop
         // below would run purely on the attacker-controlled /Index counts and never reach the end of
         // the stream. Such a stream carries no information and can only be malformed, so reject it
-        // (this also keeps max_entries below from dividing by zero).
-        let entry_width = field_widths[0] + field_widths[1] + field_widths[2];
+        // (this also keeps the body-capacity check below from dividing by zero).
+        let entry_width = (field_widths[0] + field_widths[1] + field_widths[2]) as usize;
         if entry_width == 0 {
             return Err(ParseError::InvalidXref.into());
         }
 
-        // An entry can't be read from bytes that aren't there, so no section may declare more entries
-        // than the decoded stream could possibly hold. Without this a huge /Index [0 N] still fails
-        // eventually once the reader runs dry, but only after inserting N-ish map entries first.
-        let max_entries = reader.get_ref().len() as i64 / entry_width;
+        let index_entries = section_indice.chunks_exact(2).try_fold(0_usize, |total, section| {
+            let count = usize::try_from(section[1]).map_err(|_| ParseError::InvalidXref)?;
+            total.checked_add(count).ok_or(ParseError::InvalidXref)
+        })?;
+        if max_xref_entries.is_some_and(|limit| index_entries > limit) {
+            return Err(ParseError::InvalidXref.into());
+        }
+
+        // An entry can't be read from bytes that aren't there. Validate the total before inserting
+        // anything so multiple individually plausible /Index sections cannot overrun the body.
+        if index_entries > reader.get_ref().len() / entry_width {
+            return Err(ParseError::InvalidXref.into());
+        }
+
+        let mut bytes1 = vec![0_u8; field_widths[0] as usize];
+        let mut bytes2 = vec![0_u8; field_widths[1] as usize];
+        let mut bytes3 = vec![0_u8; field_widths[2] as usize];
 
         for i in 0..section_indice.len() / 2 {
             let start = section_indice[2 * i];
             let count = section_indice[2 * i + 1];
-
-            if count > max_entries {
-                return Err(ParseError::InvalidXref.into());
-            }
 
             for j in 0..count {
                 let entry_type = if !bytes1.is_empty() {

@@ -24,7 +24,7 @@ use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
-use crate::xref::XrefEntry;
+use crate::xref::{Xref, XrefEntry};
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 #[cfg(not(feature = "async"))]
@@ -86,6 +86,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read(options.filter)
     }
@@ -105,6 +106,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read(options.filter)
     }
@@ -119,42 +121,59 @@ impl Document {
     /// This is much faster for large PDFs when you only need basic information.
     #[inline]
     pub fn load_metadata<P: AsRef<Path>>(path: P) -> Result<PdfMetadata> {
+        Self::load_metadata_with_options(path, LoadOptions::default())
+    }
+
+    /// Load PDF metadata from a file path with the given options.
+    #[inline]
+    pub fn load_metadata_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<PdfMetadata> {
         let file = File::open(path)?;
         let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_metadata_internal(file, capacity, None)
+        Self::load_metadata_internal(file, capacity, options)
     }
 
     /// Load PDF metadata from a file path with a password for encrypted PDFs.
     #[inline]
     pub fn load_metadata_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<PdfMetadata> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_metadata_internal(file, capacity, Some(password.to_string()))
+        Self::load_metadata_with_options(path, LoadOptions::with_password(password))
     }
 
     /// Load PDF metadata from an arbitrary source without loading the entire document.
     #[inline]
     pub fn load_metadata_from<R: Read>(source: R) -> Result<PdfMetadata> {
-        Self::load_metadata_internal(source, None, None)
+        Self::load_metadata_from_with_options(source, LoadOptions::default())
+    }
+
+    /// Load PDF metadata from an arbitrary source with the given options.
+    #[inline]
+    pub fn load_metadata_from_with_options<R: Read>(source: R, options: LoadOptions) -> Result<PdfMetadata> {
+        Self::load_metadata_internal(source, None, options)
     }
 
     /// Load PDF metadata from an arbitrary source with a password for encrypted PDFs.
     #[inline]
     pub fn load_metadata_from_with_password<R: Read>(source: R, password: &str) -> Result<PdfMetadata> {
-        Self::load_metadata_internal(source, None, Some(password.to_string()))
+        Self::load_metadata_from_with_options(source, LoadOptions::with_password(password))
     }
 
     /// Load PDF metadata from a memory slice without loading the entire document.
     #[inline]
     pub fn load_metadata_mem(buffer: &[u8]) -> Result<PdfMetadata> {
+        Self::load_metadata_mem_with_options(buffer, LoadOptions::default())
+    }
+
+    /// Load PDF metadata from a memory slice with the given options.
+    #[inline]
+    pub fn load_metadata_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<PdfMetadata> {
         Reader {
             buffer,
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
+            password: options.password,
+            strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read_metadata()
     }
@@ -162,20 +181,11 @@ impl Document {
     /// Load PDF metadata from a memory slice with a password for encrypted PDFs.
     #[inline]
     pub fn load_metadata_mem_with_password(buffer: &[u8], password: &str) -> Result<PdfMetadata> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: Some(password.to_string()),
-            strict: false,
-            max_decompressed_size: None,
-        }
-        .read_metadata()
+        Self::load_metadata_mem_with_options(buffer, LoadOptions::with_password(password))
     }
 
     fn load_metadata_internal<R: Read>(
-        mut source: R, capacity: Option<usize>, password: Option<String>,
+        mut source: R, capacity: Option<usize>, options: LoadOptions,
     ) -> Result<PdfMetadata> {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
@@ -185,9 +195,10 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password,
-            strict: false,
-            max_decompressed_size: None,
+            password: options.password,
+            strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read_metadata()
     }
@@ -231,6 +242,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read(options.filter)
     }
@@ -250,6 +262,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read(options.filter)
     }
@@ -258,44 +271,60 @@ impl Document {
     /// This is much faster for large PDFs when you only need basic information.
     #[inline]
     pub async fn load_metadata<P: AsRef<Path>>(path: P) -> Result<PdfMetadata> {
+        Self::load_metadata_with_options(path, LoadOptions::default()).await
+    }
+
+    /// Load PDF metadata from a file path with the given options.
+    #[inline]
+    pub async fn load_metadata_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<PdfMetadata> {
         let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
-        Self::load_metadata_internal(file, capacity, None).await
+        Self::load_metadata_internal(file, capacity, options).await
     }
 
     /// Load PDF metadata from a file path with a password for encrypted PDFs.
     #[inline]
     pub async fn load_metadata_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<PdfMetadata> {
-        let file = File::open(path).await?;
-        let metadata = file.metadata().await?;
-        let capacity = Some(metadata.len() as usize);
-        Self::load_metadata_internal(file, capacity, Some(password.to_string())).await
+        Self::load_metadata_with_options(path, LoadOptions::with_password(password)).await
     }
 
     /// Load PDF metadata from an arbitrary source without loading the entire document.
     #[inline]
     pub async fn load_metadata_from<R: AsyncRead>(source: R) -> Result<PdfMetadata> {
-        Self::load_metadata_internal(source, None, None).await
+        Self::load_metadata_from_with_options(source, LoadOptions::default()).await
+    }
+
+    /// Load PDF metadata from an arbitrary source with the given options.
+    #[inline]
+    pub async fn load_metadata_from_with_options<R: AsyncRead>(source: R, options: LoadOptions) -> Result<PdfMetadata> {
+        Self::load_metadata_internal(source, None, options).await
     }
 
     /// Load PDF metadata from an arbitrary source with a password for encrypted PDFs.
     #[inline]
     pub async fn load_metadata_from_with_password<R: AsyncRead>(source: R, password: &str) -> Result<PdfMetadata> {
-        Self::load_metadata_internal(source, None, Some(password.to_string())).await
+        Self::load_metadata_from_with_options(source, LoadOptions::with_password(password)).await
     }
 
     /// Load PDF metadata from a memory slice without loading the entire document.
     #[inline]
     pub fn load_metadata_mem(buffer: &[u8]) -> Result<PdfMetadata> {
+        Self::load_metadata_mem_with_options(buffer, LoadOptions::default())
+    }
+
+    /// Load PDF metadata from a memory slice with the given options.
+    #[inline]
+    pub fn load_metadata_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<PdfMetadata> {
         Reader {
             buffer,
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
+            password: options.password,
+            strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read_metadata()
     }
@@ -303,20 +332,11 @@ impl Document {
     /// Load PDF metadata from a memory slice with a password for encrypted PDFs.
     #[inline]
     pub fn load_metadata_mem_with_password(buffer: &[u8], password: &str) -> Result<PdfMetadata> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: Some(password.to_string()),
-            strict: false,
-            max_decompressed_size: None,
-        }
-        .read_metadata()
+        Self::load_metadata_mem_with_options(buffer, LoadOptions::with_password(password))
     }
 
     async fn load_metadata_internal<R: AsyncRead>(
-        source: R, capacity: Option<usize>, password: Option<String>,
+        source: R, capacity: Option<usize>, options: LoadOptions,
     ) -> Result<PdfMetadata> {
         pin!(source);
 
@@ -328,9 +348,10 @@ impl Document {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password,
-            strict: false,
-            max_decompressed_size: None,
+            password: options.password,
+            strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
         .read_metadata()
     }
@@ -348,6 +369,7 @@ impl TryInto<Document> for &[u8] {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            max_xref_entries: None,
         }
         .read(None)
     }
@@ -358,18 +380,30 @@ impl IncrementalDocument {
     /// Load a PDF document from a specified file path.
     #[inline]
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::load_with_options(path, LoadOptions::default())
+    }
+
+    /// Load a PDF document from a specified file path with the given options.
+    #[inline]
+    pub fn load_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<Self> {
         let file = File::open(path)?;
         let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity)
+        Self::load_internal(file, capacity, options)
     }
 
     /// Load a PDF document from an arbitrary source.
     #[inline]
     pub fn load_from<R: Read>(source: R) -> Result<Self> {
-        Self::load_internal(source, None)
+        Self::load_from_with_options(source, LoadOptions::default())
     }
 
-    fn load_internal<R: Read>(mut source: R, capacity: Option<usize>) -> Result<Self> {
+    /// Load a PDF document from an arbitrary source with the given options.
+    #[inline]
+    pub fn load_from_with_options<R: Read>(source: R, options: LoadOptions) -> Result<Self> {
+        Self::load_internal(source, None, options)
+    }
+
+    fn load_internal<R: Read>(mut source: R, capacity: Option<usize>, options: LoadOptions) -> Result<Self> {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
@@ -378,18 +412,24 @@ impl IncrementalDocument {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
+            password: options.password,
+            strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
-        .read(None)?;
+        .read(options.filter)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }
 
     /// Load a PDF document from a memory slice.
     pub fn load_mem(buffer: &[u8]) -> Result<Document> {
-        buffer.try_into()
+        Self::load_mem_with_options(buffer, LoadOptions::default())
+    }
+
+    /// Load a PDF document from a memory slice with the given options.
+    pub fn load_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<Document> {
+        Document::load_mem_with_options(buffer, options)
     }
 }
 
@@ -398,19 +438,31 @@ impl IncrementalDocument {
     /// Load a PDF document from a specified file path.
     #[inline]
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::load_with_options(path, LoadOptions::default()).await
+    }
+
+    /// Load a PDF document from a specified file path with the given options.
+    #[inline]
+    pub async fn load_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<Self> {
         let file = File::open(path).await?;
         let metadata = file.metadata().await?;
         let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity).await
+        Self::load_internal(file, capacity, options).await
     }
 
     /// Load a PDF document from an arbitrary source.
     #[inline]
     pub async fn load_from<R: AsyncRead>(source: R) -> Result<Self> {
-        Self::load_internal(source, None).await
+        Self::load_from_with_options(source, LoadOptions::default()).await
     }
 
-    async fn load_internal<R: AsyncRead>(source: R, capacity: Option<usize>) -> Result<Self> {
+    /// Load a PDF document from an arbitrary source with the given options.
+    #[inline]
+    pub async fn load_from_with_options<R: AsyncRead>(source: R, options: LoadOptions) -> Result<Self> {
+        Self::load_internal(source, None, options).await
+    }
+
+    async fn load_internal<R: AsyncRead>(source: R, capacity: Option<usize>, options: LoadOptions) -> Result<Self> {
         pin!(source);
 
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
@@ -421,18 +473,24 @@ impl IncrementalDocument {
             document: Document::new(),
             encryption_state: None,
             raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
+            password: options.password,
+            strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
+            max_xref_entries: options.max_xref_entries,
         }
-        .read(None)?;
+        .read(options.filter)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }
 
     /// Load a PDF document from a memory slice.
     pub fn load_mem(buffer: &[u8]) -> Result<Document> {
-        buffer.try_into()
+        Self::load_mem_with_options(buffer, LoadOptions::default())
+    }
+
+    /// Load a PDF document from a memory slice with the given options.
+    pub fn load_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<Document> {
+        Document::load_mem_with_options(buffer, options)
     }
 }
 
@@ -448,6 +506,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            max_xref_entries: None,
         }
         .read(None)?;
 
@@ -467,6 +526,9 @@ pub struct Reader<'a> {
     /// `None` (the default) applies no limit; set it to guard against
     /// decompression bombs. See [`crate::LoadOptions`].
     pub max_decompressed_size: Option<usize>,
+    /// Maximum number of cross-reference entries accepted from any individual
+    /// table or stream and across merged incremental updates. `None` applies no limit.
+    pub max_xref_entries: Option<usize>,
 }
 
 /// Maximum allowed embedding of literal strings.
@@ -558,6 +620,35 @@ const STANDARD_INFO_KEYS: &[&[u8]] = &[
 ];
 
 impl Reader<'_> {
+    fn check_xref_entry_limit(&self, xref: &Xref) -> Result<()> {
+        if self.max_xref_entries.is_some_and(|limit| xref.entries.len() > limit) {
+            Err(ParseError::InvalidXref.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn merge_xref(&self, xref: &mut Xref, incoming: Xref) -> Result<()> {
+        let additional_entries = incoming
+            .entries
+            .keys()
+            .filter(|id| !xref.entries.contains_key(*id))
+            .try_fold(0_usize, |count, _| count.checked_add(1))
+            .ok_or(ParseError::InvalidXref)?;
+        let merged_entries = xref
+            .entries
+            .len()
+            .checked_add(additional_entries)
+            .ok_or(ParseError::InvalidXref)?;
+        if self.max_xref_entries.is_some_and(|limit| merged_entries > limit) {
+            return Err(ParseError::InvalidXref.into());
+        }
+
+        xref.merge(incoming);
+        debug_assert_eq!(xref.entries.len(), merged_entries);
+        Ok(())
+    }
+
     /// Read metadata (title and page count) without loading the entire document.
     /// This is much faster for large PDFs when you only need basic information.
     ///
@@ -574,6 +665,7 @@ impl Reader<'_> {
         }
 
         let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        self.check_xref_entry_limit(&xref)?;
 
         let mut already_seen = HashSet::new();
         let mut prev_xref_start = trailer.remove(b"Prev");
@@ -587,7 +679,7 @@ impl Reader<'_> {
             }
 
             let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-            xref.merge(prev_xref);
+            self.merge_xref(&mut xref, prev_xref)?;
 
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
             if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64().ok()) {
@@ -596,7 +688,7 @@ impl Reader<'_> {
                 }
 
                 let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-                xref.merge(prev_xref);
+                self.merge_xref(&mut xref, prev_xref)?;
             }
 
             prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
@@ -810,6 +902,7 @@ impl Reader<'_> {
         self.document.xref_start = xref_start;
 
         let (mut xref, mut trailer) = parser::xref_and_trailer(&self.buffer[xref_start..], &self)?;
+        self.check_xref_entry_limit(&xref)?;
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
@@ -824,7 +917,7 @@ impl Reader<'_> {
             }
 
             let (prev_xref, prev_trailer) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-            xref.merge(prev_xref);
+            self.merge_xref(&mut xref, prev_xref)?;
 
             // Read xref stream in hybrid-reference file
             let prev_xref_stream_start = trailer.remove(b"XRefStm");
@@ -834,7 +927,7 @@ impl Reader<'_> {
                 }
 
                 let (prev_xref, _) = parser::xref_and_trailer(&self.buffer[prev as usize..], &self)?;
-                xref.merge(prev_xref);
+                self.merge_xref(&mut xref, prev_xref)?;
             }
 
             prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();

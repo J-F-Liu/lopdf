@@ -10,6 +10,8 @@ mod sync_tests {
         assert!(opts.password.is_none());
         assert!(opts.filter.is_none());
         assert!(!opts.strict);
+        assert!(opts.max_decompressed_size.is_none());
+        assert!(opts.max_xref_entries.is_none());
     }
 
     #[test]
@@ -29,6 +31,13 @@ mod sync_tests {
         assert!(opts.password.is_none());
         assert!(opts.filter.is_some());
         assert!(!opts.strict);
+    }
+
+    #[test]
+    fn load_options_with_max_xref_entries() {
+        let opts = LoadOptions::with_max_xref_entries(1_024);
+        assert_eq!(opts.max_xref_entries, Some(1_024));
+        assert!(opts.max_decompressed_size.is_none());
     }
 
     #[test]

@@ -493,33 +493,66 @@ pub fn binary_mark(input: ParserInput) -> Option<Vec<u8>> {
 }
 
 /// Decode CrossReferenceTable
-fn xref(input: ParserInput) -> NomResult<Xref> {
+fn xref(input: ParserInput, max_xref_entries: Option<usize>) -> NomResult<crate::Result<Xref>> {
     let xref_eol = map(alt((tag(&b" \r"[..]), tag(&b" \n"[..]), tag(&b"\r\n"[..]))), |_| ());
     let xref_entry = pair(
         separated_pair(unsigned_int, tag(&b" "[..]), unsigned_int::<u32>),
         delimited(tag(&b" "[..]), map(one_of("nf"), |k| k == 'n'), xref_eol),
     );
 
+    let xref_entries = fold_many0(
+        xref_entry,
+        || (Vec::new(), false),
+        |(mut entries, mut limit_exceeded), entry| {
+            if max_xref_entries.is_some_and(|limit| entries.len() >= limit) {
+                limit_exceeded = true;
+            } else {
+                entries.push(entry);
+            }
+            (entries, limit_exceeded)
+        },
+    );
     let xref_section = pair(
         separated_pair(unsigned_int::<usize>, tag(&b" "[..]), unsigned_int::<u32>),
-        preceded(pair(opt(tag(&b" "[..])), eol), many0(xref_entry)),
+        preceded(pair(opt(tag(&b" "[..])), eol), xref_entries),
     );
 
-    delimited(
-        pair(tag(&b"xref"[..]), preceded(opt(tag(&b" "[..])), eol)),
-        fold_many1(
-            xref_section,
-            || -> Xref { Xref::new(0, XrefType::CrossReferenceTable) },
-            |mut xref, ((start, _count), entries)| {
-                for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
-                    if is_normal && let Ok(generation) = generation.try_into() {
-                        xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
+    map(
+        delimited(
+            pair(tag(&b"xref"[..]), preceded(opt(tag(&b" "[..])), eol)),
+            fold_many1(
+                xref_section,
+                || (Xref::new(0, XrefType::CrossReferenceTable), 0_usize, false),
+                |(mut xref, total_entries, limit_exceeded), ((start, _count), (entries, section_limit_exceeded))| {
+                    if limit_exceeded || section_limit_exceeded {
+                        return (xref, total_entries, true);
                     }
-                }
-                xref
-            },
+
+                    let Some(total_entries) = total_entries.checked_add(entries.len()) else {
+                        return (xref, total_entries, true);
+                    };
+                    if max_xref_entries.is_some_and(|limit| total_entries > limit) {
+                        return (xref, total_entries, true);
+                    }
+
+                    for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
+                        if is_normal && let Ok(generation) = generation.try_into() {
+                            let id = (start + index) as u32;
+                            xref.insert(id, XrefEntry::Normal { offset, generation });
+                        }
+                    }
+                    (xref, total_entries, limit_exceeded)
+                },
+            ),
+            space,
         ),
-        space,
+        |(xref, _, limit_exceeded)| {
+            if limit_exceeded {
+                Err(error::ParseError::InvalidXref.into())
+            } else {
+                Ok(xref)
+            }
+        },
     )
     .parse(input)
 }
@@ -529,20 +562,28 @@ fn trailer(input: ParserInput) -> NomResult<Dictionary> {
 }
 
 pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(Xref, Dictionary)> {
-    let xref_trailer = map(pair(xref, trailer), |(mut xref, trailer)| {
-        xref.size = trailer
-            .get(b"Size")
-            .and_then(Object::as_i64)
-            .map_err(|_| error::ParseError::InvalidTrailer)? as u32;
-        Ok((xref, trailer))
-    });
+    let xref_trailer = map(
+        pair(|input| xref(input, reader.max_xref_entries), trailer),
+        |(xref, trailer)| {
+            let mut xref = xref?;
+            xref.size = trailer
+                .get(b"Size")
+                .and_then(Object::as_i64)
+                .map_err(|_| error::ParseError::InvalidTrailer)? as u32;
+            Ok((xref, trailer))
+        },
+    );
     alt((
         xref_trailer,
         (|input| {
             _indirect_object(input, 0, None, reader, &mut HashSet::new())
                 .map(|(_, obj)| {
                     let res = match obj {
-                        Object::Stream(stream) => decode_xref_stream_with_limit(stream, reader.max_decompressed_size),
+                        Object::Stream(stream) => decode_xref_stream_with_limits(
+                            stream,
+                            reader.max_decompressed_size,
+                            reader.max_xref_entries,
+                        ),
                         _ => Err(crate::error::ParseError::InvalidXref.into()),
                     };
                     (input, res)
@@ -870,8 +911,9 @@ startxref
 153804\x20
 %%EOF
 ";
-        match xref(test_span(input)) {
-            Ok((_, re)) => assert_eq!(re.entries.len(), 15),
+        match xref(test_span(input), None) {
+            Ok((_, Ok(re))) => assert_eq!(re.entries.len(), 15),
+            Ok((_, Err(err))) => panic!("unexpected {err:?}"),
             Err(err) => panic!("unexpected {:?}", err),
         }
     }
@@ -998,8 +1040,9 @@ EI";
     fn xref_trailing_space_after_keyword() {
         // Some PDF generators emit "xref \n" with a trailing space.
         let input = b"xref \n0 3\n0000000000 65535 f \n0000000017 00000 n \n0000000081 00000 n \ntrailer\n<</Size 3/Root 1 0 R>>\nstartxref\n175\n%%EOF\n";
-        match xref(test_span(input)) {
-            Ok((_, re)) => assert_eq!(re.entries.len(), 2),
+        match xref(test_span(input), None) {
+            Ok((_, Ok(re))) => assert_eq!(re.entries.len(), 2),
+            Ok((_, Err(err))) => panic!("xref with trailing space should parse: {err:?}"),
             Err(err) => panic!("xref with trailing space should parse: {:?}", err),
         }
     }
