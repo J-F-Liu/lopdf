@@ -56,7 +56,7 @@ pub struct LoadOptions {
     /// number of entries across incremental updates. Set it when loading untrusted PDFs
     /// to prevent crafted cross-reference data from consuming excessive memory.
     /// A document that exceeds the limit fails with
-    /// [`crate::ParseError::InvalidXref`].
+    /// [`crate::ParseError::XrefEntryLimitExceeded`].
     ///
     /// `None` (the default) applies no limit.
     pub max_xref_entries: Option<usize>,

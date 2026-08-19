@@ -548,7 +548,10 @@ fn xref(input: ParserInput, max_xref_entries: Option<usize>) -> NomResult<crate:
         ),
         |(xref, _, limit_exceeded)| {
             if limit_exceeded {
-                Err(error::ParseError::InvalidXref.into())
+                match max_xref_entries {
+                    Some(limit) => Err(error::ParseError::XrefEntryLimitExceeded { limit }.into()),
+                    None => Err(error::ParseError::InvalidXref.into()),
+                }
             } else {
                 Ok(xref)
             }

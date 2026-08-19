@@ -53,10 +53,10 @@ fn temporary_pdf(pdf: &[u8]) -> tempfile::NamedTempFile {
     file
 }
 
-fn assert_invalid_xref<T>(result: lopdf::Result<T>, context: &str) {
+fn assert_xref_limit_exceeded<T>(result: lopdf::Result<T>, context: &str) {
     match result {
-        Err(Error::Parse(ParseError::InvalidXref)) => {}
-        Err(other) => panic!("{context}: expected InvalidXref, got {other:?}"),
+        Err(Error::Parse(ParseError::XrefEntryLimitExceeded { limit: 3 })) => {}
+        Err(other) => panic!("{context}: expected the three-entry xref limit to be exceeded, got {other:?}"),
         Ok(_) => panic!("{context}: expected the xref entry limit to reject the PDF"),
     }
 }
@@ -66,17 +66,17 @@ async fn async_metadata_load_options_propagate_resource_limits() {
     let pdf = compressed_xref_stream_pdf(4);
     let file = temporary_pdf(&pdf);
 
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         Document::load_metadata_mem_with_options(&pdf, LoadOptions::with_max_xref_entries(3)),
         "async-build memory metadata loader",
     );
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         Document::load_metadata_with_options(file.path(), LoadOptions::with_max_xref_entries(3)).await,
         "async file metadata loader",
     );
 
     let source = tokio::fs::File::open(file.path()).await.unwrap();
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         Document::load_metadata_from_with_options(source, LoadOptions::with_max_xref_entries(3)).await,
         "async source metadata loader",
     );
@@ -96,17 +96,17 @@ async fn async_incremental_load_options_propagate_resource_limits() {
     let pdf = compressed_xref_stream_pdf(4);
     let file = temporary_pdf(&pdf);
 
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         IncrementalDocument::load_mem_with_options(&pdf, LoadOptions::with_max_xref_entries(3)),
         "async-build memory incremental loader",
     );
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         IncrementalDocument::load_with_options(file.path(), LoadOptions::with_max_xref_entries(3)).await,
         "async file incremental loader",
     );
 
     let source = tokio::fs::File::open(file.path()).await.unwrap();
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         IncrementalDocument::load_from_with_options(source, LoadOptions::with_max_xref_entries(3)).await,
         "async source incremental loader",
     );

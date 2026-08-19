@@ -154,6 +154,8 @@ pub enum ParseError {
     InvalidTrailer,
     #[error("invalid cross reference table")]
     InvalidXref,
+    #[error("cross-reference entry count exceeded the {limit}-entry limit")]
+    XrefEntryLimitExceeded { limit: usize },
 }
 
 #[derive(Debug, Error)]

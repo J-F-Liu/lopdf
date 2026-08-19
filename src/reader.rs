@@ -621,11 +621,13 @@ const STANDARD_INFO_KEYS: &[&[u8]] = &[
 
 impl Reader<'_> {
     fn check_xref_entry_limit(&self, xref: &Xref) -> Result<()> {
-        if self.max_xref_entries.is_some_and(|limit| xref.entries.len() > limit) {
-            Err(ParseError::InvalidXref.into())
-        } else {
-            Ok(())
+        if let Some(limit) = self.max_xref_entries
+            && xref.entries.len() > limit
+        {
+            return Err(ParseError::XrefEntryLimitExceeded { limit }.into());
         }
+
+        Ok(())
     }
 
     fn merge_xref(&self, xref: &mut Xref, incoming: Xref) -> Result<()> {
@@ -640,8 +642,10 @@ impl Reader<'_> {
             .len()
             .checked_add(additional_entries)
             .ok_or(ParseError::InvalidXref)?;
-        if self.max_xref_entries.is_some_and(|limit| merged_entries > limit) {
-            return Err(ParseError::InvalidXref.into());
+        if let Some(limit) = self.max_xref_entries
+            && merged_entries > limit
+        {
+            return Err(ParseError::XrefEntryLimitExceeded { limit }.into());
         }
 
         xref.merge(incoming);

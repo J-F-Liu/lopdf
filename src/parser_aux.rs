@@ -598,8 +598,10 @@ pub fn decode_xref_stream_with_limits(
             let count = usize::try_from(section[1]).map_err(|_| ParseError::InvalidXref)?;
             total.checked_add(count).ok_or(ParseError::InvalidXref)
         })?;
-        if max_xref_entries.is_some_and(|limit| index_entries > limit) {
-            return Err(ParseError::InvalidXref.into());
+        if let Some(limit) = max_xref_entries
+            && index_entries > limit
+        {
+            return Err(ParseError::XrefEntryLimitExceeded { limit }.into());
         }
 
         // An entry can't be read from bytes that aren't there. Validate the total before inserting

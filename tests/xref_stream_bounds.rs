@@ -113,10 +113,10 @@ fn record_object_filter(id: (u32, u16), object: &mut Object) -> Option<((u32, u1
     Some((id, object.clone()))
 }
 
-fn assert_invalid_xref<T>(result: lopdf::Result<T>, context: &str) {
+fn assert_xref_limit_exceeded<T>(result: lopdf::Result<T>, context: &str) {
     match result {
-        Err(Error::Parse(ParseError::InvalidXref)) => {}
-        Err(other) => panic!("{context}: expected InvalidXref, got {other:?}"),
+        Err(Error::Parse(ParseError::XrefEntryLimitExceeded { limit: 3 })) => {}
+        Err(other) => panic!("{context}: expected the three-entry xref limit to be exceeded, got {other:?}"),
         Ok(_) => panic!("{context}: expected the xref entry limit to reject the PDF"),
     }
 }
@@ -166,7 +166,10 @@ fn compressed_xref_stream_over_configured_entry_limit_is_rejected() {
 
     let result = Document::load_mem_with_options(&pdf, LoadOptions::with_max_xref_entries(3));
     assert!(
-        matches!(result, Err(Error::Parse(ParseError::InvalidXref))),
+        matches!(
+            result,
+            Err(Error::Parse(ParseError::XrefEntryLimitExceeded { limit: 3 }))
+        ),
         "expected an xref entry limit error, got {result:?}"
     );
 }
@@ -177,15 +180,15 @@ fn metadata_load_options_propagate_resource_limits() {
     Document::load_metadata_mem(&pdf).expect("the compressed xref stream should provide valid metadata");
     let file = temporary_pdf(&pdf);
 
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         Document::load_metadata_mem_with_options(&pdf, LoadOptions::with_max_xref_entries(3)),
         "memory metadata loader",
     );
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         Document::load_metadata_from_with_options(Cursor::new(pdf.clone()), LoadOptions::with_max_xref_entries(3)),
         "source metadata loader",
     );
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         Document::load_metadata_with_options(file.path(), LoadOptions::with_max_xref_entries(3)),
         "file metadata loader",
     );
@@ -205,15 +208,15 @@ fn incremental_load_options_propagate_resource_limits() {
     let pdf = compressed_xref_stream_pdf(4);
     let file = temporary_pdf(&pdf);
 
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         IncrementalDocument::load_mem_with_options(&pdf, LoadOptions::with_max_xref_entries(3)),
         "memory incremental loader",
     );
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         IncrementalDocument::load_from_with_options(Cursor::new(pdf.clone()), LoadOptions::with_max_xref_entries(3)),
         "source incremental loader",
     );
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         IncrementalDocument::load_with_options(file.path(), LoadOptions::with_max_xref_entries(3)),
         "file incremental loader",
     );
@@ -243,7 +246,10 @@ fn cumulative_incremental_xref_entries_are_rejected_before_objects_are_parsed() 
     let result = Document::load_mem_with_options(&pdf, options);
 
     assert!(
-        matches!(result, Err(Error::Parse(ParseError::InvalidXref))),
+        matches!(
+            result,
+            Err(Error::Parse(ParseError::XrefEntryLimitExceeded { limit: 3 }))
+        ),
         "expected a cumulative xref entry limit error, got {result:?}"
     );
     assert!(
@@ -251,7 +257,7 @@ fn cumulative_incremental_xref_entries_are_rejected_before_objects_are_parsed() 
         "normal objects must not be parsed before the cumulative limit is enforced"
     );
 
-    assert_invalid_xref(
+    assert_xref_limit_exceeded(
         Document::load_metadata_mem_with_options(&pdf, LoadOptions::with_max_xref_entries(3)),
         "metadata cumulative merge",
     );
