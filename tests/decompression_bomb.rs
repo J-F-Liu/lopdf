@@ -316,3 +316,21 @@ fn object_stream_bomb_is_rejected_with_limit() {
         Ok(_) => panic!("object stream bomb was not caught"),
     }
 }
+
+#[test]
+fn object_stream_parsing_preserves_encoded_evidence() {
+    let decoded = b"1 0 << /Kind /ArchiveEntry /Padding (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) >>";
+    let encoded = zlib_compress(decoded);
+    let mut dict = Dictionary::new();
+    dict.set("Type", "ObjStm");
+    dict.set("N", 1i64);
+    dict.set("First", 4i64);
+    dict.set("Filter", "FlateDecode");
+    let mut stream = Stream::new(dict, encoded.clone());
+
+    let object_stream = ObjectStream::new_with_limit(&mut stream, Some(decoded.len())).unwrap();
+
+    assert!(object_stream.objects.contains_key(&(1, 0)));
+    assert_eq!(stream.content, encoded);
+    assert_eq!(stream.dict.get(b"Filter").unwrap().as_name().unwrap(), b"FlateDecode");
+}
