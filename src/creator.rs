@@ -196,6 +196,23 @@ impl Document {
             "Encoding" => Object::Name(font_data.encoding.into_bytes()),
         });
 
+        if let Some(first_char) = font_data.first_char {
+            self.get_dictionary_mut(font_id)
+                .unwrap()
+                .set("FirstChar", Object::Integer(first_char));
+        }
+        if let Some(last_char) = font_data.last_char {
+            self.get_dictionary_mut(font_id)
+                .unwrap()
+                .set("LastChar", Object::Integer(last_char));
+        }
+        if let Some(widths_array) = font_data.widths {
+            let widths = widths_array.into_iter().map(Object::Integer).collect();
+            self.get_dictionary_mut(font_id)
+                .unwrap()
+                .set("Widths", Object::Array(widths));
+        }
+
         Ok(font_id)
     }
 }
