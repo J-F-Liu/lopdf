@@ -574,31 +574,37 @@ pub fn decode_xref_stream_with_limit(
             return Err(ParseError::InvalidXref.into());
         }
 
-        let mut bytes1 = vec![0_u8; field_widths[0] as usize];
-        let mut bytes2 = vec![0_u8; field_widths[1] as usize];
-        let mut bytes3 = vec![0_u8; field_widths[2] as usize];
-
         // Total bytes one entry consumes. With every width zero an entry reads nothing, so the loop
         // below would run purely on the attacker-controlled /Index counts and never reach the end of
         // the stream. Such a stream carries no information and can only be malformed, so reject it
-        // (this also keeps max_entries below from dividing by zero).
-        let entry_width = field_widths[0] + field_widths[1] + field_widths[2];
+        // (this also keeps the body-capacity check below from dividing by zero).
+        let entry_width = (field_widths[0] + field_widths[1] + field_widths[2]) as usize;
         if entry_width == 0 {
             return Err(ParseError::InvalidXref.into());
         }
 
-        // An entry can't be read from bytes that aren't there, so no section may declare more entries
-        // than the decoded stream could possibly hold. Without this a huge /Index [0 N] still fails
-        // eventually once the reader runs dry, but only after inserting N-ish map entries first.
-        let max_entries = reader.get_ref().len() as i64 / entry_width;
+        let index_entries = section_indice.chunks_exact(2).try_fold(0_usize, |total, section| {
+            let count = usize::try_from(section[1]).map_err(|_| ParseError::InvalidXref)?;
+            total.checked_add(count).ok_or(ParseError::InvalidXref)
+        })?;
+        // An entry can't be read from bytes that aren't there. Validate the total before inserting
+        // anything so multiple individually plausible /Index sections cannot overrun the body.
+        //
+        // deliberate: Records narrower than three bytes are rejected to limit amplification from
+        // decoded bytes into retained map entries. /W [1 2 0] is a plausible three-byte record and
+        // remains accepted; lopdf's writer emits /W [1 4 2], so its output is unaffected.
+        const MIN_ENTRY_WIDTH: usize = 3;
+        if index_entries > reader.get_ref().len() / entry_width.max(MIN_ENTRY_WIDTH) {
+            return Err(ParseError::InvalidXref.into());
+        }
 
-        for i in 0..section_indice.len() / 2 {
-            let start = section_indice[2 * i];
-            let count = section_indice[2 * i + 1];
+        let mut bytes1 = vec![0_u8; field_widths[0] as usize];
+        let mut bytes2 = vec![0_u8; field_widths[1] as usize];
+        let mut bytes3 = vec![0_u8; field_widths[2] as usize];
 
-            if count > max_entries {
-                return Err(ParseError::InvalidXref.into());
-            }
+        for section in section_indice.chunks_exact(2) {
+            let start = section[0];
+            let count = section[1];
 
             for j in 0..count {
                 let entry_type = if !bytes1.is_empty() {
