@@ -1116,7 +1116,18 @@ impl Reader<'_> {
             .dict
             .get(b"Length")
             .and_then(|value| self.document.dereference(value))
-            .and_then(|(_id, obj)| obj.as_i64())
+            .and_then(|(_id, obj)| match obj.as_i64() {
+                Ok(length) => Ok(length),
+                // ISO 32000-1 s7.3.8.2 requires /Length to be an integer, but some producers
+                // write it as a real ("42." instead of "42"). Accept one whose value is
+                // integral and in range rather than dropping the stream's content.
+                Err(err) => match obj.as_f32() {
+                    Ok(value) if value.fract() == 0.0 && value >= -(2f32.powi(63)) && value < 2f32.powi(63) => {
+                        Ok(value as i64)
+                    }
+                    _ => Err(err),
+                },
+            })
             .inspect_err(|_err| {
                 error!(
                     "stream dictionary of '{} {} R' is missing the Length entry",
@@ -1635,4 +1646,42 @@ startxref
         },
     );
     assert!(strict.is_err());
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn stream_length_written_as_real() {
+    // ISO 32000-1 s7.3.8.2 requires /Length to be an integer, but some generators
+    // emit "/Length 42." instead of "/Length 42". Such a stream must still resolve
+    // to its content rather than silently loading as empty.
+    let obj4 = "4 0 obj\n<< /Length 42. >>\nstream\nBT /F1 12 Tf 20 100 Td (Hello World) Tj ET\nendstream\nendobj\n";
+    let header = "%PDF-1.7\n";
+    let obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    let obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    let obj3 = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n";
+    let o1 = header.len();
+    let o2 = o1 + obj1.len();
+    let o3 = o2 + obj2.len();
+    let o4 = o3 + obj3.len();
+    let body = format!("{header}{obj1}{obj2}{obj3}{obj4}");
+    let xref_pos = body.len();
+    let doc = format!(
+        "{body}xref
+0 5
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+{o3:010} 00000 n 
+{o4:010} 00000 n 
+trailer
+<< /Size 5 /Root 1 0 R >>
+startxref
+{xref_pos}
+%%EOF
+"
+    );
+
+    let loaded = Document::load_mem(doc.as_bytes()).unwrap();
+    let stream = loaded.get_object((4, 0)).unwrap().as_stream().unwrap();
+    assert_eq!(stream.content, b"BT /F1 12 Tf 20 100 Td (Hello World) Tj ET");
 }
