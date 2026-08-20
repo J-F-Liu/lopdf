@@ -133,8 +133,8 @@ fn test_object_stream_parses_objects_with_leading_whitespace() {
         "First" => first_offset as i64,
     };
 
-    let mut stream = Stream::new(dict, content);
-    let obj_stream = ObjectStream::new(&mut stream).expect("should parse object stream");
+    let stream = Stream::new(dict, content);
+    let obj_stream = ObjectStream::new(&stream).expect("should parse object stream");
 
     // Both objects must be present
     assert_eq!(

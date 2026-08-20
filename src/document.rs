@@ -471,8 +471,8 @@ impl Document {
         // Add the objects from the object streams now that they have been decrypted.
         let mut object_streams = vec![];
 
-        for object in self.objects.values_mut() {
-            let Ok(ref mut stream) = object.as_stream_mut() else {
+        for object in self.objects.values() {
+            let Ok(stream) = object.as_stream() else {
                 continue;
             };
 

@@ -438,7 +438,7 @@ fn test_parse_existing_object_stream() {
                     <</Type/Annot/Subtype/Text/Rect[100 100 200 200]>>\n\
                     42";
 
-    let mut stream = Stream::new(
+    let stream = Stream::new(
         dictionary! {
             "Type" => "ObjStm",
             "N" => 3,
@@ -447,7 +447,7 @@ fn test_parse_existing_object_stream() {
         content.to_vec(),
     );
 
-    let obj_stream = ObjectStream::new(&mut stream);
+    let obj_stream = ObjectStream::new(&stream);
     assert!(obj_stream.is_ok());
 
     let obj_stream = obj_stream.unwrap();
