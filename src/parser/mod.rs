@@ -523,10 +523,25 @@ fn xref(input: ParserInput, strict: bool) -> NomResult<Xref> {
             xref_section,
             || -> Xref { Xref::new(0, XrefType::CrossReferenceTable) },
             |mut xref, ((start, _count), entries)| {
+                let mut skipped = 0usize;
                 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
                     if is_normal && let Ok(generation) = generation.try_into() {
-                        xref.insert((start + index) as u32, XrefEntry::Normal { offset, generation });
+                        // `start` is read from the subsection header, so it is untrusted:
+                        // `start + index` can overflow, and object numbers are u32, so a
+                        // `start` above u32::MAX would truncate into a valid-looking number
+                        // that silently displaces a legitimate entry. Skip whatever cannot
+                        // be represented, as an out-of-range generation is skipped above.
+                        match start.checked_add(index).and_then(|id| u32::try_from(id).ok()) {
+                            Some(id) => xref.insert(id, XrefEntry::Normal { offset, generation }),
+                            None => skipped += 1,
+                        }
                     }
+                }
+                if skipped > 0 {
+                    log::warn!(
+                        "cross-reference subsection starting at {start} has {skipped} entr{} with an object number beyond u32; skipping",
+                        if skipped == 1 { "y" } else { "ies" }
+                    );
                 }
                 xref
             },
@@ -1116,6 +1131,58 @@ EI";
                     Ok((_, re)) => assert_eq!(re.entries.len(), 2, "{name} (strict={strict}) lost an entry"),
                     Err(err) => panic!("conforming {name} entries should parse (strict={strict}): {err:?}"),
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn xref_subsection_start_near_usize_max_is_skipped() {
+        // A subsection header's start is read straight from the file, so it is untrusted.
+        // A start of usize::MAX made `start + index` overflow: a panic wherever overflow
+        // checks are on (a denial of service for any consumer parsing untrusted PDFs), and
+        // a silent wrap to object 0 where they are not.
+        let input = &b"xref\n18446744073709551615 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer\n<</Size 2/Root 1 0 R>>\n"[..];
+        for strict in [false, true] {
+            match xref(test_span(input), strict) {
+                Ok((_, re)) => assert!(
+                    re.entries.is_empty(),
+                    "unrepresentable object number was inserted (strict={strict}): {:?}",
+                    re.entries
+                ),
+                Err(err) => panic!("xref should still parse (strict={strict}): {err:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn xref_subsection_start_beyond_u32_does_not_displace_entries() {
+        // Object numbers are u32, but the subsection start is parsed as usize and was cast
+        // with `as u32`. A start above u32::MAX truncated into a valid-looking number --
+        // 4294967297 becomes 1 -- silently overwriting a legitimate entry with an arbitrary
+        // offset. No overflow occurs here, so a checked add alone would not catch it.
+        let input = &b"xref\n0 2\n0000000000 65535 f \n0000000009 00000 n \n4294967297 1\n0000000999 00000 n \ntrailer\n<</Size 2/Root 1 0 R>>\n"[..];
+        for strict in [false, true] {
+            match xref(test_span(input), strict) {
+                Ok((_, re)) => {
+                    assert_eq!(
+                        re.entries.len(),
+                        1,
+                        "(strict={strict}) unexpected entries: {:?}",
+                        re.entries
+                    );
+                    assert!(
+                        matches!(
+                            re.get(1),
+                            Some(XrefEntry::Normal {
+                                offset: 9,
+                                generation: 0
+                            })
+                        ),
+                        "entry for object 1 was displaced (strict={strict}): {:?}",
+                        re.get(1)
+                    );
+                }
+                Err(err) => panic!("xref should still parse (strict={strict}): {err:?}"),
             }
         }
     }
