@@ -583,10 +583,14 @@ pub fn decode_xref_stream_with_limit(
             return Err(ParseError::InvalidXref.into());
         }
 
-        let index_entries = section_indice.chunks_exact(2).try_fold(0_usize, |total, section| {
-            let count = usize::try_from(section[1]).map_err(|_| ParseError::InvalidXref)?;
-            total.checked_add(count).ok_or(ParseError::InvalidXref)
-        })?;
+        let index_entries = section_indice
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .try_fold(0_usize, |total, section| {
+                let count = usize::try_from(section[1]).map_err(|_| ParseError::InvalidXref)?;
+                total.checked_add(count).ok_or(ParseError::InvalidXref)
+            })?;
         // An entry can't be read from bytes that aren't there. Validate the total before inserting
         // anything so multiple individually plausible /Index sections cannot overrun the body.
         //
@@ -602,7 +606,7 @@ pub fn decode_xref_stream_with_limit(
         let mut bytes2 = vec![0_u8; field_widths[1] as usize];
         let mut bytes3 = vec![0_u8; field_widths[2] as usize];
 
-        for section in section_indice.chunks_exact(2) {
+        for section in section_indice.as_chunks::<2>().0 {
             let start = section[0];
             let count = section[1];
 
