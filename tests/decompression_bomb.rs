@@ -306,9 +306,9 @@ fn object_stream_bomb_is_rejected_with_limit() {
     dict.set("N", 1i64);
     dict.set("First", 0i64);
     dict.set("Filter", "FlateDecode");
-    let mut stream = Stream::new(dict, flate_bomb(64 * MIB));
+    let stream = Stream::new(dict, flate_bomb(64 * MIB));
 
-    match ObjectStream::new_with_limit(&mut stream, Some(4 * MIB)) {
+    match ObjectStream::new_with_limit(&stream, Some(4 * MIB)) {
         Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
             assert_eq!(limit, 4 * MIB);
         }

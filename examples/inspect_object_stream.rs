@@ -29,8 +29,7 @@ fn main() {
                 println!("Dictionary: {:?}", stream.dict);
 
                 // Try to parse it
-                let mut stream_clone = stream.clone();
-                match ObjectStream::new(&mut stream_clone) {
+                match ObjectStream::new(stream) {
                     Ok(obj_stream) => {
                         println!("\nSuccessfully parsed object stream!");
                         println!("Contains {} objects", obj_stream.objects.len());

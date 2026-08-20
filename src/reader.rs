@@ -934,8 +934,8 @@ impl Reader<'_> {
             }
 
             for (container_id, objects_in_stream) in streams_to_process {
-                if let Some(container_obj) = self.document.objects.get_mut(&(container_id, 0))
-                    && let Ok(stream) = container_obj.as_stream_mut()
+                if let Some(container_obj) = self.document.objects.get(&(container_id, 0))
+                    && let Ok(stream) = container_obj.as_stream()
                 {
                     match ObjectStream::new_with_limit(stream, self.max_decompressed_size) {
                         Ok(object_stream) => {
@@ -1015,7 +1015,7 @@ impl Reader<'_> {
                     filter_func(object_id, &mut object)?;
                 }
 
-                if let Ok(ref mut stream) = object.as_stream_mut() {
+                if let Ok(stream) = object.as_stream() {
                     if stream.dict.has_type(b"ObjStm") && !is_encrypted {
                         let obj_stream = ObjectStream::new_with_limit(stream, self.max_decompressed_size).ok()?;
                         let container_id = object_id.0;
@@ -1157,8 +1157,8 @@ impl Reader<'_> {
         let container_id = (container_id, 0);
         let mut already_seen = HashSet::new();
         let container_obj = self.get_object(container_id, &mut already_seen)?;
-        let mut container_stream = container_obj.as_stream()?.clone();
-        let object_stream = ObjectStream::new_with_limit(&mut container_stream, self.max_decompressed_size)?;
+        let container_stream = container_obj.as_stream()?;
+        let object_stream = ObjectStream::new_with_limit(container_stream, self.max_decompressed_size)?;
         object_stream.objects.get(&id).cloned().ok_or(Error::MissingXrefEntry)
     }
 

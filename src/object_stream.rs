@@ -37,29 +37,28 @@ impl Default for ObjectStreamConfig {
 }
 
 impl ObjectStream {
-    /// Parse an existing object stream.
+    /// Parse an existing object stream without modifying its encoded content or
+    /// filter dictionary.
     ///
-    /// This decompresses the stream without any size limit. For untrusted input,
+    /// This decodes the stream without any size limit. For untrusted input,
     /// prefer [`ObjectStream::new_with_limit`] to guard against decompression
     /// bombs.
-    pub fn new(stream: &mut Stream) -> Result<ObjectStream> {
+    pub fn new(stream: &Stream) -> Result<ObjectStream> {
         Self::new_with_limit(stream, None)
     }
 
-    /// Parse an existing object stream, rejecting it if its decompressed content
-    /// would exceed `max_decompressed_size` bytes. `None` means no limit (the
-    /// behavior of [`ObjectStream::new`]).
-    pub fn new_with_limit(stream: &mut Stream, max_decompressed_size: Option<usize>) -> Result<ObjectStream> {
-        match max_decompressed_size {
-            // Object streams are decompressed while the document is loaded, so
+    /// Parse an existing object stream without modifying it, rejecting the
+    /// decoded content if it would exceed `max_decompressed_size` bytes. `None`
+    /// means no limit (the behavior of [`ObjectStream::new`]).
+    pub fn new_with_limit(stream: &Stream, max_decompressed_size: Option<usize>) -> Result<ObjectStream> {
+        let content = match max_decompressed_size {
+            // Object streams are decoded while the document is loaded, so
             // enforcing the limit here bounds the memory a single stream can use.
-            Some(max) => stream.decompress_with_limit(max)?,
-            None => {
-                let _ = stream.decompress();
-            }
-        }
+            Some(max) => stream.get_plain_content_with_limit(max)?,
+            None => stream.get_plain_content()?,
+        };
 
-        if stream.content.is_empty() {
+        if content.is_empty() {
             return Ok(ObjectStream {
                 objects: BTreeMap::new(),
                 max_objects: 100,
@@ -73,10 +72,7 @@ impl ObjectStream {
             .and_then(Object::as_i64)?
             .try_into()
             .map_err(|e: TryFromIntError| Error::NumericCast(e.to_string()))?;
-        let index_block = stream
-            .content
-            .get(..first_offset)
-            .ok_or(Error::InvalidOffset(first_offset))?;
+        let index_block = content.get(..first_offset).ok_or(Error::InvalidOffset(first_offset))?;
 
         let numbers_str = std::str::from_utf8(index_block).map_err(|e| Error::InvalidObjectStream(e.to_string()))?;
         let numbers: Vec<_> = numbers_str
@@ -94,20 +90,20 @@ impl ObjectStream {
             let id = chunk[0]?;
             let offset = first_offset + chunk[1]? as usize;
 
-            if offset >= stream.content.len() {
+            if offset >= content.len() {
                 warn!("out-of-bounds offset in object stream");
                 return None;
             }
             // Skip leading whitespace — some PDFs emit newlines before objects in ObjStm
             let mut start = offset;
-            while start < stream.content.len() && stream.content[start].is_ascii_whitespace() {
+            while start < content.len() && content[start].is_ascii_whitespace() {
                 start += 1;
             }
-            if start >= stream.content.len() {
+            if start >= content.len() {
                 warn!("only whitespace after offset in object stream");
                 return None;
             }
-            let object = parser::direct_object(&stream.content[start..])?;
+            let object = parser::direct_object(&content[start..])?;
 
             Some(((id, 0), object))
         };
