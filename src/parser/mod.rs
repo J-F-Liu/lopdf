@@ -493,8 +493,20 @@ pub fn binary_mark(input: ParserInput) -> Option<Vec<u8>> {
 }
 
 /// Decode CrossReferenceTable
-fn xref(input: ParserInput) -> NomResult<Xref> {
-    let xref_eol = map(alt((tag(&b" \r"[..]), tag(&b" \n"[..]), tag(&b"\r\n"[..]))), |_| ());
+fn xref(input: ParserInput, strict: bool) -> NomResult<Xref> {
+    // ISO 32000-1 s7.5.4 requires every entry to be exactly 20 bytes, ending in one of the
+    // 2-byte terminators SP CR, SP LF or CR LF. Many generators instead emit 19-byte entries
+    // ending in a bare LF, which qpdf, pikepdf, PDFium and PDF.js all accept. Accept those
+    // too when parsing leniently, but keep the conforming 2-byte forms first in the `alt` so
+    // that a bare CR never matches the CR of a conforming CR LF and strands its LF.
+    let xref_eol = move |i| {
+        let conforming = alt((tag(&b" \r"[..]), tag(&b" \n"[..]), tag(&b"\r\n"[..])));
+        if strict {
+            map(conforming, |_| ()).parse(i)
+        } else {
+            map(alt((conforming, tag(&b"\n"[..]), tag(&b"\r"[..]))), |_| ()).parse(i)
+        }
+    };
     let xref_entry = pair(
         separated_pair(unsigned_int, tag(&b" "[..]), unsigned_int::<u32>),
         delimited(tag(&b" "[..]), map(one_of("nf"), |k| k == 'n'), xref_eol),
@@ -529,7 +541,7 @@ fn trailer(input: ParserInput) -> NomResult<Dictionary> {
 }
 
 pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(Xref, Dictionary)> {
-    let xref_trailer = map(pair(xref, trailer), |(mut xref, trailer)| {
+    let xref_trailer = map(pair(|i| xref(i, reader.strict), trailer), |(mut xref, trailer)| {
         xref.size = trailer
             .get(b"Size")
             .and_then(Object::as_i64)
@@ -870,7 +882,7 @@ startxref
 153804\x20
 %%EOF
 ";
-        match xref(test_span(input)) {
+        match xref(test_span(input), false) {
             Ok((_, re)) => assert_eq!(re.entries.len(), 15),
             Err(err) => panic!("unexpected {:?}", err),
         }
@@ -998,9 +1010,113 @@ EI";
     fn xref_trailing_space_after_keyword() {
         // Some PDF generators emit "xref \n" with a trailing space.
         let input = b"xref \n0 3\n0000000000 65535 f \n0000000017 00000 n \n0000000081 00000 n \ntrailer\n<</Size 3/Root 1 0 R>>\nstartxref\n175\n%%EOF\n";
-        match xref(test_span(input)) {
+        match xref(test_span(input), false) {
             Ok((_, re)) => assert_eq!(re.entries.len(), 2),
             Err(err) => panic!("xref with trailing space should parse: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn xref_entries_with_bare_eol_terminator() {
+        // ISO 32000-1 s7.5.4 requires 20-byte entries, so the terminator is two bytes
+        // (" \r", " \n" or "\r\n"). Many generators drop the padding space and emit
+        // 19-byte entries ending in a bare "\n"; qpdf, pikepdf, PDFium and PDF.js all
+        // accept these, so lenient parsing accepts them too.
+        for (name, input) in [
+            (
+                "bare LF",
+                &b"xref\n0 3\n0000000000 65535 f\n0000000017 00000 n\n0000000081 00000 n\ntrailer\n<</Size 3/Root 1 0 R>>\n"[..],
+            ),
+            (
+                "bare CR",
+                &b"xref\n0 3\n0000000000 65535 f\r0000000017 00000 n\r0000000081 00000 n\rtrailer\n<</Size 3/Root 1 0 R>>\n"[..],
+            ),
+        ] {
+            match xref(test_span(input), false) {
+                Ok((_, re)) => assert_eq!(re.entries.len(), 2, "{name} should yield both normal entries"),
+                Err(err) => panic!("19-byte entries ({name}) should parse when lenient: {err:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn xref_entries_with_bare_eol_rejected_when_strict() {
+        // The 19-byte form is non-conforming, so strict mode must keep rejecting it.
+        // At this level the rejection is indirect: the entries simply are not recognised,
+        // leaving an empty section whose unconsumed lines then displace `trailer`. Assert
+        // both halves -- the empty table here, and the document-level failure below.
+        let input =
+            b"xref\n0 3\n0000000000 65535 f\n0000000017 00000 n\n0000000081 00000 n\ntrailer\n<</Size 3/Root 1 0 R>>\n";
+        if let Ok((_, re)) = xref(test_span(input), true) {
+            assert_eq!(re.entries.len(), 0, "strict must not accept 19-byte entries");
+        }
+
+        // The contract that matters to callers: a document with 19-byte entries loads
+        // leniently and is refused under `LoadOptions::strict`. The 20-byte build of the
+        // very same document is the control -- it must load in *both* modes, so that the
+        // strict rejection below is attributable to the terminator and nothing else.
+        let load = |bytes: &[u8], strict: bool| {
+            crate::Document::load_mem_with_options(
+                bytes,
+                crate::LoadOptions {
+                    strict,
+                    ..Default::default()
+                },
+            )
+        };
+
+        for (name, term, strict_should_load) in [("19-byte", "\n", false), ("20-byte", " \n", true)] {
+            let header = "%PDF-1.7\n";
+            let obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+            let obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+            let obj3 = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n";
+            let o1 = header.len();
+            let o2 = o1 + obj1.len();
+            let o3 = o2 + obj2.len();
+            let body = format!("{header}{obj1}{obj2}{obj3}");
+            let xref_pos = body.len();
+            let doc = format!(
+                "{body}xref\n0 4\n0000000000 65535 f{term}{o1:010} 00000 n{term}{o2:010} 00000 n{term}\
+                 {o3:010} 00000 n{term}trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n"
+            );
+
+            assert!(
+                load(doc.as_bytes(), false).is_ok(),
+                "{name} entries should load when lenient"
+            );
+            assert_eq!(
+                load(doc.as_bytes(), true).is_ok(),
+                strict_should_load,
+                "{name} entries under strict parsing"
+            );
+        }
+    }
+
+    #[test]
+    fn xref_entries_with_conforming_terminators() {
+        // The three 20-byte terminators of s7.5.4 must keep parsing in both modes. In
+        // particular the bare-CR alternative must not match the CR of a "\r\n" pair and
+        // strand its LF, which would break the following entry.
+        for (name, input) in [
+            (
+                "SP LF",
+                &b"xref\n0 3\n0000000000 65535 f \n0000000017 00000 n \n0000000081 00000 n \ntrailer\n<</Size 3/Root 1 0 R>>\n"[..],
+            ),
+            (
+                "SP CR",
+                &b"xref\n0 3\n0000000000 65535 f \r0000000017 00000 n \r0000000081 00000 n \rtrailer\n<</Size 3/Root 1 0 R>>\n"[..],
+            ),
+            (
+                "CR LF",
+                &b"xref\n0 3\n0000000000 65535 f\r\n0000000017 00000 n\r\n0000000081 00000 n\r\ntrailer\n<</Size 3/Root 1 0 R>>\n"[..],
+            ),
+        ] {
+            for strict in [false, true] {
+                match xref(test_span(input), strict) {
+                    Ok((_, re)) => assert_eq!(re.entries.len(), 2, "{name} (strict={strict}) lost an entry"),
+                    Err(err) => panic!("conforming {name} entries should parse (strict={strict}): {err:?}"),
+                }
+            }
         }
     }
 
