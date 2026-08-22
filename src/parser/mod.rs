@@ -339,7 +339,8 @@ pub(crate) fn dict_dup(input: ParserInput) -> NomResult<Dictionary> {
 }
 
 /// Recover the sole EOL-framed `endstream` immediately followed by `endobj`.
-/// The caller must bound `input` to the current indirect-object context.
+/// The caller must pass only bytes up to the current indirect-object boundary
+/// so the scan cannot cross into a neighboring object.
 fn recover_stream_length(input: ParserInput) -> Option<(ParserInput, ParserInput)> {
     const ENDSTREAM: &[u8] = b"endstream";
     let mut recovered = None;
@@ -374,6 +375,7 @@ fn recover_stream_length(input: ParserInput) -> Option<(ParserInput, ParserInput
 
 fn stream<'a>(
     input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_length: bool,
+    recovery_bound: Option<usize>,
 ) -> NomResult<'a, Object> {
     let (i, dict) = terminated(dictionary, (space, tag(&b"stream"[..]), space0, eol)).parse(input)?;
 
@@ -394,7 +396,13 @@ fn stream<'a>(
         match terminated(take(length), pair(opt(eol), tag(&b"endstream"[..]))).parse(i) {
             Ok((remaining, data)) => Ok((remaining, Object::Stream(Stream::new(dict, data.to_vec())))),
             Err(_) if recover_length && !reader.strict => {
-                let Some((remaining, data)) = recover_stream_length(i) else {
+                // The scan must not cross into a neighbouring indirect object,
+                // so it stops at the xref-derived bound; parsing itself stays
+                // unbounded. The bound arrived here as `input.len() - end`, and
+                // `i` starts `input.len() - i.len()` bytes later, so the scan
+                // covers exactly the first `i.len() - bound` bytes of `i`.
+                let scan_end = recovery_bound.map_or(i.len(), |bound| i.len().saturating_sub(bound));
+                let Some((remaining, data)) = recover_stream_length(&i[..scan_end]) else {
                     return Err(nom::Err::Failure(NomError::from_error_kind(i, ErrorKind::LengthValue)));
                 };
                 log::warn!(
@@ -459,10 +467,11 @@ pub fn direct_object(input: ParserInput) -> Option<Object> {
 
 fn object<'a>(
     input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool,
+    recovery_bound: Option<usize>,
 ) -> NomResult<'a, Object> {
     terminated(
         alt((
-            |input| stream(input, reader, already_seen, recover_stream_length),
+            |input| stream(input, reader, already_seen, recover_stream_length, recovery_bound),
             _direct_objects(crate::reader::MAX_NESTING_DEPTH),
         )),
         space,
@@ -472,9 +481,20 @@ fn object<'a>(
 
 pub fn indirect_object(
     input: ParserInput, offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
-    already_seen: &mut HashSet<ObjectId>,
+    already_seen: &mut HashSet<ObjectId>, recovery_bound: Option<usize>,
 ) -> crate::Result<(ObjectId, Object)> {
-    let (id, mut object) = _indirect_object(input.take_from(offset), offset, expected_id, reader, already_seen, true)?;
+    // Every downstream slice is a suffix of `input`, so express the absolute
+    // end offset as the maximum length a suffix may have.
+    let recovery_bound = recovery_bound.map(|end| input.len().saturating_sub(end));
+    let (id, mut object) = _indirect_object(
+        input.take_from(offset),
+        offset,
+        expected_id,
+        reader,
+        already_seen,
+        true,
+        recovery_bound,
+    )?;
 
     offset_stream(&mut object, offset);
 
@@ -483,7 +503,7 @@ pub fn indirect_object(
 
 fn _indirect_object<'a>(
     input: ParserInput<'a>, offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
-    already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool,
+    already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool, recovery_bound: Option<usize>,
 ) -> crate::Result<(ObjectId, Object)> {
     let (i, (_, object_id)) = terminated((space, object_id), pair(tag(&b"obj"[..]), space))
         .parse(input)
@@ -496,7 +516,7 @@ fn _indirect_object<'a>(
 
     let object_offset = input.len() - i.len();
     let (_, mut object) = terminated(
-        |i: ParserInput<'a>| object(i, reader, already_seen, recover_stream_length),
+        |i: ParserInput<'a>| object(i, reader, already_seen, recover_stream_length, recovery_bound),
         (space, opt(tag(&b"endobj"[..])), space),
     )
     .parse(i)
@@ -619,7 +639,7 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
     alt((
         xref_trailer,
         (|input| {
-            _indirect_object(input, 0, None, reader, &mut HashSet::new(), false)
+            _indirect_object(input, 0, None, reader, &mut HashSet::new(), false, None)
                 .map(|(_, obj)| {
                     let res = match obj {
                         Object::Stream(stream) => decode_xref_stream_with_limit(stream, reader.max_decompressed_size),

@@ -987,7 +987,7 @@ impl Reader<'_> {
 
     fn parse_raw_object(&self, raw_bytes: &[u8]) -> Result<(ObjectId, Object)> {
         // Parse the raw bytes as an indirect object
-        parser::indirect_object(raw_bytes, 0, None, self, &mut HashSet::new())
+        parser::indirect_object(raw_bytes, 0, None, self, &mut HashSet::new(), None)
     }
 
     /// Install a fully merged cross-reference table and derive its sorted
@@ -1042,13 +1042,15 @@ impl Reader<'_> {
                 let (object_id, mut object) = match result {
                     Ok(obj) => obj,
                     Err(e) => {
-                        // Lenient loading logs and skips malformed objects; strict loading fails.
                         if is_encrypted {
-                            // Expected for some encrypted objects - but log which ones
+                            // Expected for some encrypted objects - but log which
+                            // ones. These failures stay non-fatal even in strict
+                            // mode because they do not indicate a malformed file.
                             warn!("Skipping encrypted object at offset {}: {:?}", offset, e);
-                        } else {
-                            error!("Object load error at offset {}: {e:?}", offset);
+                            return Ok(None);
                         }
+                        // Lenient loading logs and skips malformed objects; strict loading fails.
+                        error!("Object load error at offset {}: {e:?}", offset);
                         return if self.strict { Err(e) } else { Ok(None) };
                     }
                 };
@@ -1060,8 +1062,14 @@ impl Reader<'_> {
 
                 if let Ok(stream) = object.as_stream() {
                     if stream.dict.has_type(b"ObjStm") && !is_encrypted {
-                        let Ok(obj_stream) = ObjectStream::new_with_limit(stream, self.max_decompressed_size) else {
-                            return Ok(None);
+                        let obj_stream = match ObjectStream::new_with_limit(stream, self.max_decompressed_size) {
+                            Ok(obj_stream) => obj_stream,
+                            // Not an encryption-related loss, so it obeys the same
+                            // strict-mode policy as any other load error.
+                            Err(e) => {
+                                error!("Object stream load error for {object_id:?}: {e:?}");
+                                return if self.strict { Err(e) } else { Ok(None) };
+                            }
                         };
                         let container_id = object_id.0;
                         let mut object_streams = object_streams.lock().unwrap();
@@ -1098,25 +1106,25 @@ impl Reader<'_> {
 
         #[cfg(feature = "rayon")]
         {
-            let objects = self
+            self.document.objects = self
                 .document
                 .reference_table
                 .entries
                 .par_iter()
                 .map(entries_filter_map)
-                .collect::<Result<Vec<_>>>()?;
-            self.document.objects = objects.into_iter().flatten().collect();
+                .filter_map(Result::transpose)
+                .collect::<Result<BTreeMap<_, _>>>()?;
         }
         #[cfg(not(feature = "rayon"))]
         {
-            let objects = self
+            self.document.objects = self
                 .document
                 .reference_table
                 .entries
                 .iter()
                 .map(entries_filter_map)
-                .collect::<Result<Vec<_>>>()?;
-            self.document.objects = objects.into_iter().flatten().collect();
+                .filter_map(Result::transpose)
+                .collect::<Result<BTreeMap<_, _>>>()?;
         }
 
         // Only add entries, but never replace entries
@@ -1386,9 +1394,10 @@ impl Reader<'_> {
             return Err(Error::InvalidOffset(offset));
         }
 
-        // The xref-derived upper bound keeps malformed stream recovery inside
-        // the current indirect-object context.
-        parser::indirect_object(&self.buffer[..end], offset, expected_id, self, already_seen)
+        // Objects are parsed against the full buffer so a wrong *neighbor*
+        // xref offset cannot truncate a well-formed object; `end` only limits
+        // how far malformed-stream length recovery may scan.
+        parser::indirect_object(self.buffer, offset, expected_id, self, already_seen, Some(end))
     }
 
     /// Parse the cross-reference section recorded at `offset`, first correcting

@@ -181,10 +181,11 @@ fn stream_data_start(pdf: &[u8]) -> usize {
 }
 
 #[test]
-fn inaccurate_xref_offset_inside_stream_data_drops_the_stream() {
+fn inaccurate_xref_offset_inside_a_stream_only_loses_the_mislocated_object() {
     // Object 5 physically follows object 4, but its xref offset is miswritten
-    // to point into object 4's stream payload. Parsing object 4 is therefore
-    // truncated before its real endstream, and the object is lost.
+    // to point into object 4's stream payload. Object 4 itself is well-formed
+    // (its /Length is correct), so it still loads; only the mislocated object
+    // is lost.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),
@@ -202,12 +203,19 @@ fn inaccurate_xref_offset_inside_stream_data_drops_the_stream() {
     assert!(document.get_object((1, 0)).is_ok());
     assert!(document.get_object((2, 0)).is_ok());
     assert!(document.get_object((3, 0)).is_ok());
-    assert!(document.get_object((4, 0)).is_err());
+    let Object::Stream(stream) = document.get_object((4, 0)).unwrap() else {
+        panic!("image object must remain a stream");
+    };
+    assert_eq!(stream.content, content);
     assert!(document.get_object((5, 0)).is_err());
 }
 
 #[test]
-fn strict_mode_aborts_when_an_xref_offset_lands_inside_a_stream() {
+fn strict_mode_aborts_when_an_xref_offset_is_unparseable() {
+    // Strict mode fails the whole load when any object cannot be parsed —
+    // here object 5, whose xref offset points into object 4's payload.
+    // Object 4 itself survives parsing; the abort is caused solely by the
+    // unparseable neighbor offset.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),
@@ -229,10 +237,10 @@ fn strict_mode_aborts_when_an_xref_offset_lands_inside_a_stream() {
 }
 
 #[test]
-fn out_of_order_xref_with_offset_inside_stream_data_drops_the_stream() {
+fn out_of_order_xref_with_offset_inside_a_stream_only_loses_the_mislocated_object() {
     // Object 3 physically sits after the image stream of object 4, but its
-    // recorded xref offset lands inside object 4's payload. Both the truncated
-    // stream (4 0 obj) and the mislocated object (3 0 obj) disappear.
+    // recorded xref offset lands inside object 4's payload. Object 4 parses
+    // fine; only the mislocated object disappears.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),
@@ -249,5 +257,50 @@ fn out_of_order_xref_with_offset_inside_stream_data_drops_the_stream() {
     assert!(document.get_object((1, 0)).is_ok());
     assert!(document.get_object((2, 0)).is_ok());
     assert!(document.get_object((3, 0)).is_err());
+    let Object::Stream(stream) = document.get_object((4, 0)).unwrap() else {
+        panic!("image object must remain a stream");
+    };
+    assert_eq!(stream.content, content);
+}
+
+/// Body of a stream whose declared `/Length` is deliberately wrong (too
+/// small), so loading has to rely on boundary recovery.
+fn wrong_length_stream_body(content: &[u8]) -> Vec<u8> {
+    let mut body = format!(
+        "<< /Type /XObject /Subtype /Image /Width {} /Height 1 /ColorSpace /DeviceRGB \
+             /BitsPerComponent 8 /Length 0 >>\nstream\n",
+        content.len() / 3
+    )
+    .into_bytes();
+    body.extend_from_slice(content);
+    body.extend_from_slice(b"\nendstream\n");
+    body
+}
+
+#[test]
+fn stream_length_recovery_stops_at_the_next_recorded_xref_offset() {
+    // A stream with a wrong /Length can only be recovered if its unambiguous
+    // `endstream` lies before the next recorded xref offset: recovery must
+    // not cross into a neighboring object even when that offset is itself
+    // inaccurate. Here object 5's offset points into object 4's payload, so
+    // the recovery window ends mid-data and object 4 is dropped.
+    let content = vec![b'A'; 48];
+    let objects: Vec<(u32, Vec<u8>)> = vec![
+        (1, catalog().to_vec()),
+        (2, pages("3 0 R")),
+        (3, page("/Im0 4 0 R")),
+        (4, wrong_length_stream_body(&content)),
+        (5, b"<< /Type /Font >>\n".to_vec()),
+    ];
+    let bodies: Vec<(u32, &[u8])> = objects.iter().map(|(id, body)| (*id, body.as_slice())).collect();
+    let (pdf, _) = pdf_from_objects(&bodies, &[]);
+    let false_offset = stream_data_start(&pdf) + 16;
+    let (pdf, _) = pdf_from_objects(&bodies, &[(5, false_offset)]);
+
+    let document = Document::load_mem(&pdf).unwrap();
+    assert!(document.get_object((1, 0)).is_ok());
+    assert!(document.get_object((2, 0)).is_ok());
+    assert!(document.get_object((3, 0)).is_ok());
     assert!(document.get_object((4, 0)).is_err());
+    assert!(document.get_object((5, 0)).is_err());
 }
