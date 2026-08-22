@@ -940,6 +940,7 @@ impl Stream {
         for filter in filters {
             output = match filter {
                 b"FlateDecode" => Self::decompress_zlib(input, params, limit)?,
+                b"BrotliDecode" => Self::decompress_brotli(input, limit)?,
                 b"LZWDecode" => Self::decompress_lzw(input, params, limit)?,
                 b"ASCII85Decode" => Self::decode_ascii85(input, limit)?,
                 b"ASCIIHexDecode" => Self::decode_ascii_hex(input, limit)?,
@@ -953,6 +954,34 @@ impl Stream {
             }
             input = &output;
         }
+        Ok(output)
+    }
+
+    fn decompress_brotli(input: &[u8], limit: Option<usize>) -> Result<Vec<u8>> {
+        use brotli_decompressor::Decompressor;
+
+        // Unlike the Flate path there is no fallback (e.g. raw deflate), so a
+        // truncated or corrupt stream fails hard instead of yielding partial
+        // output — intentional for a new filter, not an oversight.
+        let initial_capacity = match limit {
+            Some(max) => input.len().saturating_mul(2).min(max.saturating_add(1)),
+            None => input.len().saturating_mul(2),
+        };
+        let mut output = Vec::with_capacity(initial_capacity);
+        Self::read_capped(Decompressor::new(input, 4096), &mut output, limit)
+            .map_err(|err| Error::InvalidStream(format!("Brotli decompression failed: {err}")))?;
+        if let Some(max) = limit
+            && output.len() > max
+        {
+            return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
+        }
+        // /DecodeParms predictors are deliberately NOT applied here. The PDF
+        // Association's prototype files never pair /BrotliDecode with a
+        // /Predictor (their Brotli xref streams store raw W entries), pdf.js
+        // and pypdf ignore the parameters too; only MuPDF applies them.
+        // Applying them would also corrupt [/BrotliDecode /FlateDecode]
+        // chains, since the shared dict-form /DecodeParms is passed to every
+        // filter and a predictor there belongs to the Flate layer.
         Ok(output)
     }
 
