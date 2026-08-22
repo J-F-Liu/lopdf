@@ -86,6 +86,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -105,6 +106,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -155,6 +157,7 @@ impl Document {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -170,6 +173,7 @@ impl Document {
             password: Some(password.to_string()),
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -188,6 +192,7 @@ impl Document {
             password,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -231,6 +236,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -250,6 +256,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -296,6 +303,7 @@ impl Document {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -311,6 +319,7 @@ impl Document {
             password: Some(password.to_string()),
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -331,6 +340,7 @@ impl Document {
             password,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -348,6 +358,7 @@ impl TryInto<Document> for &[u8] {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)
     }
@@ -381,6 +392,7 @@ impl IncrementalDocument {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)?;
 
@@ -424,6 +436,7 @@ impl IncrementalDocument {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)?;
 
@@ -448,6 +461,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)?;
 
@@ -467,6 +481,11 @@ pub struct Reader<'a> {
     /// `None` (the default) applies no limit; set it to guard against
     /// decompression bombs. See [`crate::LoadOptions`].
     pub max_decompressed_size: Option<usize>,
+    /// Sorted unique byte offsets of every `XrefEntry::Normal` entry in the
+    /// final cross-reference table. Built once when the table is complete so
+    /// object-boundary lookups can binary-search the successor offset instead
+    /// of scanning all xref entries on each call.
+    normal_offsets: Vec<usize>,
 }
 
 /// Maximum allowed embedding of literal strings.
@@ -610,9 +629,8 @@ impl Reader<'_> {
             xref.size = xref_entry_count;
         }
 
-        self.document.reference_table = xref;
+        self.set_reference_table(xref);
         self.document.trailer = trailer.clone();
-
         let encrypted = self.document.trailer.get(b"Encrypt").is_ok();
         // For encrypted PDFs, set up decryption so the Info dictionary can be
         // read. If the document is protected by a password we cannot supply,
@@ -852,7 +870,7 @@ impl Reader<'_> {
         self.document.version = version;
         self.document.max_id = xref.size - 1;
         self.document.trailer = trailer;
-        self.document.reference_table = xref;
+        self.set_reference_table(xref);
 
         // Check if encrypted
         let is_encrypted = self.document.trailer.get(b"Encrypt").is_ok();
@@ -972,6 +990,24 @@ impl Reader<'_> {
         parser::indirect_object(raw_bytes, 0, None, self, &mut HashSet::new())
     }
 
+    /// Install a fully merged cross-reference table and derive its sorted
+    /// offset index. All later object-boundary lookups go through that index,
+    /// so it must be rebuilt whenever the table is replaced.
+    fn set_reference_table(&mut self, xref: Xref) {
+        let mut normal_offsets: Vec<usize> = xref
+            .entries
+            .values()
+            .filter_map(|entry| match entry {
+                XrefEntry::Normal { offset, .. } => Some(*offset as usize),
+                _ => None,
+            })
+            .collect();
+        normal_offsets.sort_unstable();
+        normal_offsets.dedup();
+        self.normal_offsets = normal_offsets;
+        self.document.reference_table = xref;
+    }
+
     fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
         let is_encrypted = self.document.trailer.get(b"Encrypt").is_ok();
         let zero_length_streams = Mutex::new(vec![]);
@@ -993,18 +1029,7 @@ impl Reader<'_> {
                 }
             })
             .collect();
-        let mut normal_offsets: Vec<usize> = self
-            .document
-            .reference_table
-            .entries
-            .values()
-            .filter_map(|entry| match entry {
-                XrefEntry::Normal { offset, .. } => Some(*offset as usize),
-                _ => None,
-            })
-            .collect();
-        normal_offsets.sort_unstable();
-        normal_offsets.dedup();
+        let normal_offsets = &self.normal_offsets;
 
         let entries_filter_map = |(_, entry): (&_, &_)| -> Result<Option<(ObjectId, Object)>> {
             if let XrefEntry::Normal { offset, .. } = *entry {
@@ -1339,17 +1364,8 @@ impl Reader<'_> {
     fn read_object(
         &self, offset: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
     ) -> Result<(ObjectId, Object)> {
-        let next_object = self
-            .document
-            .reference_table
-            .entries
-            .values()
-            .filter_map(|entry| match entry {
-                XrefEntry::Normal { offset: next, .. } if *next as usize > offset => Some(*next as usize),
-                _ => None,
-            })
-            .min();
-        let end = self.object_end(offset, next_object);
+        let next_index = self.normal_offsets.partition_point(|&next| next <= offset);
+        let end = self.object_end(offset, self.normal_offsets.get(next_index).copied());
         self.read_object_to(offset, end, expected_id, already_seen)
     }
 
