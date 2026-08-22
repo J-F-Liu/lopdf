@@ -993,31 +993,51 @@ impl Reader<'_> {
                 }
             })
             .collect();
+        let mut normal_offsets: Vec<usize> = self
+            .document
+            .reference_table
+            .entries
+            .values()
+            .filter_map(|entry| match entry {
+                XrefEntry::Normal { offset, .. } => Some(*offset as usize),
+                _ => None,
+            })
+            .collect();
+        normal_offsets.sort_unstable();
+        normal_offsets.dedup();
 
-        let entries_filter_map = |(_, entry): (&_, &_)| {
+        let entries_filter_map = |(_, entry): (&_, &_)| -> Result<Option<(ObjectId, Object)>> {
             if let XrefEntry::Normal { offset, .. } = *entry {
                 // read_object now handles decryption internally
-                let result = self.read_object(offset as usize, None, &mut HashSet::new());
+                let offset = offset as usize;
+                let next_index = normal_offsets.partition_point(|&next| next <= offset);
+                let next_object = normal_offsets.get(next_index).copied();
+                let end = self.object_end(offset, next_object);
+                let result = self.read_object_to(offset, end, None, &mut HashSet::new());
                 let (object_id, mut object) = match result {
                     Ok(obj) => obj,
                     Err(e) => {
-                        // Log error but continue
+                        // Lenient loading logs and skips malformed objects; strict loading fails.
                         if is_encrypted {
                             // Expected for some encrypted objects - but log which ones
                             warn!("Skipping encrypted object at offset {}: {:?}", offset, e);
                         } else {
                             error!("Object load error at offset {}: {e:?}", offset);
                         }
-                        return None;
+                        return if self.strict { Err(e) } else { Ok(None) };
                     }
                 };
-                if let Some(filter_func) = filter_func {
-                    filter_func(object_id, &mut object)?;
+                if let Some(filter_func) = filter_func
+                    && filter_func(object_id, &mut object).is_none()
+                {
+                    return Ok(None);
                 }
 
                 if let Ok(stream) = object.as_stream() {
                     if stream.dict.has_type(b"ObjStm") && !is_encrypted {
-                        let obj_stream = ObjectStream::new_with_limit(stream, self.max_decompressed_size).ok()?;
+                        let Ok(obj_stream) = ObjectStream::new_with_limit(stream, self.max_decompressed_size) else {
+                            return Ok(None);
+                        };
                         let container_id = object_id.0;
                         let mut object_streams = object_streams.lock().unwrap();
                         if let Some(filter_func) = filter_func {
@@ -1045,31 +1065,33 @@ impl Reader<'_> {
                     }
                 }
 
-                Some((object_id, object))
+                Ok(Some((object_id, object)))
             } else {
-                None
+                Ok(None)
             }
         };
 
         #[cfg(feature = "rayon")]
         {
-            self.document.objects = self
+            let objects = self
                 .document
                 .reference_table
                 .entries
                 .par_iter()
-                .filter_map(entries_filter_map)
-                .collect();
+                .map(entries_filter_map)
+                .collect::<Result<Vec<_>>>()?;
+            self.document.objects = objects.into_iter().flatten().collect();
         }
         #[cfg(not(feature = "rayon"))]
         {
-            self.document.objects = self
+            let objects = self
                 .document
                 .reference_table
                 .entries
                 .iter()
-                .filter_map(entries_filter_map)
-                .collect();
+                .map(entries_filter_map)
+                .collect::<Result<Vec<_>>>()?;
+            self.document.objects = objects.into_iter().flatten().collect();
         }
 
         // Only add entries, but never replace entries
@@ -1317,12 +1339,40 @@ impl Reader<'_> {
     fn read_object(
         &self, offset: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
     ) -> Result<(ObjectId, Object)> {
-        if offset > self.buffer.len() {
+        let next_object = self
+            .document
+            .reference_table
+            .entries
+            .values()
+            .filter_map(|entry| match entry {
+                XrefEntry::Normal { offset: next, .. } if *next as usize > offset => Some(*next as usize),
+                _ => None,
+            })
+            .min();
+        let end = self.object_end(offset, next_object);
+        self.read_object_to(offset, end, expected_id, already_seen)
+    }
+
+    fn object_end(&self, offset: usize, next_object: Option<usize>) -> usize {
+        let xref_start = (self.document.xref_start > offset).then_some(self.document.xref_start);
+        next_object
+            .into_iter()
+            .chain(xref_start)
+            .min()
+            .unwrap_or(self.buffer.len())
+            .min(self.buffer.len())
+    }
+
+    fn read_object_to(
+        &self, offset: usize, end: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
+    ) -> Result<(ObjectId, Object)> {
+        if offset > end || end > self.buffer.len() {
             return Err(Error::InvalidOffset(offset));
         }
 
-        // Just parse without decryption - we'll decrypt later
-        parser::indirect_object(self.buffer, offset, expected_id, self, already_seen)
+        // The xref-derived upper bound keeps malformed stream recovery inside
+        // the current indirect-object context.
+        parser::indirect_object(&self.buffer[..end], offset, expected_id, self, already_seen)
     }
 
     /// Parse the cross-reference section recorded at `offset`, first correcting
