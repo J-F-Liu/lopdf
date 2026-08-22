@@ -940,7 +940,7 @@ impl Stream {
         for filter in filters {
             output = match filter {
                 b"FlateDecode" => Self::decompress_zlib(input, params, limit)?,
-                b"BrotliDecode" => Self::decompress_brotli(input, limit)?,
+                b"BrotliDecode" => Self::decompress_brotli(input, params, limit)?,
                 b"LZWDecode" => Self::decompress_lzw(input, params, limit)?,
                 b"ASCII85Decode" => Self::decode_ascii85(input, limit)?,
                 b"ASCIIHexDecode" => Self::decode_ascii_hex(input, limit)?,
@@ -957,9 +957,12 @@ impl Stream {
         Ok(output)
     }
 
-    fn decompress_brotli(input: &[u8], limit: Option<usize>) -> Result<Vec<u8>> {
+    fn decompress_brotli(input: &[u8], params: Option<&Dictionary>, limit: Option<usize>) -> Result<Vec<u8>> {
         use brotli_decompressor::Decompressor;
 
+        // Unlike the Flate path there is no fallback (e.g. raw deflate), so a
+        // truncated or corrupt stream fails hard instead of yielding partial
+        // output — intentional for a new filter, not an oversight.
         let initial_capacity = match limit {
             Some(max) => input.len().saturating_mul(2).min(max.saturating_add(1)),
             None => input.len().saturating_mul(2),
@@ -972,7 +975,10 @@ impl Stream {
         {
             return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
         }
-        Ok(output)
+        // ISO/TS 32001 gives /BrotliDecode the same /DecodeParms predictor
+        // entries as /FlateDecode; MuPDF applies them identically after
+        // decompression (fz_open_image_decomp_stream, FZ_IMAGE_BROTLI).
+        Self::decompress_predictor(output, params)
     }
 
     /// Read `reader` to end, appending to `output`. When `limit` is `Some(max)`,

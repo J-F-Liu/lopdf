@@ -72,3 +72,67 @@ fn brotli_xref_stream_decodes_during_load_with_the_same_limit() {
         Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit: 34 }))
     ));
 }
+
+fn brotli_compress(data: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+
+    let mut writer = brotli::CompressorWriter::new(Vec::new(), 4096, 11, 22);
+    writer.write_all(data).unwrap();
+    writer.flush().unwrap();
+    writer.into_inner()
+}
+
+/// Build the raw cross-reference entries (`W [1 2 1]`, one row per object),
+/// then apply the PNG `Up` predictor (12) exactly as a producer would:
+/// every 4-byte row is prefixed with its filter byte and XOR-differenced
+/// against the previous row.
+fn predicted_xref_rows(offsets: &[u16]) -> Vec<u8> {
+    let mut rows: Vec<[u8; 4]> = vec![[0x00, 0x00, 0x00, 0xFF]]; // object 0: free, gen 65535
+    for &offset in offsets {
+        rows.push([0x01, (offset >> 8) as u8, offset as u8, 0x00]);
+    }
+
+    let mut payload = Vec::with_capacity(rows.len() * 5);
+    let mut previous = [0u8; 4];
+    for row in rows {
+        payload.push(0x02); // PNG Up filter
+        for (index, byte) in row.iter().enumerate() {
+            payload.push(byte.wrapping_sub(previous[index]));
+        }
+        previous = row;
+    }
+    payload
+}
+
+#[test]
+fn brotli_xref_stream_honors_the_flate_style_png_predictor() {
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.5\n");
+    pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    pdf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+    pdf.extend_from_slice(b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n");
+    let xref_offset = pdf.len() as u16;
+    let base = "%PDF-1.5\n".len() as u16;
+    let first = base;
+    let second = first + b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".len() as u16;
+    let third = second + b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".len() as u16;
+    let entries = predicted_xref_rows(&[first, second, third, xref_offset]);
+
+    let compressed = brotli_compress(&entries);
+    pdf.extend_from_slice(
+        format!(
+            "4 0 obj\n<< /Type /XRef /Size 5 /Root 1 0 R /W [1 2 1] /Filter /BrotliDecode \
+             /DecodeParms << /Predictor 12 /Columns 4 >> /Length {} >>\nstream\n",
+            compressed.len()
+        )
+        .as_bytes(),
+    );
+    pdf.extend_from_slice(&compressed);
+    pdf.extend_from_slice(format!("\nendstream\nendobj\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes());
+
+    // The predictor must be applied after Brotli decompression: without it the
+    // xref entries are garbage and no object can be resolved.
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    assert!(document.get_object((3, 0)).unwrap().as_dict().is_ok());
+}

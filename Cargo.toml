@@ -52,6 +52,7 @@ weezl = "0.2"
 skrifa = { version = "0.45.1", optional = true }
 
 [dev-dependencies]
+brotli = "8"
 clap = { version = "4.6", features = ["derive"] }
 env_logger = "0.11"
 flate2 = "1.1"
