@@ -86,6 +86,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -105,6 +106,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -155,6 +157,7 @@ impl Document {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -170,6 +173,7 @@ impl Document {
             password: Some(password.to_string()),
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -188,6 +192,7 @@ impl Document {
             password,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -231,6 +236,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -250,6 +256,7 @@ impl Document {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
         }
         .read(options.filter)
     }
@@ -296,6 +303,7 @@ impl Document {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -311,6 +319,7 @@ impl Document {
             password: Some(password.to_string()),
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -331,6 +340,7 @@ impl Document {
             password,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read_metadata()
     }
@@ -348,6 +358,7 @@ impl TryInto<Document> for &[u8] {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)
     }
@@ -381,6 +392,7 @@ impl IncrementalDocument {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)?;
 
@@ -424,6 +436,7 @@ impl IncrementalDocument {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)?;
 
@@ -448,6 +461,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
             password: None,
             strict: false,
             max_decompressed_size: None,
+            normal_offsets: Vec::new(),
         }
         .read(None)?;
 
@@ -467,6 +481,11 @@ pub struct Reader<'a> {
     /// `None` (the default) applies no limit; set it to guard against
     /// decompression bombs. See [`crate::LoadOptions`].
     pub max_decompressed_size: Option<usize>,
+    /// Sorted unique byte offsets of every `XrefEntry::Normal` entry in the
+    /// final cross-reference table. Built once when the table is complete so
+    /// object-boundary lookups can binary-search the successor offset instead
+    /// of scanning all xref entries on each call.
+    normal_offsets: Vec<usize>,
 }
 
 /// Maximum allowed embedding of literal strings.
@@ -610,9 +629,8 @@ impl Reader<'_> {
             xref.size = xref_entry_count;
         }
 
-        self.document.reference_table = xref;
+        self.set_reference_table(xref);
         self.document.trailer = trailer.clone();
-
         let encrypted = self.document.trailer.get(b"Encrypt").is_ok();
         // For encrypted PDFs, set up decryption so the Info dictionary can be
         // read. If the document is protected by a password we cannot supply,
@@ -852,7 +870,7 @@ impl Reader<'_> {
         self.document.version = version;
         self.document.max_id = xref.size - 1;
         self.document.trailer = trailer;
-        self.document.reference_table = xref;
+        self.set_reference_table(xref);
 
         // Check if encrypted
         let is_encrypted = self.document.trailer.get(b"Encrypt").is_ok();
@@ -969,7 +987,25 @@ impl Reader<'_> {
 
     fn parse_raw_object(&self, raw_bytes: &[u8]) -> Result<(ObjectId, Object)> {
         // Parse the raw bytes as an indirect object
-        parser::indirect_object(raw_bytes, 0, None, self, &mut HashSet::new())
+        parser::indirect_object(raw_bytes, 0, None, self, &mut HashSet::new(), None)
+    }
+
+    /// Install a fully merged cross-reference table and derive its sorted
+    /// offset index. All later object-boundary lookups go through that index,
+    /// so it must be rebuilt whenever the table is replaced.
+    fn set_reference_table(&mut self, xref: Xref) {
+        let mut normal_offsets: Vec<usize> = xref
+            .entries
+            .values()
+            .filter_map(|entry| match entry {
+                XrefEntry::Normal { offset, .. } => Some(*offset as usize),
+                _ => None,
+            })
+            .collect();
+        normal_offsets.sort_unstable();
+        normal_offsets.dedup();
+        self.normal_offsets = normal_offsets;
+        self.document.reference_table = xref;
     }
 
     fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
@@ -993,31 +1029,48 @@ impl Reader<'_> {
                 }
             })
             .collect();
+        let normal_offsets = &self.normal_offsets;
 
-        let entries_filter_map = |(_, entry): (&_, &_)| {
+        let entries_filter_map = |(_, entry): (&_, &_)| -> Result<Option<(ObjectId, Object)>> {
             if let XrefEntry::Normal { offset, .. } = *entry {
                 // read_object now handles decryption internally
-                let result = self.read_object(offset as usize, None, &mut HashSet::new());
+                let offset = offset as usize;
+                let next_index = normal_offsets.partition_point(|&next| next <= offset);
+                let next_object = normal_offsets.get(next_index).copied();
+                let end = self.object_end(offset, next_object);
+                let result = self.read_object_to(offset, end, None, &mut HashSet::new());
                 let (object_id, mut object) = match result {
                     Ok(obj) => obj,
                     Err(e) => {
-                        // Log error but continue
                         if is_encrypted {
-                            // Expected for some encrypted objects - but log which ones
+                            // Expected for some encrypted objects - but log which
+                            // ones. These failures stay non-fatal even in strict
+                            // mode because they do not indicate a malformed file.
                             warn!("Skipping encrypted object at offset {}: {:?}", offset, e);
-                        } else {
-                            error!("Object load error at offset {}: {e:?}", offset);
+                            return Ok(None);
                         }
-                        return None;
+                        // Lenient loading logs and skips malformed objects; strict loading fails.
+                        error!("Object load error at offset {}: {e:?}", offset);
+                        return if self.strict { Err(e) } else { Ok(None) };
                     }
                 };
-                if let Some(filter_func) = filter_func {
-                    filter_func(object_id, &mut object)?;
+                if let Some(filter_func) = filter_func
+                    && filter_func(object_id, &mut object).is_none()
+                {
+                    return Ok(None);
                 }
 
                 if let Ok(stream) = object.as_stream() {
                     if stream.dict.has_type(b"ObjStm") && !is_encrypted {
-                        let obj_stream = ObjectStream::new_with_limit(stream, self.max_decompressed_size).ok()?;
+                        let obj_stream = match ObjectStream::new_with_limit(stream, self.max_decompressed_size) {
+                            Ok(obj_stream) => obj_stream,
+                            // Not an encryption-related loss, so it obeys the same
+                            // strict-mode policy as any other load error.
+                            Err(e) => {
+                                error!("Object stream load error for {object_id:?}: {e:?}");
+                                return if self.strict { Err(e) } else { Ok(None) };
+                            }
+                        };
                         let container_id = object_id.0;
                         let mut object_streams = object_streams.lock().unwrap();
                         if let Some(filter_func) = filter_func {
@@ -1045,9 +1098,9 @@ impl Reader<'_> {
                     }
                 }
 
-                Some((object_id, object))
+                Ok(Some((object_id, object)))
             } else {
-                None
+                Ok(None)
             }
         };
 
@@ -1058,8 +1111,9 @@ impl Reader<'_> {
                 .reference_table
                 .entries
                 .par_iter()
-                .filter_map(entries_filter_map)
-                .collect();
+                .map(entries_filter_map)
+                .filter_map(Result::transpose)
+                .collect::<Result<BTreeMap<_, _>>>()?;
         }
         #[cfg(not(feature = "rayon"))]
         {
@@ -1068,8 +1122,9 @@ impl Reader<'_> {
                 .reference_table
                 .entries
                 .iter()
-                .filter_map(entries_filter_map)
-                .collect();
+                .map(entries_filter_map)
+                .filter_map(Result::transpose)
+                .collect::<Result<BTreeMap<_, _>>>()?;
         }
 
         // Only add entries, but never replace entries
@@ -1317,12 +1372,32 @@ impl Reader<'_> {
     fn read_object(
         &self, offset: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
     ) -> Result<(ObjectId, Object)> {
-        if offset > self.buffer.len() {
+        let next_index = self.normal_offsets.partition_point(|&next| next <= offset);
+        let end = self.object_end(offset, self.normal_offsets.get(next_index).copied());
+        self.read_object_to(offset, end, expected_id, already_seen)
+    }
+
+    fn object_end(&self, offset: usize, next_object: Option<usize>) -> usize {
+        let xref_start = (self.document.xref_start > offset).then_some(self.document.xref_start);
+        next_object
+            .into_iter()
+            .chain(xref_start)
+            .min()
+            .unwrap_or(self.buffer.len())
+            .min(self.buffer.len())
+    }
+
+    fn read_object_to(
+        &self, offset: usize, end: usize, expected_id: Option<ObjectId>, already_seen: &mut HashSet<ObjectId>,
+    ) -> Result<(ObjectId, Object)> {
+        if offset > end || end > self.buffer.len() {
             return Err(Error::InvalidOffset(offset));
         }
 
-        // Just parse without decryption - we'll decrypt later
-        parser::indirect_object(self.buffer, offset, expected_id, self, already_seen)
+        // Objects are parsed against the full buffer so a wrong *neighbor*
+        // xref offset cannot truncate a well-formed object; `end` only limits
+        // how far malformed-stream length recovery may scan.
+        parser::indirect_object(self.buffer, offset, expected_id, self, already_seen, Some(end))
     }
 
     /// Parse the cross-reference section recorded at `offset`, first correcting
