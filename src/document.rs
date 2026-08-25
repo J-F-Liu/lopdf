@@ -768,6 +768,102 @@ impl Document {
         Ok(annotations)
     }
 
+    /// Get mutable references to the PDF annotations of a page, the counterpart
+    /// to [`Document::get_page_annotations`].
+    ///
+    /// The same two entry forms are handled: a `/Annots` entry may be a
+    /// reference to an annotation dictionary or the dictionary written directly
+    /// into the array, and `/Annots` itself may be an array or a reference to
+    /// one. An entry that does not resolve to a dictionary is skipped, exactly
+    /// as in the read-only version.
+    ///
+    /// A `&mut Dictionary` cannot alias, so when the same annotation object is
+    /// referenced by more than one entry only its first occurrence is returned.
+    pub fn get_page_annotations_mut(&mut self, page_id: ObjectId) -> Result<Vec<&mut Dictionary>> {
+        enum Slot {
+            Referenced(ObjectId),
+            Inline(usize),
+        }
+
+        // Plan the work under a shared borrow, recording where the entries live
+        // and classifying each one. The borrow ends with this block, before we
+        // reach for mutable access below.
+        let (container_id, plan, referenced): (ObjectId, Vec<Slot>, HashSet<ObjectId>) = {
+            let Ok(page) = self.get_dictionary(page_id) else {
+                return Ok(vec![]);
+            };
+            let (container_id, entries) = match page.get(b"Annots") {
+                Ok(Object::Reference(id)) => match self.get_object(*id).and_then(Object::as_array) {
+                    Ok(entries) => (*id, entries),
+                    Err(_) => return Ok(vec![]),
+                },
+                Ok(Object::Array(entries)) => (page_id, entries),
+                _ => return Ok(vec![]),
+            };
+            let mut plan = Vec::with_capacity(entries.len());
+            let mut referenced = HashSet::new();
+            for (index, entry) in entries.iter().enumerate() {
+                match entry {
+                    Object::Reference(id) => {
+                        referenced.insert(*id);
+                        plan.push(Slot::Referenced(*id));
+                    }
+                    Object::Dictionary(_) => plan.push(Slot::Inline(index)),
+                    _ => {}
+                }
+            }
+            (container_id, plan, referenced)
+        };
+
+        // Collect every mutable reference we need in one pass. Referenced
+        // annotations are their own top-level objects; inline dictionaries all
+        // live inside the single container object, so it is kept aside.
+        let need_container = plan.iter().any(|slot| matches!(slot, Slot::Inline(_)));
+        let mut container_obj: Option<&mut Object> = None;
+        let mut referenced_objs: HashMap<ObjectId, &mut Object> = HashMap::new();
+        for (&id, object) in self.objects.iter_mut() {
+            if need_container && id == container_id {
+                container_obj = Some(object);
+            } else if referenced.contains(&id) {
+                referenced_objs.insert(id, object);
+            }
+        }
+
+        let mut inline: HashMap<usize, &mut Dictionary> = HashMap::new();
+        if let Some(object) = container_obj {
+            let entries = if container_id == page_id {
+                object
+                    .as_dict_mut()?
+                    .get_mut(b"Annots")
+                    .and_then(Object::as_array_mut)?
+            } else {
+                object.as_array_mut()?
+            };
+            for (index, entry) in entries.iter_mut().enumerate() {
+                if let Object::Dictionary(dictionary) = entry {
+                    inline.insert(index, dictionary);
+                }
+            }
+        }
+
+        let mut annotations = Vec::with_capacity(plan.len());
+        for slot in plan {
+            match slot {
+                Slot::Referenced(id) => {
+                    if let Some(dictionary) = referenced_objs.remove(&id).and_then(|object| object.as_dict_mut().ok()) {
+                        annotations.push(dictionary);
+                    }
+                }
+                Slot::Inline(index) => {
+                    if let Some(dictionary) = inline.remove(&index) {
+                        annotations.push(dictionary);
+                    }
+                }
+            }
+        }
+        Ok(annotations)
+    }
+
     pub fn get_page_images(&'_ self, page_id: ObjectId) -> Result<Vec<PdfImage<'_>>> {
         let mut images = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {

@@ -98,3 +98,73 @@ fn annotation_count() -> Result<()> {
     assert_eq!(doc.get_page_annotations(doc.page_iter().next().unwrap())?.len(), 33);
     Ok(())
 }
+
+/// The mutable accessor reaches both entry forms, so editing every returned
+/// dictionary is visible afterwards whether the annotation was referenced or
+/// written directly, and whether `/Annots` was an array or a reference to one.
+fn mutate_all_and_reread(annots_indirect: bool) {
+    let (mut doc, page_id) = page_with_mixed_annots(annots_indirect);
+    for annotation in doc.get_page_annotations_mut(page_id).unwrap() {
+        annotation.set("Contents", Object::string_literal("edited"));
+    }
+    assert_eq!(contents_of(&doc, page_id), vec!["edited", "edited"]);
+}
+
+#[test]
+fn page_annotations_mut_edits_direct_and_referenced() {
+    mutate_all_and_reread(false);
+}
+
+#[test]
+fn page_annotations_mut_edits_direct_and_referenced_behind_an_indirect_annots() {
+    mutate_all_and_reread(true);
+}
+
+/// A dangling reference is skipped, so the surviving entries are still handed
+/// back for editing.
+#[test]
+fn page_annotations_mut_skips_a_dangling_reference() {
+    let mut doc = Document::with_version("1.7");
+    let good = doc.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "Contents" => Object::string_literal("kept"),
+    });
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Annots" => vec![
+            Object::Reference((9999, 0)),
+            Object::Reference(good),
+            Object::Null,
+        ],
+    });
+    let mut annotations = doc.get_page_annotations_mut(page_id).unwrap();
+    assert_eq!(annotations.len(), 1);
+    annotations[0].set("Contents", Object::string_literal("touched"));
+    assert_eq!(contents_of(&doc, page_id), vec!["touched"]);
+}
+
+/// The same annotation referenced twice cannot be handed out as two aliasing
+/// mutable references, so only the first occurrence comes back.
+#[test]
+fn page_annotations_mut_deduplicates_repeated_references() {
+    let mut doc = Document::with_version("1.7");
+    let annotation = doc.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "Contents" => Object::string_literal("once"),
+    });
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Annots" => vec![Object::Reference(annotation), Object::Reference(annotation)],
+    });
+    assert_eq!(doc.get_page_annotations_mut(page_id).unwrap().len(), 1);
+}
+
+/// A page without `/Annots` yields nothing, and that is not an error.
+#[test]
+fn page_annotations_mut_without_annots_is_empty() {
+    let mut doc = Document::with_version("1.7");
+    let page_id = doc.add_object(dictionary! { "Type" => "Page" });
+    assert!(doc.get_page_annotations_mut(page_id).unwrap().is_empty());
+}
