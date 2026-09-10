@@ -564,7 +564,12 @@ impl EncryptionState {
         }
 
         let algorithm = PasswordAlgorithm::try_from(document)?;
-        let file_encryption_key = algorithm.compute_file_encryption_key(document, password)?;
+        // The caller may have supplied either the user or the owner password;
+        // only the user password (or the value Algorithm 7 recovers from `/O`
+        // for an owner password) is valid input to Algorithm 2. See
+        // `PasswordAlgorithm::resolve_password_for_key_derivation`.
+        let resolved_password = algorithm.resolve_password_for_key_derivation(document, password)?;
+        let file_encryption_key = algorithm.compute_file_encryption_key(document, resolved_password)?;
 
         let mut crypt_filters = document.get_crypt_filters();
 

@@ -665,6 +665,119 @@ fn test_load_with_password_correct_password() {
 
 #[cfg(not(feature = "async"))]
 #[test]
+fn test_load_with_password_owner_password_recovers_correct_content() {
+    // Regression test: the owner and user passwords are independent
+    // credentials, and either is sufficient to open a document — but the
+    // file encryption key (Algorithm 2) is always derived from the *user*
+    // password. Supplying the owner password used to authenticate
+    // successfully (via Algorithm 7's owner-password check) but then derive
+    // the file key from the literal owner password instead of the user
+    // password Algorithm 7 recovers from `/O`. That produces a
+    // *different, wrong* file key whenever the two passwords differ:
+    // structure and page count still resolve correctly (dictionaries,
+    // names, integers and references are never encrypted), so no error is
+    // raised, but every decrypted string and stream comes out as garbage.
+    let mut doc = Document::with_version("1.5");
+
+    let id1 = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    let id2 = vec![16u8, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+    doc.trailer.set(
+        "ID",
+        Object::Array(vec![
+            Object::String(id1, lopdf::StringFormat::Literal),
+            Object::String(id2, lopdf::StringFormat::Literal),
+        ]),
+    );
+
+    let pages_id = doc.new_object_id();
+    let page_id = doc.new_object_id();
+    let content_id = doc.new_object_id();
+    let font_id = doc.new_object_id();
+    let resources_id = doc.new_object_id();
+
+    let catalog_dict = lopdf::dictionary! {
+        "Type" => "Catalog",
+        "Pages" => Object::Reference(pages_id)
+    };
+    let catalog_id = doc.add_object(catalog_dict);
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+
+    let pages_dict = lopdf::dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![Object::Reference(page_id)],
+        "Count" => 1
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+
+    let resources_dict = lopdf::dictionary! {
+        "Font" => lopdf::dictionary! {
+            "F1" => Object::Reference(font_id)
+        }
+    };
+    doc.objects.insert(resources_id, Object::Dictionary(resources_dict));
+
+    let page_dict = lopdf::dictionary! {
+        "Type" => "Page",
+        "Parent" => Object::Reference(pages_id),
+        "MediaBox" => vec![Object::Integer(0), Object::Integer(0), Object::Integer(612), Object::Integer(792)],
+        "Resources" => Object::Reference(resources_id),
+        "Contents" => Object::Reference(content_id)
+    };
+    doc.objects.insert(page_id, Object::Dictionary(page_dict));
+
+    let font_dict = lopdf::dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica"
+    };
+    doc.objects.insert(font_id, Object::Dictionary(font_dict));
+
+    let content = b"BT\n/F1 12 Tf\n100 700 Td\n(Password Protected Content!) Tj\nET\n";
+    let content_stream = lopdf::Stream::new(lopdf::dictionary! {}, content.to_vec());
+    doc.objects.insert(content_id, Object::Stream(content_stream));
+
+    // Distinct owner and user passwords — the case that exposes the bug.
+    let permissions = lopdf::Permissions::all();
+    let encryption_version = lopdf::EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "owner_secret",
+        user_password: "user_secret",
+        key_length: 128,
+        permissions,
+    };
+
+    let encryption_state = lopdf::EncryptionState::try_from(encryption_version).unwrap();
+    doc.encrypt(&encryption_state).unwrap();
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let encrypted_path = temp_dir.path().join("test_owner_password.pdf");
+    doc.save(&encrypted_path).unwrap();
+
+    // Load with the OWNER password, not the user password.
+    let loaded = Document::load_with_password(&encrypted_path, "owner_secret").unwrap();
+    assert!(
+        !loaded.is_encrypted(),
+        "Should not appear encrypted after successful owner-password decryption"
+    );
+
+    let pages = loaded.get_pages();
+    assert_eq!(pages.len(), 1, "Should have exactly one page");
+
+    // This is the crux of the bug: page count and structure resolve
+    // correctly even with a wrong file key, since dictionaries, names,
+    // integers and references are never encrypted. Only the decrypted
+    // *content* reveals a wrong key.
+    let page_numbers: Vec<u32> = pages.keys().cloned().collect();
+    let text = loaded.extract_text(&page_numbers).unwrap();
+    assert!(
+        text.contains("Password Protected Content!"),
+        "Owner-password decryption must recover the same content as user-password \
+         decryption, not garbage derived from the literal owner password: {text:?}"
+    );
+}
+
+#[cfg(not(feature = "async"))]
+#[test]
 fn test_load_with_password_wrong_password() {
     use lopdf::Error;
 
