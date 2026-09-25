@@ -7,7 +7,7 @@ use std::fs::File;
 #[cfg(not(feature = "async"))]
 use std::io::Read;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
@@ -87,6 +87,7 @@ impl Document {
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(options.filter)
     }
@@ -107,6 +108,7 @@ impl Document {
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(options.filter)
     }
@@ -158,6 +160,7 @@ impl Document {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read_metadata()
     }
@@ -174,6 +177,7 @@ impl Document {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read_metadata()
     }
@@ -193,6 +197,7 @@ impl Document {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read_metadata()
     }
@@ -237,6 +242,7 @@ impl Document {
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(options.filter)
     }
@@ -257,6 +263,7 @@ impl Document {
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(options.filter)
     }
@@ -304,6 +311,7 @@ impl Document {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read_metadata()
     }
@@ -320,6 +328,7 @@ impl Document {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read_metadata()
     }
@@ -341,6 +350,7 @@ impl Document {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read_metadata()
     }
@@ -359,6 +369,7 @@ impl TryInto<Document> for &[u8] {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(None)
     }
@@ -393,6 +404,7 @@ impl IncrementalDocument {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(None)?;
 
@@ -437,6 +449,7 @@ impl IncrementalDocument {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(None)?;
 
@@ -462,6 +475,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
             strict: false,
             max_decompressed_size: None,
             normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
         }
         .read(None)?;
 
@@ -486,6 +500,12 @@ pub struct Reader<'a> {
     /// object-boundary lookups can binary-search the successor offset instead
     /// of scanning all xref entries on each call.
     normal_offsets: Vec<usize>,
+    /// Object streams decoded while resolving compressed objects, keyed by
+    /// container number; `None` records one that failed to decode. Without it
+    /// every indirect `/Length` stored in an object stream re-reads and
+    /// re-decodes the whole container, which is quadratic in the number of
+    /// such streams.
+    object_streams: Mutex<HashMap<u32, Option<Arc<ObjectStream>>>>,
 }
 
 /// Maximum allowed embedding of literal strings.
@@ -1162,11 +1182,37 @@ impl Reader<'_> {
             _ => return Err(Error::MissingXrefEntry),
         };
 
-        let container_id = (container_id, 0);
-        let container_obj = self.get_object(container_id, already_seen)?;
-        let container_stream = container_obj.as_stream()?;
-        let object_stream = ObjectStream::new_with_limit(container_stream, self.max_decompressed_size)?;
+        let object_stream = self.object_stream(container_id, already_seen)?;
         object_stream.objects.get(&id).cloned().ok_or(Error::MissingXrefEntry)
+    }
+
+    /// Decode object stream `container` once per load and reuse it afterwards.
+    ///
+    /// The result depends only on the buffer, the cross-reference table and
+    /// the decompression limit, all fixed while the reader lives, so caching it
+    /// changes nothing but the cost. The lock is not held while decoding: two
+    /// threads may decode the same container, and both get the same result.
+    ///
+    /// A reference cycle is the one failure that is not cached: it depends on
+    /// the caller's resolution path in `already_seen`, not on the container,
+    /// and a caller coming by another path may read the same container fine.
+    fn object_stream(&self, container: u32, already_seen: &mut HashSet<ObjectId>) -> Result<Arc<ObjectStream>> {
+        if let Some(cached) = self.object_streams.lock().unwrap().get(&container) {
+            return cached
+                .clone()
+                .ok_or_else(|| Error::InvalidObjectStream(format!("object stream {container} 0 R failed to decode")));
+        }
+        let decoded = self
+            .get_object((container, 0), already_seen)
+            .and_then(|object| ObjectStream::new_with_limit(object.as_stream()?, self.max_decompressed_size))
+            .map(Arc::new);
+        if !matches!(decoded, Err(Error::ReferenceCycle(_))) {
+            self.object_streams
+                .lock()
+                .unwrap()
+                .insert(container, decoded.as_ref().ok().cloned());
+        }
+        decoded
     }
 
     pub fn get_object(&self, id: ObjectId, already_seen: &mut HashSet<ObjectId>) -> Result<Object> {
@@ -1241,6 +1287,10 @@ impl Reader<'_> {
         if let Some(ref password) = password_to_use {
             let state = EncryptionState::decode(&self.document, password)?;
             self.encryption_state = Some(state);
+            // Containers decoded before decryption was set up hold ciphertext.
+            if let Ok(cache) = self.object_streams.get_mut() {
+                cache.clear();
+            }
         }
 
         Ok(password_to_use)
