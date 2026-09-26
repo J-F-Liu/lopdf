@@ -112,3 +112,55 @@ fn object_streams_holding_each_others_length_do_not_overflow_the_stack() {
     let document = Document::load_mem(&pdf).expect("the rest of the document is intact");
     assert_eq!(document.get_pages().len(), 1);
 }
+
+#[test]
+fn object_stream_marked_as_compressed_in_itself_does_not_overflow_the_stack() {
+    // The cross-reference stream says object stream 5 is stored inside object
+    // stream 5. Its own /Length is direct, so no length cycle is involved:
+    // reading the container goes back to `get_compressed_object` straight from
+    // the xref entry. Stream 6 takes its /Length from object 4, which lives in
+    // stream 5, so loading the document has to resolve it.
+    let mut pdf = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    let content = "4 0 12 ";
+    let bodies = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>\nendobj\n".to_vec(),
+        format!(
+            "5 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+            content.len()
+        )
+        .into_bytes(),
+        b"6 0 obj\n<< /Length 4 0 R >>\nstream\nBT ET\nendstream\nendobj\n".to_vec(),
+    ];
+    for body in &bodies {
+        offsets.push(pdf.len() as u32);
+        pdf.extend_from_slice(body);
+    }
+
+    let xref_offset = pdf.len() as u32;
+    let rows = [
+        xref_row(0, 0, 0xFFFF),
+        xref_row(1, offsets[0], 0),
+        xref_row(1, offsets[1], 0),
+        xref_row(1, offsets[2], 0),
+        xref_row(2, 5, 0),
+        xref_row(2, 5, 1),
+        xref_row(1, offsets[4], 0),
+        xref_row(1, xref_offset, 0),
+    ];
+    let table: Vec<u8> = rows.concat();
+    pdf.extend_from_slice(
+        format!(
+            "7 0 obj\n<< /Type /XRef /Size 8 /W [1 4 2] /Root 1 0 R /Length {} >>\nstream\n",
+            table.len()
+        )
+        .as_bytes(),
+    );
+    pdf.extend_from_slice(&table);
+    pdf.extend_from_slice(format!("\nendstream\nendobj\nstartxref\n{xref_offset}\n%%EOF\n").as_bytes());
+
+    let document = Document::load_mem(&pdf).expect("the rest of the document is intact");
+    assert_eq!(document.get_pages().len(), 1);
+}
