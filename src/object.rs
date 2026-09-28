@@ -352,7 +352,7 @@ impl Dictionary {
     pub fn get(&self, key: &[u8]) -> Result<&Object> {
         self.0
             .get(key)
-            .ok_or(Error::DictKey(String::from_utf8_lossy(key).to_string()))
+            .ok_or_else(|| Error::DictKey(String::from_utf8_lossy(key).to_string()))
     }
 
     /// Extract object from dictionary, dereferencing
@@ -364,7 +364,7 @@ impl Dictionary {
     pub fn get_mut(&mut self, key: &[u8]) -> Result<&mut Object> {
         self.0
             .get_mut(key)
-            .ok_or(Error::DictKey(String::from_utf8_lossy(key).to_string()))
+            .ok_or_else(|| Error::DictKey(String::from_utf8_lossy(key).to_string()))
     }
 
     pub fn set<K, V>(&mut self, key: K, value: V)
@@ -1729,5 +1729,17 @@ mod test {
             Stream::decode_run_length(&bomb, Some(64 * 1024)),
             Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) if limit == 64 * 1024
         ));
+    }
+
+    #[test]
+    fn dictionary_lookup_miss_names_the_key() {
+        use super::{Dictionary, Object};
+
+        let mut dict = Dictionary::new();
+        dict.set("Present", 1);
+        assert!(matches!(dict.get(b"Present"), Ok(Object::Integer(1))));
+        assert!(matches!(dict.get(b"Missing"), Err(Error::DictKey(key)) if key == "Missing"));
+        assert!(matches!(dict.get_mut(b"Present"), Ok(Object::Integer(1))));
+        assert!(matches!(dict.get_mut(b"Missing"), Err(Error::DictKey(key)) if key == "Missing"));
     }
 }
