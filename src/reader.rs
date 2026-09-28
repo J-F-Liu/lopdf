@@ -1149,7 +1149,12 @@ impl Reader<'_> {
     }
 
     /// Load a compressed object from an object stream (for lightweight metadata extraction)
-    fn get_compressed_object(&self, id: ObjectId) -> Result<Object> {
+    ///
+    /// `already_seen` is the resolution path of the caller. Reading the
+    /// container may resolve its own indirect `/Length`, and if that length
+    /// lives in the same container, a fresh set would recurse until the stack
+    /// overflows.
+    fn get_compressed_object(&self, id: ObjectId, already_seen: &mut HashSet<ObjectId>) -> Result<Object> {
         let entry = self.document.reference_table.get(id.0).ok_or(Error::MissingXrefEntry)?;
 
         let container_id = match entry {
@@ -1158,8 +1163,7 @@ impl Reader<'_> {
         };
 
         let container_id = (container_id, 0);
-        let mut already_seen = HashSet::new();
-        let container_obj = self.get_object(container_id, &mut already_seen)?;
+        let container_obj = self.get_object(container_id, already_seen)?;
         let container_stream = container_obj.as_stream()?;
         let object_stream = ObjectStream::new_with_limit(container_stream, self.max_decompressed_size)?;
         object_stream.objects.get(&id).cloned().ok_or(Error::MissingXrefEntry)
@@ -1175,7 +1179,7 @@ impl Reader<'_> {
         if let Some(entry) = self.document.reference_table.get(id.0)
             && matches!(entry, XrefEntry::Compressed { .. })
         {
-            return self.get_compressed_object(id);
+            return self.get_compressed_object(id, already_seen);
         }
 
         let offset = self.get_offset(id)?;
