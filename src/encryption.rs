@@ -903,62 +903,70 @@ mod tests {
         }
     }
 
+    /// Every revision of the standard security handler must round-trip:
+    /// encrypting a document and decrypting it again with the user password
+    /// both succeed.
     #[test]
-    fn encrypt_v1() {
-        let mut document = create_document();
+    fn encrypt_and_decrypt_every_revision() {
+        let document = create_document();
+        let crypt_filters = |filter: Arc<dyn CryptFilter>| BTreeMap::from([(b"StdCF".to_vec(), filter)]);
 
-        let version = EncryptionVersion::V1 {
-            document: &document,
-            owner_password: "owner",
-            user_password: "user",
-            permissions: Permissions::all(),
-        };
+        let mut file_encryption_key = [0u8; 32];
+        rand::rng().fill(&mut file_encryption_key);
 
-        let state = EncryptionState::try_from(version).unwrap();
+        #[allow(deprecated)]
+        let versions = [
+            EncryptionVersion::V1 {
+                document: &document,
+                owner_password: "owner",
+                user_password: "user",
+                permissions: Permissions::all(),
+            },
+            EncryptionVersion::V2 {
+                document: &document,
+                owner_password: "owner",
+                user_password: "user",
+                key_length: 40,
+                permissions: Permissions::all(),
+            },
+            EncryptionVersion::V4 {
+                document: &document,
+                encrypt_metadata: true,
+                crypt_filters: crypt_filters(Arc::new(Aes128CryptFilter)),
+                stream_filter: b"StdCF".to_vec(),
+                string_filter: b"StdCF".to_vec(),
+                owner_password: "owner",
+                user_password: "user",
+                permissions: Permissions::all(),
+            },
+            EncryptionVersion::R5 {
+                encrypt_metadata: true,
+                crypt_filters: crypt_filters(Arc::new(Aes256CryptFilter)),
+                file_encryption_key: &file_encryption_key,
+                stream_filter: b"StdCF".to_vec(),
+                string_filter: b"StdCF".to_vec(),
+                owner_password: "owner",
+                user_password: "user",
+                permissions: Permissions::all(),
+            },
+            EncryptionVersion::V5 {
+                encrypt_metadata: true,
+                crypt_filters: crypt_filters(Arc::new(Aes256CryptFilter)),
+                file_encryption_key: &file_encryption_key,
+                stream_filter: b"StdCF".to_vec(),
+                string_filter: b"StdCF".to_vec(),
+                owner_password: "owner",
+                user_password: "user",
+                permissions: Permissions::all(),
+            },
+        ];
 
-        assert!(document.encrypt(&state).is_ok());
-        assert!(document.decrypt("user").is_ok());
-    }
-
-    #[test]
-    fn encrypt_v2() {
-        let mut document = create_document();
-
-        let version = EncryptionVersion::V2 {
-            document: &document,
-            owner_password: "owner",
-            user_password: "user",
-            key_length: 40,
-            permissions: Permissions::all(),
-        };
-
-        let state = EncryptionState::try_from(version).unwrap();
-
-        assert!(document.encrypt(&state).is_ok());
-        assert!(document.decrypt("user").is_ok());
-    }
-
-    #[test]
-    fn encrypt_v4() {
-        let mut document = create_document();
-
-        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
-
-        let version = EncryptionVersion::V4 {
-            document: &document,
-            encrypt_metadata: true,
-            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
-            stream_filter: b"StdCF".to_vec(),
-            string_filter: b"StdCF".to_vec(),
-            owner_password: "owner",
-            user_password: "user",
-            permissions: Permissions::all(),
-        };
-
-        let state = EncryptionState::try_from(version).unwrap();
-
-        assert!(document.encrypt(&state).is_ok());
-        assert!(document.decrypt("user").is_ok());
+        for version in versions {
+            let mut document = document.clone();
+            let state = EncryptionState::try_from(version).unwrap();
+            assert!(document.encrypt(&state).is_ok());
+            assert!(document.decrypt("user").is_ok());
+        }
     }
 
     #[test]
@@ -991,63 +999,6 @@ mod tests {
             .unwrap()
             .remove(b"Length");
 
-        assert!(document.decrypt("user").is_ok());
-    }
-
-    #[test]
-    fn encrypt_r5() {
-        let mut document = create_document();
-
-        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
-
-        let mut file_encryption_key = [0u8; 32];
-
-        let mut rng = rand::rng();
-        rng.fill(&mut file_encryption_key);
-
-        #[allow(deprecated)]
-        let version = EncryptionVersion::R5 {
-            encrypt_metadata: true,
-            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
-            file_encryption_key: &file_encryption_key,
-            stream_filter: b"StdCF".to_vec(),
-            string_filter: b"StdCF".to_vec(),
-            owner_password: "owner",
-            user_password: "user",
-            permissions: Permissions::all(),
-        };
-
-        let state = EncryptionState::try_from(version).unwrap();
-
-        assert!(document.encrypt(&state).is_ok());
-        assert!(document.decrypt("user").is_ok());
-    }
-
-    #[test]
-    fn encrypt_v5() {
-        let mut document = create_document();
-
-        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
-
-        let mut file_encryption_key = [0u8; 32];
-
-        let mut rng = rand::rng();
-        rng.fill(&mut file_encryption_key);
-
-        let version = EncryptionVersion::V5 {
-            encrypt_metadata: true,
-            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
-            file_encryption_key: &file_encryption_key,
-            stream_filter: b"StdCF".to_vec(),
-            string_filter: b"StdCF".to_vec(),
-            owner_password: "owner",
-            user_password: "user",
-            permissions: Permissions::all(),
-        };
-
-        let state = EncryptionState::try_from(version).unwrap();
-
-        assert!(document.encrypt(&state).is_ok());
         assert!(document.decrypt("user").is_ok());
     }
 }

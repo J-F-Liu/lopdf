@@ -15,9 +15,6 @@ fn test_get_object() {
         "stream".as_bytes().to_vec(),
     )));
 
-    println!("{:?}", id);
-    println!("{:?}", id2);
-
     let obj1_exists = doc.get_object(id).is_ok();
     let obj2_exists = doc.get_object(id2).is_ok();
 

@@ -208,8 +208,6 @@ fn embed_supported_color_type() -> Result<()> {
     for img_path in img_paths {
         let img = image::open(&img_path)?;
         let (width, height) = img.dimensions();
-        let color_type = img.color();
-        println!("Image: {img_path:?}, width: {width}, height: {height}, color type: {color_type:?}");
 
         let image_stream = xobject::image(img_path)?;
 

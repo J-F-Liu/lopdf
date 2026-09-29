@@ -59,28 +59,15 @@ fn test_catalog_included_in_object_stream_output() {
         })
         .count();
 
+    // Verify object streams were created and that the catalog went into one
+    // rather than being written as an individual object.
     assert!(obj_stream_count > 0, "Should have created object streams");
 
-    // Verify file size reduction by comparing with normal save
-    let mut normal_output = Vec::new();
-    doc.save_to(&mut normal_output).unwrap();
-
-    // For very small PDFs, object streams might increase size due to overhead
-    // The important thing is that the objects are compressed
-    println!("Normal save size: {} bytes", normal_output.len());
-    println!("With object streams: {} bytes", output.len());
-
-    // The key test is that objects are in streams, not the size
-    assert!(obj_stream_count > 0, "Object streams were created");
-
-    // Check that catalog is not an individual object
     let content = String::from_utf8_lossy(&output);
     assert!(
         !content.contains(&format!("{} 0 obj\n<</Type/Catalog", catalog_id.0)),
         "Catalog should be in object stream, not as individual object"
     );
-
-    // Check that info is not an individual object
     assert!(
         !content.contains(&format!("{} 0 obj\n<</Title", info_id.0)),
         "Info dictionary should be in object stream, not as individual object"

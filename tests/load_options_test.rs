@@ -122,19 +122,6 @@ mod sync_tests {
     }
 
     #[test]
-    fn load_with_options_strict_false_loads_normally() {
-        let doc = Document::load_with_options(
-            "assets/example.pdf",
-            LoadOptions {
-                strict: false,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(doc.version, "1.5");
-    }
-
-    #[test]
     fn load_with_options_strict_true_loads_valid_pdf() {
         // strict=true should still load a valid, conforming PDF
         let doc = Document::load_with_options(
@@ -183,33 +170,26 @@ mod sync_tests {
         assert!(result.is_err());
     }
 
+    /// The header is only rejected in strict mode: a buffer with binary bytes
+    /// on the header line parses its header leniently, and fails later because
+    /// the rest is not a real PDF.
     #[test]
-    fn strict_rejects_binary_bytes_on_header_line() {
-        // Minimal PDF-like buffer with binary bytes on the header line.
-        // Strict mode should reject this with InvalidFileHeader.
+    fn strict_decides_whether_binary_bytes_on_the_header_line_are_rejected() {
         let buf = b"%PDF-1.3 \xb0\x9f\x92\x9c\r%%EOF\r";
-        let result = Document::load_mem_with_options(
+
+        let strict = Document::load_mem_with_options(
             buf,
             LoadOptions {
                 strict: true,
                 ..Default::default()
             },
         );
-        assert_matches!(result.unwrap_err(), Error::Parse(ParseError::InvalidFileHeader));
-    }
+        assert_matches!(strict.unwrap_err(), Error::Parse(ParseError::InvalidFileHeader));
 
-    #[test]
-    fn lenient_accepts_binary_bytes_on_header_line() {
-        // Same buffer, but lenient (default) mode should parse the header
-        // successfully (it will fail later because the rest isn't a real PDF,
-        // but the header itself should be accepted).
-        let buf = b"%PDF-1.3 \xb0\x9f\x92\x9c\r%%EOF\r";
-        let result = Document::load_mem_with_options(buf, LoadOptions::default());
-        // The error should NOT be InvalidFileHeader — the header parsed fine.
-        if let Err(e) = &result {
+        if let Err(error) = Document::load_mem_with_options(buf, LoadOptions::default()) {
             assert!(
-                !e.to_string().contains("invalid file header"),
-                "lenient mode should accept binary bytes on header line, got: {e}"
+                !error.to_string().contains("invalid file header"),
+                "lenient mode should accept binary bytes on header line, got: {error}"
             );
         }
     }

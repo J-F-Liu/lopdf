@@ -912,7 +912,6 @@ BT
 T* (encoded streams.) Tj
 		";
         let content = tstrip(_content(test_span(stream)));
-        println!("{:?}", content);
         assert!(content.is_some());
     }
 

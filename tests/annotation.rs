@@ -41,103 +41,57 @@ fn contents_of(doc: &Document, page_id: lopdf::ObjectId) -> Vec<String> {
         .collect()
 }
 
+/// A page whose `/Annots` holds one resolvable reference plus entries that do
+/// not resolve. Returns the document and the page's id.
+fn page_with_unresolvable_annots() -> (Document, lopdf::ObjectId) {
+    let mut doc = Document::with_version("1.7");
+    let good = doc.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "Contents" => Object::string_literal("kept"),
+    });
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Annots" => vec![
+            Object::Reference((9999, 0)),
+            Object::Reference(good),
+            Object::Null,
+        ],
+    });
+    (doc, page_id)
+}
+
 /// An entry of `/Annots` may be the annotation dictionary itself rather than
 /// a reference to one — ISO 32000-1, 12.5.2 requires an indirect object only
 /// for an annotation that carries a `/Popup` or is an `/IRT` target. Direct
 /// dictionaries used to be dropped without a word, so a page could report
-/// fewer annotations than it has.
+/// fewer annotations than it has. Both entry forms must be handed out whether
+/// `/Annots` is an array or a reference to one.
 #[test]
 fn page_annotations_include_direct_dictionaries() {
-    let (doc, page_id) = page_with_mixed_annots(false);
-    assert_eq!(contents_of(&doc, page_id), vec!["referenced", "direct"]);
-}
-
-/// The same, with `/Annots` written as a reference to the array.
-#[test]
-fn page_annotations_include_direct_dictionaries_behind_an_indirect_annots() {
-    let (doc, page_id) = page_with_mixed_annots(true);
-    assert_eq!(contents_of(&doc, page_id), vec!["referenced", "direct"]);
-}
-
-/// A reference that does not resolve costs its own annotation, not the page:
-/// the surviving entries still come back.
-#[test]
-fn page_annotations_skip_a_dangling_reference() {
-    let mut doc = Document::with_version("1.7");
-    let good = doc.add_object(dictionary! {
-        "Type" => "Annot",
-        "Subtype" => "Text",
-        "Contents" => Object::string_literal("kept"),
-    });
-    let page_id = doc.add_object(dictionary! {
-        "Type" => "Page",
-        "Annots" => vec![
-            Object::Reference((9999, 0)),
-            Object::Reference(good),
-            Object::Null,
-        ],
-    });
-    assert_eq!(contents_of(&doc, page_id), vec!["kept"]);
-}
-
-/// A page without `/Annots` has no annotations, and that is not an error.
-#[test]
-fn page_annotations_without_annots_is_empty() {
-    let mut doc = Document::with_version("1.7");
-    let page_id = doc.add_object(dictionary! { "Type" => "Page" });
-    assert!(doc.get_page_annotations(page_id).unwrap().is_empty());
-}
-
-#[test]
-fn annotation_count() -> Result<()> {
-    // This test file from the pdfcpu repository,
-    // https://github.com/pdfcpu/pdfcpu/blob/master/pkg/samples/basic/AnnotationDemo.pdf
-    let doc = utils::load_document("assets/AnnotationDemo.pdf")?;
-    assert_eq!(doc.version, "1.7".to_string());
-    assert_eq!(doc.page_iter().count(), 1);
-    assert_eq!(doc.get_page_annotations(doc.page_iter().next().unwrap())?.len(), 33);
-    Ok(())
+    for annots_indirect in [false, true] {
+        let (doc, page_id) = page_with_mixed_annots(annots_indirect);
+        assert_eq!(contents_of(&doc, page_id), vec!["referenced", "direct"]);
+    }
 }
 
 /// The mutable accessor reaches both entry forms, so editing every returned
-/// dictionary is visible afterwards whether the annotation was referenced or
-/// written directly, and whether `/Annots` was an array or a reference to one.
-fn mutate_all_and_reread(annots_indirect: bool) {
-    let (mut doc, page_id) = page_with_mixed_annots(annots_indirect);
-    for annotation in doc.get_page_annotations_mut(page_id).unwrap() {
-        annotation.set("Contents", Object::string_literal("edited"));
+/// dictionary is visible afterwards, and whatever does not resolve is skipped
+/// rather than taking the page down with it.
+#[test]
+fn page_annotations_mut_edits_every_entry() {
+    for annots_indirect in [false, true] {
+        let (mut doc, page_id) = page_with_mixed_annots(annots_indirect);
+        for annotation in doc.get_page_annotations_mut(page_id).unwrap() {
+            annotation.set("Contents", Object::string_literal("edited"));
+        }
+        assert_eq!(contents_of(&doc, page_id), vec!["edited", "edited"]);
     }
-    assert_eq!(contents_of(&doc, page_id), vec!["edited", "edited"]);
-}
 
-#[test]
-fn page_annotations_mut_edits_direct_and_referenced() {
-    mutate_all_and_reread(false);
-}
+    // An entry that does not resolve costs its own annotation, not the page.
+    let (mut doc, page_id) = page_with_unresolvable_annots();
+    assert_eq!(contents_of(&doc, page_id), vec!["kept"]);
 
-#[test]
-fn page_annotations_mut_edits_direct_and_referenced_behind_an_indirect_annots() {
-    mutate_all_and_reread(true);
-}
-
-/// A dangling reference is skipped, so the surviving entries are still handed
-/// back for editing.
-#[test]
-fn page_annotations_mut_skips_a_dangling_reference() {
-    let mut doc = Document::with_version("1.7");
-    let good = doc.add_object(dictionary! {
-        "Type" => "Annot",
-        "Subtype" => "Text",
-        "Contents" => Object::string_literal("kept"),
-    });
-    let page_id = doc.add_object(dictionary! {
-        "Type" => "Page",
-        "Annots" => vec![
-            Object::Reference((9999, 0)),
-            Object::Reference(good),
-            Object::Null,
-        ],
-    });
     let mut annotations = doc.get_page_annotations_mut(page_id).unwrap();
     assert_eq!(annotations.len(), 1);
     annotations[0].set("Contents", Object::string_literal("touched"));
@@ -163,8 +117,20 @@ fn page_annotations_mut_deduplicates_repeated_references() {
 
 /// A page without `/Annots` yields nothing, and that is not an error.
 #[test]
-fn page_annotations_mut_without_annots_is_empty() {
+fn page_annotations_without_annots_is_empty() {
     let mut doc = Document::with_version("1.7");
     let page_id = doc.add_object(dictionary! { "Type" => "Page" });
+    assert!(doc.get_page_annotations(page_id).unwrap().is_empty());
     assert!(doc.get_page_annotations_mut(page_id).unwrap().is_empty());
+}
+
+#[test]
+fn annotation_count() -> Result<()> {
+    // This test file from the pdfcpu repository,
+    // https://github.com/pdfcpu/pdfcpu/blob/master/pkg/samples/basic/AnnotationDemo.pdf
+    let doc = utils::load_document("assets/AnnotationDemo.pdf")?;
+    assert_eq!(doc.version, "1.7".to_string());
+    assert_eq!(doc.page_iter().count(), 1);
+    assert_eq!(doc.get_page_annotations(doc.page_iter().next().unwrap())?.len(), 33);
+    Ok(())
 }

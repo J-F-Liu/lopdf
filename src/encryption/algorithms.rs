@@ -1450,122 +1450,66 @@ mod tests {
         );
     }
 
+    /// Revisions 5 and 6 share the hash machinery and differ only in it:
+    /// revision 5 uses the simplified hash of Algorithm 2.B, revision 6 the
+    /// round-based one.
     #[test]
-    fn authenticate_password_r5() {
-        let mut algorithm = PasswordAlgorithm {
-            encrypt_metadata: true,
-            version: 5,
-            revision: 5,
-            permissions: Permissions::all(),
-            ..Default::default()
-        };
+    fn authenticate_password_r5_r6() {
+        for revision in [5, 6] {
+            let mut algorithm = PasswordAlgorithm {
+                encrypt_metadata: true,
+                version: 5,
+                revision,
+                permissions: Permissions::all(),
+                ..Default::default()
+            };
 
-        let owner_password = "owner";
-        let user_password = "user";
+            let owner_password = "owner";
+            let user_password = "user";
 
-        // Sanitize the passwords.
-        let owner_password = algorithm.sanitize_password_r6(owner_password).unwrap();
-        let user_password = algorithm.sanitize_password_r6(user_password).unwrap();
+            // Sanitize the passwords.
+            let owner_password = algorithm.sanitize_password_r6(owner_password).unwrap();
+            let user_password = algorithm.sanitize_password_r6(user_password).unwrap();
 
-        // Compute the hashed values.
-        let mut file_encryption_key = [0u8; 32];
+            // Compute the hashed values.
+            let mut file_encryption_key = [0u8; 32];
 
-        let mut rng = rand::rng();
-        rng.fill(&mut file_encryption_key);
+            let mut rng = rand::rng();
+            rng.fill(&mut file_encryption_key);
 
-        let (user_value, user_encrypted) = algorithm
-            .compute_hashed_user_password_r6(file_encryption_key, &user_password)
-            .unwrap();
+            let (user_value, user_encrypted) = algorithm
+                .compute_hashed_user_password_r6(file_encryption_key, &user_password)
+                .unwrap();
 
-        algorithm.user_value = user_value;
-        algorithm.user_encrypted = user_encrypted;
+            algorithm.user_value = user_value;
+            algorithm.user_encrypted = user_encrypted;
 
-        let (owner_value, owner_encrypted) = algorithm
-            .compute_hashed_owner_password_r6(file_encryption_key, &owner_password)
-            .unwrap();
+            let (owner_value, owner_encrypted) = algorithm
+                .compute_hashed_owner_password_r6(file_encryption_key, &owner_password)
+                .unwrap();
 
-        algorithm.owner_value = owner_value;
-        algorithm.owner_encrypted = owner_encrypted;
+            algorithm.owner_value = owner_value;
+            algorithm.owner_encrypted = owner_encrypted;
 
-        algorithm.permission_encrypted = algorithm.compute_permissions(file_encryption_key).unwrap();
+            algorithm.permission_encrypted = algorithm.compute_permissions(file_encryption_key).unwrap();
 
-        // Assert that the correct passwords authenticate.
-        assert!(algorithm.authenticate_owner_password_r6(&owner_password).is_ok());
-        assert!(algorithm.authenticate_user_password_r6(&user_password).is_ok());
+            // Assert that the correct passwords authenticate.
+            assert!(algorithm.authenticate_owner_password_r6(&owner_password).is_ok());
+            assert!(algorithm.authenticate_user_password_r6(&user_password).is_ok());
 
-        // Assert that the swapped passwords do not authenticate.
-        assert!(algorithm.authenticate_owner_password_r6(&user_password).is_err());
-        assert!(algorithm.authenticate_user_password_r6(&owner_password).is_err());
+            // Assert that the swapped passwords do not authenticate.
+            assert!(algorithm.authenticate_owner_password_r6(&user_password).is_err());
+            assert!(algorithm.authenticate_user_password_r6(&owner_password).is_err());
 
-        // Assert that the permissions validate correctly.
-        assert!(algorithm.validate_permissions(file_encryption_key).is_ok());
+            // Assert that the permissions validate correctly.
+            assert!(algorithm.validate_permissions(file_encryption_key).is_ok());
 
-        // Assert that the file encryption key is equal for the owner password.
-        let key = algorithm.compute_file_encryption_key_r6(&owner_password).unwrap();
-        assert_eq!(&file_encryption_key[..], key);
-
-        // Assert that the file encryption key is equal for the user password.
-        let key = algorithm.compute_file_encryption_key_r6(&user_password).unwrap();
-        assert_eq!(&file_encryption_key[..], key);
-    }
-
-    #[test]
-    fn authenticate_password_r6() {
-        let mut algorithm = PasswordAlgorithm {
-            encrypt_metadata: true,
-            version: 5,
-            revision: 6,
-            permissions: Permissions::all(),
-            ..Default::default()
-        };
-
-        let owner_password = "owner";
-        let user_password = "user";
-
-        // Sanitize the passwords.
-        let owner_password = algorithm.sanitize_password_r6(owner_password).unwrap();
-        let user_password = algorithm.sanitize_password_r6(user_password).unwrap();
-
-        // Compute the hashed values.
-        let mut file_encryption_key = [0u8; 32];
-
-        let mut rng = rand::rng();
-        rng.fill(&mut file_encryption_key);
-
-        let (user_value, user_encrypted) = algorithm
-            .compute_hashed_user_password_r6(file_encryption_key, &user_password)
-            .unwrap();
-
-        algorithm.user_value = user_value;
-        algorithm.user_encrypted = user_encrypted;
-
-        let (owner_value, owner_encrypted) = algorithm
-            .compute_hashed_owner_password_r6(file_encryption_key, &owner_password)
-            .unwrap();
-
-        algorithm.owner_value = owner_value;
-        algorithm.owner_encrypted = owner_encrypted;
-
-        algorithm.permission_encrypted = algorithm.compute_permissions(file_encryption_key).unwrap();
-
-        // Assert that the correct passwords authenticate.
-        assert!(algorithm.authenticate_owner_password_r6(&owner_password).is_ok());
-        assert!(algorithm.authenticate_user_password_r6(&user_password).is_ok());
-
-        // Assert that the swapped passwords do not authenticate.
-        assert!(algorithm.authenticate_owner_password_r6(&user_password).is_err());
-        assert!(algorithm.authenticate_user_password_r6(&owner_password).is_err());
-
-        // Assert that the permissions validate correctly.
-        assert!(algorithm.validate_permissions(file_encryption_key).is_ok());
-
-        // Assert that the file encryption key is equal for the owner password.
-        let key = algorithm.compute_file_encryption_key_r6(&owner_password).unwrap();
-        assert_eq!(&file_encryption_key[..], key);
-
-        // Assert that the file encryption key is equal for the user password.
-        let key = algorithm.compute_file_encryption_key_r6(&user_password).unwrap();
-        assert_eq!(&file_encryption_key[..], key);
+            // Assert that the file encryption key is equal for both passwords.
+            for password in [&owner_password, &user_password] {
+                let key = algorithm.compute_file_encryption_key_r6(password).unwrap();
+                assert_eq!(&file_encryption_key[..], key, "revision {revision}");
+            }
+        }
     }
 
     /// Some PDF writers (e.g. Adobe) pad /O and /U to 127 bytes with trailing

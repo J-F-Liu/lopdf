@@ -473,14 +473,12 @@ end def
 
     #[test]
     fn parse_cmap_name() {
-        let data = b"/CMapName /Adobe-Identity-UCS def\n";
-        assert!(cmap_name(test_span(data)).is_ok())
-    }
-
-    #[test]
-    fn parse_cmap_name2() {
-        let data = b"/CMapName /Adobe-UCS-0 def\n";
-        assert!(cmap_name(test_span(data)).is_ok())
+        for name in [
+            &b"/CMapName /Adobe-Identity-UCS def\n"[..],
+            b"/CMapName /Adobe-UCS-0 def\n",
+        ] {
+            assert!(cmap_name(test_span(name)).is_ok())
+        }
     }
 
     #[test]
@@ -491,14 +489,9 @@ end def
 
     #[test]
     fn parse_cmap_version() {
-        let data = b"/CMapVersion 0 def\n";
-        assert!(cmap_version(test_span(data)).is_ok())
-    }
-
-    #[test]
-    fn parse_cmap_version2() {
-        let data = b"/CMapVersion 10.001 def\n";
-        assert!(cmap_version(test_span(data)).is_ok())
+        for version in [&b"/CMapVersion 0 def\n"[..], b"/CMapVersion 10.001 def\n"] {
+            assert!(cmap_version(test_span(version)).is_ok())
+        }
     }
 
     #[test]
@@ -1118,7 +1111,6 @@ end
 %%EOF
 ";
         let res = cmap_stream(test_span(data));
-        println!("{:#?}", res);
         assert!(res.is_ok())
     }
 

@@ -1370,7 +1370,6 @@ mod test {
             D.RTpAKYo'+CT/5+Cei#DII?(E,9)oF*2M7/c~>"#;
         let expected = "Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.";
         let output = Stream::decode_ascii85(input.as_bytes(), None).unwrap();
-        println!("{}", String::from_utf8(output.clone()).unwrap());
         assert_eq!(&output, expected.as_bytes());
     }
 
