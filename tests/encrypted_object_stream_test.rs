@@ -1,8 +1,5 @@
-//! Saving an encrypted document with object streams enabled.
-//!
-//! Object streams are assembled while serializing, long after `Document::encrypt`
-//! has encrypted every object and dropped the file encryption key, so the writer
-//! has nothing left to encrypt one with.
+//! Saving an encrypted document with object streams enabled: `Document::encrypt` drops the
+//! file encryption key long before the writer assembles the streams.
 //! See https://github.com/J-F-Liu/lopdf/issues/479.
 
 #![cfg(not(feature = "async"))]
@@ -102,10 +99,8 @@ fn assert_round_trips(buffer: &[u8], label: &str) {
     let pages = doc.get_pages();
     assert_eq!(pages.len(), 1, "{label}: expected exactly one page");
 
-    // Before the fix this came back as the raw ciphertext of the title: the object
-    // holding it was packed into an object stream, so the reader decrypts the stream
-    // as a whole and correctly leaves the strings inside it alone, but `encrypt` had
-    // already encrypted them individually.
+    // This used to come back as raw ciphertext: the reader correctly leaves strings inside an
+    // object stream alone, but `encrypt` had already encrypted them individually.
     let title = doc
         .trailer
         .get(b"Info")

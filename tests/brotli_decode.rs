@@ -75,11 +75,8 @@ fn brotli_xref_stream_decodes_during_load_with_the_same_limit() {
 
 #[test]
 fn brotli_filter_ignores_decode_parms() {
-    // Producers do not pair /BrotliDecode with predictors — the PDF
-    // Association's prototype files carry no /DecodeParms on any Brotli
-    // stream (their xref streams store raw W entries) — and pdf.js/pypdf
-    // likewise ignore the parameters. The decompressed bytes must therefore
-    // pass through unmodified even when a /DecodeParms dictionary is present.
+    // pdf.js/pypdf ignore /DecodeParms predictors, and the PDF Association's prototype files
+    // carry none on Brotli streams, so the bytes must pass through unmodified.
     let mut parms = Dictionary::new();
     parms.set("Predictor", 12);
     parms.set("Columns", 4);

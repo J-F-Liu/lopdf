@@ -13,9 +13,7 @@ fn test_object_stream_builder() {
 /// parse and the returned ObjectStream would be empty.
 #[test]
 fn test_object_stream_parses_objects_with_leading_whitespace() {
-    // Build the object data portion: two dictionaries preceded by \n
-    // Object 10: a Font dictionary
-    // Object 11: a FontDescriptor dictionary
+    // Two dictionaries preceded by \n: object 10 a Font, object 11 a FontDescriptor.
     let obj10_bytes = b"\n<< /Type /Font /Subtype /TrueType /BaseFont /Calibri >>";
     let obj11_bytes = b"\n<< /Type /FontDescriptor /FontName /Calibri >>";
 

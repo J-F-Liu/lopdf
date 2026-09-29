@@ -396,11 +396,8 @@ fn stream<'a>(
         match terminated(take(length), pair(opt(eol), tag(&b"endstream"[..]))).parse(i) {
             Ok((remaining, data)) => Ok((remaining, Object::Stream(Stream::new(dict, data.to_vec())))),
             Err(_) if recover_length && !reader.strict => {
-                // The scan must not cross into a neighbouring indirect object,
-                // so it stops at the xref-derived bound; parsing itself stays
-                // unbounded. The bound arrived here as `input.len() - end`, and
-                // `i` starts `input.len() - i.len()` bytes later, so the scan
-                // covers exactly the first `i.len() - bound` bytes of `i`.
+                // The scan must not cross into a neighbouring object, so it stops at the
+                // xref-derived bound: the first `i.len() - bound` bytes of `i`.
                 let scan_end = recovery_bound.map_or(i.len(), |bound| i.len().saturating_sub(bound));
                 let Some((remaining, data)) = recover_stream_length(&i[..scan_end]) else {
                     return Err(nom::Err::Failure(NomError::from_error_kind(i, ErrorKind::LengthValue)));
@@ -528,10 +525,8 @@ fn _indirect_object<'a>(
 }
 
 pub fn header(input: ParserInput, strict: bool) -> Option<String> {
-    // Parse version digits (e.g. "1.7") separately from any trailing bytes
-    // before the newline.  Some PDF generators (e.g. ImageMill) place binary
-    // marker bytes on the header line which would fail UTF-8 validation.
-    // In strict mode we reject such trailing bytes; in lenient mode we skip them.
+    // Parse the version digits separately from trailing bytes: some generators put binary
+    // markers on the header line. Strict mode rejects them, lenient mode skips them.
     let (_, (version_raw, trailing)) = delimited(
         tag(&b"%PDF-"[..]),
         pair(
@@ -567,11 +562,10 @@ pub fn binary_mark(input: ParserInput) -> Option<Vec<u8>> {
 
 /// Decode CrossReferenceTable
 fn xref(input: ParserInput, strict: bool) -> NomResult<Xref> {
-    // ISO 32000-1 s7.5.4 requires every entry to be exactly 20 bytes, ending in one of the
-    // 2-byte terminators SP CR, SP LF or CR LF. Many generators instead emit 19-byte entries
-    // ending in a bare LF, which qpdf, pikepdf, PDFium and PDF.js all accept. Accept those
-    // too when parsing leniently, but keep the conforming 2-byte forms first in the `alt` so
-    // that a bare CR never matches the CR of a conforming CR LF and strands its LF.
+    // ISO 32000-1 s7.5.4 requires 20-byte entries ending in SP CR, SP LF or CR LF, but many
+    // generators emit 19-byte entries ending in a bare LF, which qpdf, pikepdf, PDFium and
+    // PDF.js accept. The conforming forms come first in the `alt` so a bare CR never matches
+    // the CR of a CR LF and strands its LF.
     let xref_eol = move |i| {
         let conforming = alt((tag(&b" \r"[..]), tag(&b" \n"[..]), tag(&b"\r\n"[..])));
         if strict {
@@ -599,11 +593,8 @@ fn xref(input: ParserInput, strict: bool) -> NomResult<Xref> {
                 let mut skipped = 0usize;
                 for (index, ((offset, generation), is_normal)) in entries.into_iter().enumerate() {
                     if is_normal && let Ok(generation) = generation.try_into() {
-                        // `start` is read from the subsection header, so it is untrusted:
-                        // `start + index` can overflow, and object numbers are u32, so a
-                        // `start` above u32::MAX would truncate into a valid-looking number
-                        // that silently displaces a legitimate entry. Skip whatever cannot
-                        // be represented, as an out-of-range generation is skipped above.
+                        // `start` is untrusted: `start + index` can overflow, and a `start`
+                        // above u32::MAX would truncate into a valid-looking object number.
                         match start.checked_add(index).and_then(|id| u32::try_from(id).ok()) {
                             Some(id) => xref.insert(id, XrefEntry::Normal { offset, generation }),
                             None => skipped += 1,
@@ -1047,9 +1038,8 @@ startxref
 
     #[test]
     fn content_with_comment_followed_by_indented_line() {
-        // A comment is equivalent to a single white-space character
-        // (ISO 32000-2, 7.2.4), so a line starting with white space right
-        // after a comment must not stop the parser (issue #535).
+        // A comment is a single whitespace character (ISO 32000-2, 7.2.4), so an indented
+        // line right after one must not stop the parser (issue #535).
         let input = b"BT /F1 24 Tf
 % comment
   100 100 Td (Hello World) Tj ET";
@@ -1105,10 +1095,8 @@ EI";
 
     #[test]
     fn xref_entries_with_bare_eol_terminator() {
-        // ISO 32000-1 s7.5.4 requires 20-byte entries, so the terminator is two bytes
-        // (" \r", " \n" or "\r\n"). Many generators drop the padding space and emit
-        // 19-byte entries ending in a bare "\n"; qpdf, pikepdf, PDFium and PDF.js all
-        // accept these, so lenient parsing accepts them too.
+        // 19-byte entries with a bare "\n" terminator are non-conforming but accepted by
+        // qpdf, pikepdf, PDFium and PDF.js, so lenient parsing accepts them too.
         for (name, input) in [
             (
                 "bare LF",
@@ -1128,20 +1116,16 @@ EI";
 
     #[test]
     fn xref_entries_with_bare_eol_rejected_when_strict() {
-        // The 19-byte form is non-conforming, so strict mode must keep rejecting it.
-        // At this level the rejection is indirect: the entries simply are not recognised,
-        // leaving an empty section whose unconsumed lines then displace `trailer`. Assert
-        // both halves -- the empty table here, and the document-level failure below.
+        // Rejection is indirect: the entries are not recognised, leaving an empty section
+        // whose unconsumed lines then displace `trailer`.
         let input =
             b"xref\n0 3\n0000000000 65535 f\n0000000017 00000 n\n0000000081 00000 n\ntrailer\n<</Size 3/Root 1 0 R>>\n";
         if let Ok((_, re)) = xref(test_span(input), true) {
             assert_eq!(re.entries.len(), 0, "strict must not accept 19-byte entries");
         }
 
-        // The contract that matters to callers: a document with 19-byte entries loads
-        // leniently and is refused under `LoadOptions::strict`. The 20-byte build of the
-        // very same document is the control -- it must load in *both* modes, so that the
-        // strict rejection below is attributable to the terminator and nothing else.
+        // The 20-byte build of the same document is the control: it must load in both
+        // modes, so any strict rejection is attributable to the terminator alone.
         let load = |bytes: &[u8], strict: bool| {
             crate::Document::load_mem_with_options(
                 bytes,
@@ -1181,9 +1165,7 @@ EI";
 
     #[test]
     fn xref_entries_with_conforming_terminators() {
-        // The three 20-byte terminators of s7.5.4 must keep parsing in both modes. In
-        // particular the bare-CR alternative must not match the CR of a "\r\n" pair and
-        // strand its LF, which would break the following entry.
+        // The three 20-byte terminators of s7.5.4 must keep parsing in both modes.
         for (name, input) in [
             (
                 "SP LF",
@@ -1209,10 +1191,8 @@ EI";
 
     #[test]
     fn xref_subsection_start_near_usize_max_is_skipped() {
-        // A subsection header's start is read straight from the file, so it is untrusted.
-        // A start of usize::MAX made `start + index` overflow: a panic wherever overflow
-        // checks are on (a denial of service for any consumer parsing untrusted PDFs), and
-        // a silent wrap to object 0 where they are not.
+        // A start of usize::MAX made `start + index` overflow: a panic where overflow checks
+        // are on, and a silent wrap to object 0 where they are not.
         let input = &b"xref\n18446744073709551615 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer\n<</Size 2/Root 1 0 R>>\n"[..];
         for strict in [false, true] {
             match xref(test_span(input), strict) {
@@ -1228,10 +1208,8 @@ EI";
 
     #[test]
     fn xref_subsection_start_beyond_u32_does_not_displace_entries() {
-        // Object numbers are u32, but the subsection start is parsed as usize and was cast
-        // with `as u32`. A start above u32::MAX truncated into a valid-looking number --
-        // 4294967297 becomes 1 -- silently overwriting a legitimate entry with an arbitrary
-        // offset. No overflow occurs here, so a checked add alone would not catch it.
+        // A start above u32::MAX truncated into a valid-looking number (4294967297 becomes 1),
+        // overwriting a legitimate entry. No overflow occurs, so a checked add alone misses it.
         let input = &b"xref\n0 2\n0000000000 65535 f \n0000000009 00000 n \n4294967297 1\n0000000999 00000 n \ntrailer\n<</Size 2/Root 1 0 R>>\n"[..];
         for strict in [false, true] {
             match xref(test_span(input), strict) {

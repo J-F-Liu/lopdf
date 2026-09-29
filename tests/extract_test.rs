@@ -1,9 +1,8 @@
 use lopdf::content::{Content, Operation};
 use lopdf::{Document, Object, Stream, StringFormat, dictionary};
 
-// These ToUnicode CMaps are extracted from a real PDF which I have that have these
-// `0 beginbfrange ... endbfrange` sections. Historically (i.e version 0.38.0) this could trigger parse
-// failures and break text extraction.
+// Taken from a real PDF. The `0 beginbfrange ... endbfrange` sections triggered parse failures
+// and broke text extraction before v0.38.0.
 const FONT1_TOUNICODE: &str = r#"/CIDInit /ProcSet findresource begin
 12 dict begin
 begincmap
@@ -166,13 +165,7 @@ fn build_doc_with_tounicode(tounicode: &str, encoded_text: Vec<u8>) -> Document 
 
 #[test]
 fn extract_text_does_not_error_with_empty_bfrange_font2() {
-    // Sequence of 2-byte character codes (Identity-H):
-    // <0003> -> U+0020 (space)
-    // <0007> -> U+0024 ($)
-    // <000a> -> U+0027 (') via bfrange
-    // <001b> -> U+0038 (8) via bfchar
-    // <0061> -> U+007E (~) via bfchar
-    // <00bc> -> U+20AC (€) via bfchar
+    // 2-byte codes (Identity-H): space, $, ' (bfrange), 8, ~ and € (bfchar).
     let encoded_text = vec![
         0x00, 0x03, // space
         0x00, 0x07, // $
@@ -190,12 +183,8 @@ fn extract_text_does_not_error_with_empty_bfrange_font2() {
 
 #[test]
 fn extract_text_does_not_error_with_empty_bfrange_font1() {
-    // Exercise both bfchar and bfrange sections, and include the initial empty bfrange section.
-    // <0003> -> space
-    // <0006> -> #
-    // <0008> -> % via bfrange (<0008> <0009> <0025>)
-    // <001a> -> 7 via bfchar
-    // <0044> -> a via bfrange (<0044> <004c> <0061>)
+    // Exercises both bfchar and bfrange plus an initial empty bfrange: space, #, % (bfrange
+    // <0008> <0009> <0025>), 7 (bfchar), a (bfrange <0044> <004c> <0061>).
     let encoded_text = vec![
         0x00, 0x03, // space
         0x00, 0x06, // #

@@ -88,9 +88,7 @@ impl FontData {
         // Parse the TTF file using the skrifa crate
         let font = skrifa::FontRef::new(font_file).expect("Failed to parse font file");
 
-        // Extract font metadata
-        // Note: The skrifa crate provides methods to get font bounding box, ascent, descent, cap height, italic
-        // angle, and stemV.
+        // Extract font metadata: skrifa also exposes ascent, descent, cap height, italic angle, stemV.
         let metrics = font.metrics(Size::unscaled(), LocationRef::default());
         let font_bbox = metrics.bounds.unwrap_or_default();
         let ascent = metrics.ascent;
@@ -99,9 +97,8 @@ impl FontData {
         let italic_angle = metrics.italic_angle;
         let flags = 1; // Default flags, can be modified later if needed
 
-        // Calculate stemV based on the font bounding box
+        // stemV is typically 13% of the font's bbox width.
         // Reference: https://stackoverflow.com/questions/35485179/stemv-value-of-the-truetype-font
-        // The stemV is typically calculated as 13% of the font's bbox width value.
         let bbox_width = font_bbox.x_max - font_bbox.x_min;
         let stem_v = (bbox_width as f64 * 0.13).round() as i64;
 

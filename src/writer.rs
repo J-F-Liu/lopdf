@@ -28,10 +28,8 @@ impl Document {
     /// Object streams are skipped for an encrypted document, which is written with every
     /// object serialized individually instead. See [`Document::save_modern`].
     pub fn save_with_options<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
-        // Cross-reference streams are independent of object streams: a document can use one
-        // without the other. Select the requested type here so the choice applies whichever
-        // path writes the body below. Both features arrived in PDF 1.5, so a document that is
-        // about to use one is moved up to that version.
+        // Xref streams and object streams are independent; select the requested type here so it
+        // applies to whichever path writes the body. Both arrived in PDF 1.5, so bump the version.
         if options.use_xref_streams {
             self.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
 
@@ -114,14 +112,9 @@ impl Document {
             self.version = "1.5".to_string();
         }
 
-        // Object streams are built here, while serializing, but the document's objects were
-        // already encrypted by `Document::encrypt`, which drops the file encryption key once
-        // it is done. There is nothing left to encrypt a new stream with, so it would go out
-        // in the clear while the `/Encrypt` dictionary claims every stream is encrypted, and
-        // the strings packed into it would stay encrypted a second time: an object stream is
-        // itself the unit of encryption, and strings inside one shall not be encrypted
-        // separately. Write the objects out individually instead, as `save` does. The
-        // cross-reference type chosen in `save_with_options` still applies.
+        // An object stream would go out unencrypted: `Document::encrypt` already dropped the key,
+        // and the strings packed inside are themselves already encrypted (an object stream is the
+        // unit of encryption). Write the objects out individually instead, as `save` does.
         if self.is_encrypted() {
             return self.save_internal(target);
         }
@@ -249,9 +242,7 @@ impl Document {
         self.trailer.set("Type", Name(b"XRef".to_vec()));
         // Update `max_id` in trailer
         self.trailer.set("Size", i64::from(self.max_id + 1));
-        // Set the size of each entry in bytes (default for PDFs is `[1 2 1]`)
-        // In our case we use `[u8, u32, u16]` for each entry
-        // to keep things simple and working at all times.
+        // `[u8, u32, u16]` per entry (the PDF default is `[1 2 1]`).
         self.trailer.set("W", Array(vec![Integer(1), Integer(4), Integer(2)]));
         // Note that `ASCIIHexDecode` does not work correctly,
         // but is still useful for debugging sometimes.
@@ -339,12 +330,8 @@ impl IncrementalDocument {
     fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
         self.check_incremental_save_supported()?;
 
-        // If the previous revision was encrypted (and successfully decrypted),
-        // we need to re-encrypt every appended object with the same encryption
-        // state and restore the trailer's `/Encrypt` reference.
-        //
-        // Cloning `EncryptionState` (small, mostly `Vec<u8>`) avoids borrow
-        // conflicts between `&self.prev_documents` and `&mut self.new_document`.
+        // Re-encrypt appended objects with the previous encryption state and restore `/Encrypt`.
+        // Cloning the (small) state avoids borrow conflicts with `&mut self.new_document`.
         let encryption_state = self.get_prev_documents().encryption_state.as_ref().cloned();
 
         let mut target = CountingWrite {
@@ -370,20 +357,12 @@ impl IncrementalDocument {
             writeln!(target)?;
         }
 
-        // No file header and no binary marker here. An incremental update is
-        // defined (ISO 32000-1, 7.5.6) as the original file followed by the
-        // changed objects, a cross-reference section and a trailer — the
-        // header belongs to the file, which the previous revision already
-        // carries. Emitting a second "%PDF-x.y" makes the appended region
-        // look like the start of another document to anything that locates a
-        // PDF by scanning for the header, and because `new_document`'s
-        // version defaults to 1.4 it also understated the format of every
-        // file built on a later version.
+        // No file header or binary marker: an incremental update (ISO 32000-1, 7.5.6) is the
+        // original file plus changed objects, a xref section and a trailer. A second "%PDF-x.y"
+        // would make the appended region look like the start of another document.
 
-        // Write each newly added indirect object. When the document is
-        // encrypted, each object is cloned first and the clone is encrypted;
-        // the in-memory objects are left as plaintext so that further edits
-        // and repeated saves do not double-encrypt.
+        // Encrypt a clone of each object, leaving the in-memory ones as plaintext so repeated
+        // saves do not double-encrypt.
         for (&(id, generation), object) in &self.new_document.objects {
             if object
                 .type_name()
@@ -402,12 +381,8 @@ impl IncrementalDocument {
             }
         }
 
-        // For an encrypted document, install a modified copy of the trailer
-        // that restores the /Encrypt reference. We swap it in temporarily so
-        // that `write_trailer` / `write_cross_reference_stream` — which
-        // already mutate the trailer to update Size/W/Length/etc — operate
-        // on the modified copy, and swap it back afterwards so that the
-        // in-memory `new_document.trailer` stays clean for subsequent saves.
+        // Swap in a trailer copy carrying the /Encrypt reference, so the writers that mutate
+        // Size/W/Length see it; swap back so `new_document.trailer` stays clean for later saves.
         let saved_trailer = if let Some(state) = encryption_state.as_ref() {
             let encrypt_id = state
                 .encrypt_object_id()
@@ -479,9 +454,8 @@ impl Writer {
         // Add first (0) entry
         xref_section.add_unusable_free_entry();
 
-        // Iterate over the actual highest entry instead of `xref.size`:
-        // `size` is fixed before object streams (and the xref stream itself)
-        // are appended, so entries past it would never reach the table.
+        // Iterate to the actual highest entry: `xref.size` is fixed before object streams and
+        // the xref stream itself are appended, so entries past it would never reach the table.
         for obj_id in 1..=xref.max_id() {
             if let Some(entry) = xref.get(obj_id) {
                 // A section starts at the first *present* id; starting it at
@@ -524,9 +498,8 @@ impl Writer {
         let mut xref_sections = Vec::new();
         let mut xref_section = XrefSection::new(0);
 
-        // Iterate over the actual highest entry instead of `xref.size`:
-        // `size` is fixed before object streams (and the xref stream itself)
-        // are appended, so entries past it would never reach the stream.
+        // Iterate to the actual highest entry: `xref.size` is fixed before object streams and
+        // the xref stream itself are appended, so entries past it would never reach the stream.
         for obj_id in 1..=xref.max_id() {
             if let Some(entry) = xref.get(obj_id) {
                 // A section starts at the first *present* id; starting it at
@@ -660,11 +633,8 @@ impl Writer {
 
     fn write_string(file: &mut dyn Write, text: &[u8], format: &StringFormat) -> Result<()> {
         match *format {
-            // Within a Literal string, backslash (\) and unbalanced parentheses should be escaped.
-            // This rule apply to each individual byte in a string object,
-            // whether the string is interpreted as single-byte or multiple-byte character codes.
-            // If an end-of-line marker appears within a literal string without a preceding backslash, the result is
-            // equivalent to \n. So \r also need be escaped.
+            // In a literal string escape each backslash and unbalanced parenthesis, byte by
+            // byte, and escape CR/LF since an unescaped end-of-line marker reads as \n.
             StringFormat::Literal => {
                 let mut escape_indice = Vec::new();
                 let mut parentheses = Vec::new();

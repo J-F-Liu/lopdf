@@ -33,9 +33,7 @@ macro_rules! glyphs {
             )*
 
             pub fn from_name(name: &[u8]) -> Option<Self> {
-                // This part is a bit of a hack, since we don't have a nice way
-                // of getting a byte string literal. But, as_bytes is const
-                // since 1.32.
+                // No byte string literal in const, but `as_bytes` is const since 1.32.
                 $(
                     const $first: &[u8] = stringify!($first).as_bytes();
                     $(const $rest: &[u8] = stringify!($rest).as_bytes();)*

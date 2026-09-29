@@ -431,12 +431,9 @@ impl Dictionary {
             });
         }
 
-        // Note: currently not all encodings are handled, not implemented:
-        // - TrueType cmap tables
-        // - DescendantFonts in CID-Keyed fonts
-        // - Predefined CJK CMAP other than indicated in SimpleEncoding
-        // - Deciding what should be the fallback font if no such encoding is defined in difference encoding (see Table
-        //   114 in 9.6.6.1 General under `BaseEncoding`).
+        // Not yet handled: TrueType cmap tables; DescendantFonts in CID-Keyed fonts;
+        // predefined CJK CMAPs other than those in SimpleEncoding; and the fallback
+        // font when `BaseEncoding` is undefined (Table 114, 9.6.6.1).
         let result = (|| {
             if let Ok(object) = self.get(b"Encoding") {
                 return self.get_base_encoding(object, doc, limit);
@@ -451,9 +448,8 @@ impl Dictionary {
 
         match result {
             Ok(encoding) => Ok(encoding),
-            // A detected decompression bomb must surface, not be swallowed into a
-            // fallback encoding — otherwise the bounded caller's guard is silently
-            // defeated. Every other encoding error stays lenient, as before.
+            // A decompression bomb must surface rather than be swallowed into a fallback
+            // encoding, which would defeat the bounded caller's guard. Other errors stay lenient.
             Err(err @ Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => Err(err),
             Err(err) => {
                 warn!(
@@ -960,9 +956,8 @@ impl Stream {
     fn decompress_brotli(input: &[u8], limit: Option<usize>) -> Result<Vec<u8>> {
         use brotli_decompressor::Decompressor;
 
-        // Unlike the Flate path there is no fallback (e.g. raw deflate), so a
-        // truncated or corrupt stream fails hard instead of yielding partial
-        // output — intentional for a new filter, not an oversight.
+        // Unlike the Flate path there is no raw-deflate fallback, so a corrupt stream
+        // fails hard instead of yielding partial output. Intentional for a new filter.
         let initial_capacity = match limit {
             Some(max) => input.len().saturating_mul(2).min(max.saturating_add(1)),
             None => input.len().saturating_mul(2),
@@ -975,13 +970,9 @@ impl Stream {
         {
             return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
         }
-        // /DecodeParms predictors are deliberately NOT applied here. The PDF
-        // Association's prototype files never pair /BrotliDecode with a
-        // /Predictor (their Brotli xref streams store raw W entries), pdf.js
-        // and pypdf ignore the parameters too; only MuPDF applies them.
-        // Applying them would also corrupt [/BrotliDecode /FlateDecode]
-        // chains, since the shared dict-form /DecodeParms is passed to every
-        // filter and a predictor there belongs to the Flate layer.
+        // /DecodeParms predictors are deliberately NOT applied: pdf.js and pypdf ignore them
+        // and only MuPDF applies them. They would also corrupt [/BrotliDecode /FlateDecode]
+        // chains, since the shared dict-form /DecodeParms reaches every filter.
         Ok(output)
     }
 
@@ -1030,10 +1021,8 @@ impl Stream {
     fn decompress_lzw_loop(input: &[u8], decoder: &mut weezl::decode::Decoder, limit: Option<usize>) -> Vec<u8> {
         let mut output = vec![];
 
-        // When a limit is set, decode into a writer that stops accepting bytes
-        // once `max + 1` have been produced, so a bomb cannot allocate the full
-        // (potentially enormous) output; the caller rejects it via the `> max`
-        // check. Without a limit, decode straight into the output vector.
+        // With a limit, decode through a writer that stops accepting bytes at `max + 1`, so a
+        // bomb never allocates its full output; the caller rejects it via the `> max` check.
         let status = match limit {
             Some(max) => {
                 let mut sink = LimitedWriter::new(&mut output, max.saturating_add(1));
@@ -1063,9 +1052,7 @@ impl Stream {
             && let Err(err) = Self::read_capped(ZlibDecoder::new(input), &mut output, limit)
         {
             warn!("{err}");
-            // Zlib decompression failed (e.g. corrupt adler32 checksum in
-            // encrypted PDFs). Retry with raw deflate, skipping the 2-byte
-            // zlib header and ignoring the checksum.
+            // Zlib failed (e.g. a corrupt adler32 in encrypted PDFs); retry as raw deflate.
             if output.is_empty() && input.len() > 2 {
                 use flate2::read::DeflateDecoder;
                 if let Err(raw_err) = Self::read_capped(DeflateDecoder::new(&input[2..]), &mut output, limit) {
@@ -1093,9 +1080,8 @@ impl Stream {
             input
         };
         for &ch in input_no_eod {
-            // ASCII85 can amplify up to 4x (each `z` expands to four zero bytes),
-            // so bound the output here rather than only after the fact; each
-            // iteration appends at most 4 bytes, so output never exceeds max + 4.
+            // ASCII85 amplifies up to 4x (each `z` is four zero bytes), so bound the output
+            // here; each iteration adds at most 4 bytes, so it never exceeds max + 4.
             if let Some(max) = limit
                 && output.len() > max
             {
@@ -1116,10 +1102,8 @@ impl Stream {
             if !(b'!'..=b'u').contains(&ch) {
                 break;
             }
-            // A base-85 group encodes a value in 0..2^32; reject any group whose
-            // value reaches 2^32. Both the multiply and the add can carry past
-            // u32::MAX (2^32-1 == 85 * 50529027, so a prefix of 50529027 leaves
-            // the multiply in range yet the add still overflows), so guard both.
+            // A group must encode a value below 2^32. Both the multiply and the add can carry
+            // past u32::MAX, so guard both.
             buffer = buffer
                 .checked_mul(85)
                 .and_then(|b| b.checked_add((ch - b'!') as u32))
@@ -1218,19 +1202,16 @@ impl Stream {
         if let Some(params) = params {
             let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
             if predictor == 2 {
-                // TIFF Predictor 2 (horizontal differencing). Distinct from the PNG
-                // predictors below and previously ignored, so `/Predictor 2` streams
-                // silently decoded to the un-differenced (wrong) bytes.
+                // TIFF Predictor 2 (horizontal differencing), distinct from the PNG
+                // predictors below and previously ignored.
                 let columns = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
                 let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
                 let bits = max(1, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
                 data = Self::reverse_tiff_predictor2(data, columns, colors, bits)?;
             } else if (10..=15).contains(&predictor) {
-                // PNG predictors 10-15. Rows are packed to a byte boundary, so a
-                // sub-byte component depth still occupies ceil(Columns*Colors*bits/8)
-                // bytes per row; the old max(8, bits) width over-read and failed on
-                // valid 1/2/4-bit images. The filter's left reference is whole bytes,
-                // rounded up to one.
+                // PNG predictors 10-15. Rows pack to a byte boundary, so a sub-byte depth still
+                // takes ceil(Columns*Colors*bits/8) bytes per row; the left reference is one
+                // whole byte, rounded up.
                 let columns = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
                 let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
                 let bits = max(1, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
@@ -1383,10 +1364,8 @@ mod test {
 
     #[test]
     fn test_decode_ascii85_group_value_out_of_range() {
-        // A base-85 group must be < 2^32. 85 * 50529027 == u32::MAX, so the prefix
-        // "s8W-" reaches the multiply ceiling and the 5th digit overflows the add;
-        // the multiply-only guard missed this. The value == u32::MAX case ("s8W-!")
-        // is in range and must still decode.
+        // 85 * 50529027 == u32::MAX, so "s8W-" hits the multiply ceiling and the 5th digit
+        // overflows the add; a multiply-only guard misses it. "s8W-!" is in range.
         assert_eq!(
             Stream::decode_ascii85(b"s8W-!~>", None).unwrap(),
             vec![255, 255, 255, 255]
@@ -1506,9 +1485,8 @@ mod test {
             p
         }
 
-        // 1-bit grayscale, 16 columns: 2 packed bytes/row. Before the fix this
-        // decoded with a 16-byte row width and failed with UnexpectedEof on a
-        // valid image. Filters None/Sub/Up.
+        // 1-bit grayscale, 16 columns: 2 packed bytes/row. A 16-byte row width failed here
+        // with UnexpectedEof. Filters None/Sub/Up.
         assert_eq!(
             Stream::decompress_predictor(vec![0, 170, 204, 1, 15, 70, 2, 225, 65], Some(&params(1, 16, 1))).unwrap(),
             vec![170, 204, 15, 85, 240, 150]
@@ -1523,9 +1501,7 @@ mod test {
             Stream::decompress_predictor(vec![2, 26, 176, 4, 171, 107], Some(&params(1, 3, 4))).unwrap(),
             vec![26, 176, 197, 48]
         );
-        // 2-bit RGB (3 colours), 4 columns: 3 bytes/row, left reference = 1 byte.
-        // The old bytes_per_pixel * pixels_per_row factorisation could not express
-        // this row width.
+        // 2-bit RGB (3 colours), 4 columns: 3 bytes/row, left reference 1 byte.
         assert_eq!(
             Stream::decompress_predictor(vec![1, 108, 48, 72, 4, 175, 202, 241], Some(&params(3, 4, 2))).unwrap(),
             vec![108, 156, 228, 27, 54, 141]
@@ -1598,9 +1574,8 @@ mod test {
         use super::LimitedWriter;
         use std::io::Write;
 
-        // The push-based (LZW) guard: the sink accepts bytes up to `limit`, then
-        // fills the remaining room and refuses further writes, so the caller can
-        // detect the overflow via `len() > max` without unbounded allocation.
+        // The push-based (LZW) guard: the sink accepts bytes up to `limit`, then refuses
+        // further writes so the caller sees `len() > max` without unbounded allocation.
         let mut buf = Vec::new();
         let mut writer = LimitedWriter::new(&mut buf, 4);
 
@@ -1614,10 +1589,8 @@ mod test {
 
     #[test]
     fn test_ascii85_honors_limit() {
-        // Each `z` expands to four zero bytes, so 1 MiB of `z` decodes to 4 MiB.
-        // Without a limit that full 4x amplification is allocated; with a limit
-        // the decoder must stop rather than expand past it (guards the chained
-        // `[FlateDecode ASCII85Decode]` bomb vector on the load path).
+        // Each `z` expands to four zero bytes, so 1 MiB decodes to 4 MiB; the decoder must stop
+        // at the limit (guards the chained `[FlateDecode ASCII85Decode]` bomb vector).
         let mut input = vec![b'z'; 1024 * 1024];
         input.extend_from_slice(b"~>");
 
@@ -1703,9 +1676,8 @@ mod test {
         let stream = Stream::new(dict, data);
         assert_eq!(stream.decompressed_content().unwrap(), b"HelloAAA");
 
-        // Spec vectors (PDF 32000-1 7.4.5). Length 0x81 = 128 copies, 0xFF = 2,
-        // 0x80 = end of data (trailing bytes are dropped), and a run that ends
-        // without an EOD marker is decoded best-effort.
+        // Spec vectors (PDF 32000-1 7.4.5): 0x81 = 128 copies, 0xFF = 2, 0x80 = end of data
+        // (trailing bytes dropped), and a run without an EOD marker decodes best-effort.
         let cases: &[(&[u8], Vec<u8>)] = &[
             (&[0x81, b'Z', 0x80], vec![b'Z'; 128]),
             (&[0xFF, b'Q', 0x00, b'!', 0x80], b"QQ!".to_vec()),

@@ -149,9 +149,7 @@ fn image_stream_body(content: &[u8]) -> Vec<u8> {
 
 #[test]
 fn accurate_but_out_of_order_xref_offsets_load_every_object() {
-    // Physical order: catalog, pages, image stream, page. The xref rows are
-    // still emitted in ascending object-number order, so the recorded offsets
-    // do not increase in file order.
+    // xref rows stay in ascending object-number order, so offsets do not increase in file order.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),
@@ -182,10 +180,7 @@ fn stream_data_start(pdf: &[u8]) -> usize {
 
 #[test]
 fn inaccurate_xref_offset_inside_a_stream_only_loses_the_mislocated_object() {
-    // Object 5 physically follows object 4, but its xref offset is miswritten
-    // to point into object 4's stream payload. Object 4 itself is well-formed
-    // (its /Length is correct), so it still loads; only the mislocated object
-    // is lost.
+    // Object 5's xref offset is miswritten into object 4's payload; object 4 still loads.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),
@@ -212,10 +207,7 @@ fn inaccurate_xref_offset_inside_a_stream_only_loses_the_mislocated_object() {
 
 #[test]
 fn strict_mode_aborts_when_an_xref_offset_is_unparseable() {
-    // Strict mode fails the whole load when any object cannot be parsed —
-    // here object 5, whose xref offset points into object 4's payload.
-    // Object 4 itself survives parsing; the abort is caused solely by the
-    // unparseable neighbor offset.
+    // The abort is caused solely by object 5's unparseable offset, not by object 4.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),
@@ -238,9 +230,7 @@ fn strict_mode_aborts_when_an_xref_offset_is_unparseable() {
 
 #[test]
 fn out_of_order_xref_with_offset_inside_a_stream_only_loses_the_mislocated_object() {
-    // Object 3 physically sits after the image stream of object 4, but its
-    // recorded xref offset lands inside object 4's payload. Object 4 parses
-    // fine; only the mislocated object disappears.
+    // Object 3's recorded offset lands inside object 4's payload; object 4 parses fine.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),
@@ -279,11 +269,8 @@ fn wrong_length_stream_body(content: &[u8]) -> Vec<u8> {
 
 #[test]
 fn stream_length_recovery_stops_at_the_next_recorded_xref_offset() {
-    // A stream with a wrong /Length can only be recovered if its unambiguous
-    // `endstream` lies before the next recorded xref offset: recovery must
-    // not cross into a neighboring object even when that offset is itself
-    // inaccurate. Here object 5's offset points into object 4's payload, so
-    // the recovery window ends mid-data and object 4 is dropped.
+    // Recovery must not cross into a neighbor even when that neighbor's recorded offset is
+    // itself wrong: here the window ends mid-data, so object 4 is dropped.
     let content = vec![b'A'; 48];
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, catalog().to_vec()),

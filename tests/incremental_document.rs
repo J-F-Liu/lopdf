@@ -216,9 +216,8 @@ fn encrypted_incremental_round_trip(label: &str, state: EncryptionState) {
         "{label}: appended stream content mismatch after round-trip"
     );
 
-    // Assert C: the trailer's /Encrypt reference in the appended file resolves
-    // to the same object id as the original encrypted revision. The dictionary
-    // bytes themselves live in the previous revision and are still intact.
+    // Assert C: the appended trailer's /Encrypt resolves to the original object id; the
+    // dictionary bytes live in the previous revision and are still intact.
     let round_encrypt_id = read_encrypt_id(&out);
     assert_eq!(
         round_encrypt_id, original_encrypt_id,
@@ -279,9 +278,8 @@ fn incremental_save_of_decrypted_document_v2_cross_reference_table_round_trip() 
     let mut prev_bytes = Vec::new();
     doc.save_to(&mut prev_bytes).unwrap();
 
-    // Sanity check on the fixture: the base revision must use the classical
-    // `trailer` keyword. If this fails, the test setup slipped back to the
-    // xref-stream path and no longer covers what it claims to cover.
+    // The base revision must use the classical `trailer` keyword, or this no longer covers
+    // what it claims to.
     let trailer_keyword: &[u8] = b"trailer\n";
     assert!(
         prev_bytes.windows(trailer_keyword.len()).any(|w| w == trailer_keyword),

@@ -83,28 +83,18 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             // (PDF 1.4; deprecated in PDF 2.0) Indicates the use of encryption of data using the
             // RC4 or AES algorithms but permitting file encryption key lengths greater or 40 bits.
             2 => (),
-            // (PDF 1.4; deprecated in PDF 2.0) An unpublished algorithm that permits encryption
-            // key lengths ranging from 40 to 128 bits. This value shall not appear in a conforming
-            // PDF file.
+            // Unpublished, 40-128 bit keys; not allowed in a conforming file.
             3 => return Err(DecryptionError::InvalidVersion)?,
-            // (PDF 1.5; deprecated in PDF 2.0) The security handler defines the use of encryption
-            // and decryption in the document, using the rules specified by the CF, StmF and StrF
-            // entries using encryption of data using the RC4 or AES algorithms (deprecated in PDF
-            // 2.0) with a file encryption key length of 128 bits.
+            // RC4 or AES with a 128-bit key, per CF/StmF/StrF.
             4 => (),
-            // (PDF 2.0) The security handler defines the use of encryption and decryption in the
-            // document, using the rules specified by the CF, StmF, StrF and EFF entries using
-            // encryption of data using the AES algorithms with a file encryption key length of 256
-            // bits.
+            // AES with a 256-bit key, per CF/StmF/StrF/EFF.
             5 => (),
             // Unknown codes.
             _ => Err(DecryptionError::UnsupportedVersion)?,
         }
 
-        // V4 and V5 fix the length of the file encryption key at 128 and 256 bits, so the Length
-        // entry is optional for them and plenty of producers leave it out. Without a default here
-        // the key derivation below falls back to 40 bits and the password check fails on files
-        // that other readers open without complaint.
+        // V4/V5 fix the key length (128/256 bits) and producers often omit /Length; without a
+        // default the derivation below would fall back to 40 bits and fail the password check.
         let length = length.or(match version {
             4 => Some(128),
             5 => Some(256),
@@ -168,9 +158,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             Err(DecryptionError::InvalidHashLength)?;
         }
 
-        // The owner value is 48 bytes long if the value of R is 5 or greater.
-        // Some PDF writers pad /O with trailing zeros beyond 48 bytes; truncate
-        // to the spec-required length so these documents are accepted.
+        // /O is 48 bytes for R >= 5; truncate writers' trailing zero padding.
         if revision >= 5 {
             if owner_value.len() < 48 {
                 Err(DecryptionError::InvalidHashLength)?;
@@ -204,9 +192,7 @@ impl TryFrom<&Document> for PasswordAlgorithm {
             Err(DecryptionError::InvalidHashLength)?;
         }
 
-        // The user value is 48 bytes long if the value of R is 5 or greater.
-        // Some PDF writers pad /U with trailing zeros beyond 48 bytes; truncate
-        // to the spec-required length so these documents are accepted.
+        // /U is 48 bytes for R >= 5; truncate writers' trailing zero padding.
         if revision >= 5 {
             if user_value.len() < 48 {
                 Err(DecryptionError::InvalidHashLength)?;
@@ -271,9 +257,7 @@ impl PasswordAlgorithm {
     ///
     /// This algorithm is deprecated in PDF 2.0.
     pub(crate) fn sanitize_password_r4(&self, password: &str) -> Result<Vec<u8>, DecryptionError> {
-        // The password string is generated from host system codepage characters (or system scripts) by
-        // first converting the string to PDFDocEncoding. If the input is Unicode, first convert to a
-        // codepage encoding, and then to PDFDocEncoding for backward compatibility.
+        // Convert the password to PDFDocEncoding.
         let password = encodings::string_to_bytes(&encodings::PDF_DOC_ENCODING, password);
 
         Ok(password)
@@ -293,17 +277,7 @@ impl PasswordAlgorithm {
     {
         let password = password.as_ref();
 
-        // Pad or truncate the resulting password string to exactly 32 bytes. If the password string is
-        // more than 32 bytes long, use only its first 32 bytes; if it is less than 32 bytes long, pad
-        // it by appending the required number of additional bytes from the beginning of the following
-        // padding string (see `PAD_BYTES`).
-        //
-        // That is, if the password is n bytes long, append the first 32 - n bytes of the padding
-        // string to the end of the password string. If the password string is empty (zero-length),
-        // meaning there is no user password, substitute the entire padding string in its place.
-        //
-        // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the first len bytes of `PAD_BYTES`.
+        // Truncate or pad the password to 32 bytes, filling from the start of `PAD_BYTES`.
         let len = password.len().min(32);
 
         // Initialize the MD5 hash function and pass the result as input to this function.
@@ -316,11 +290,7 @@ impl PasswordAlgorithm {
         // function.
         hasher.update(&self.owner_value);
 
-        // Convert the integer value of the P entry (permissions) to a 32-bit unsigned binary number
-        // and pass these bytes to the MD5 hash function, low-order byte first.
-        //
-        // We don't actually care about the permissions, but we need the correct value to derive the
-        // correct key.
+        // Hash the P entry, low-order byte first: the value matters only for key derivation.
         hasher.update((self.permissions.bits() as u32).to_le_bytes());
 
         // Pass the first element of the file's file identifier array (the value of the ID entry in the
@@ -346,10 +316,7 @@ impl PasswordAlgorithm {
         // Finish the hash.
         let mut hash = hasher.finalize();
 
-        // (Security handlers of revision 3 or greater) Do the following 50 times: take the output from
-        // the previous MD5 hash and pass the first n bytes of the output as input into a new MD5 hash,
-        // where n is the number of bytes of the file encryption key as defined by the value of the
-        // encryption dictionary's Length entry.
+        // Revision 3+: re-hash 50 times, each time feeding in the first n bytes of the previous digest.
         let n = if self.revision >= 3 {
             self.length.unwrap_or(40) / 8
         } else {
@@ -367,10 +334,7 @@ impl PasswordAlgorithm {
             }
         }
 
-        // Set the file encryption key to the first n bytes of the output from the final MD5 hash,
-        // where n shall always be 5 for security handlers of revision 2 but, for security handlers of
-        // revision 3 or greater, shall depend on the value of the encrpytion dictionary's Length
-        // entry.
+        // The key is the first n bytes of the final digest (n = 5 for R2, else /Length / 8).
         Ok(hash[..n].to_vec())
     }
 
@@ -378,9 +342,7 @@ impl PasswordAlgorithm {
     ///
     /// This implements the first step of Algorithm 2.A as described in ISO 32000-2:2020 (PDF 2.0).
     pub(crate) fn sanitize_password_r6(&self, password: &str) -> Result<Vec<u8>, DecryptionError> {
-        // The UTF-8 password string shall be generated from Unicode input by processing the input
-        // with the SASLprep (Internet RFC 4013) profile of stringprep (Internet RFC 3454) using
-        // the Normalize and BiDi options, and then coverting to a UTF-8 representation.
+        // Normalize the password with SASLprep (RFC 4013) and return its UTF-8 bytes.
         Ok(stringprep::saslprep(password)?.as_bytes().to_vec())
     }
 
@@ -407,22 +369,16 @@ impl PasswordAlgorithm {
             password = &password[..127];
         }
 
-        // Test the password against the owner key by computing a hash using algorithm 2.B with an
-        // input string consisting of the UTF-8 password concatenated with the 8 bytes of owner
-        // validation salt, concatenated with the 48-byte U string. If the 32-byte result matches
-        // the first 32 bytes of the O string, this is the owner password.
+        // Algorithm 2.B over password + owner validation salt + U; a match with O means the
+        // owner password.
         if self.compute_hash(password, owner_validation_salt, Some(&self.user_value))? == hashed_owner_password {
-            // Compute an intermediate owner key by computing a hash using algorithm 2.B with an
-            // input string consisting of the UTF-8 owner password concatenated with the 8 bytes of
-            // owner key salt, concatenated with the 48-byte U string.
+            // Algorithm 2.B over password + owner key salt + U gives the key for /OE.
             let hash = self.compute_hash(password, owner_key_salt, Some(&self.user_value))?;
 
             let mut key = [0u8; 32];
             key.copy_from_slice(&hash);
 
-            // The 32-byte result is the key used to decrypt the 32-byte OE string using AES-256 in
-            // CBC mode with no padding and an initialization vector of zero. The 32-byte result is
-            // the file encryption key.
+            // Decrypt /OE with AES-256 CBC, zero IV, no padding: the result is the file key.
             let iv = [0u8; 16];
 
             let mut owner_encrypted = self.owner_encrypted.clone();
@@ -435,25 +391,16 @@ impl PasswordAlgorithm {
             return Ok(owner_encrypted);
         }
 
-        // Note: this step is not in the specification, but is a precaution.
-        //
-        // Test the password against the user key by computing a hash using algorithm 2.B with an
-        // input string consisting of the UTF-8 password concatenated with the 8 bytes of user
-        // validation salt. If the 32-byte result matches the first 32-bytes of the U string, this
-        // is the user password.
-
+        // Not in the spec, but a precaution: 2.B over password + user validation salt;
+        // a match with U means the user password.
         if self.compute_hash(password, user_validation_salt, None)? == hashed_user_password {
-            // Compute an intermediate user key by computing a hash using algorithm 2.B with an
-            // input string consisting of the UTF-8 owner password concatenated with the 8 bytes of
-            // user key salt.
+            // Algorithm 2.B over password + user key salt gives the key for /UE.
             let hash = self.compute_hash(password, user_key_salt, None)?;
 
             let mut key = [0u8; 32];
             key.copy_from_slice(&hash);
 
-            // The 32-byte result is the key used to decrypt the 32-byte UE string using AES-256 in
-            // CBC mode with no padding and an initialization vector of zero. The 32-byte result is
-            // the file encryption key.
+            // Decrypt /UE with AES-256 CBC, zero IV, no padding: the result is the file key.
             let iv = [0u8; 16];
             let mut user_encrypted = self.user_encrypted.clone();
             let mut decryptor = Aes256CbcDec::new(&key.into(), &iv.into());
@@ -462,13 +409,7 @@ impl PasswordAlgorithm {
                 decryptor.decrypt_block(aes_block_mut(block));
             }
 
-            // Decrypt the 16-byte Perms string using AES-256 in EBC mode with an initialization
-            // vector of zero and the file encryption key as the key. Verify that bytes 9-11 of the
-            // result are the characters "a", "d", "b". Bytes 0-3 of the decrypted Perms entry,
-            // treated as a little-endian integer, are the user permissions. They shall match the
-            // value in the P key.
-            //
-            // i.e., use algorithm 13 to validate the permissions.
+            // Algorithm 13: /Perms must decrypt to "adb" at bytes 9-11 with permissions equal to P.
             self.validate_permissions(&user_encrypted)?;
 
             return Ok(user_encrypted);
@@ -513,13 +454,8 @@ impl PasswordAlgorithm {
         // Perform the following steps at least 64 times, until the value of the last byte in K is
         // less than or equal to (round number) - 32.
         for round in 1.. {
-            // Make a new string K0 as follows:
-            //
-            // * When checking the owner password or creating the owner key, K0 is the concatenation of the input
-            //   password, K, and the 48-byte user key.
-            // * Otherwise, K0 is the concatenation of the input password and K.
-            //
-            // Next, set K1 to 64 repetitions of K0.
+            // K0 is password + K + U when checking/creating the owner key, else password + K;
+            // K1 is 64 repetitions of K0.
             k1.clear();
 
             for _ in 0..64 {
@@ -531,12 +467,8 @@ impl PasswordAlgorithm {
                 }
             }
 
-            // Encrypt K1 with the AES-128 (CBC, no padding) algorithm, using the first 16 bytes of
-            // K as the key, and the second 16 bytes of K as the initialization vector. The result
-            // of this encryption is E.
-            //
-            // The 64 repetitions of K0 ensure that K1 is a multiple of 64 bytes, thus a multiple
-            // of 16 bytes, i.e., it does not require padding.
+            // AES-128 CBC, no padding, key = K[0..16], IV = K[16..32]. 64 repetitions make K1 a
+            // multiple of 16 bytes, so no padding is needed.
             let key: &[u8; 16] = k[..16].try_into().expect("hash key must be 16 bytes");
             let iv: &[u8; 16] = k[16..32].try_into().expect("hash IV must be 16 bytes");
 
@@ -548,13 +480,7 @@ impl PasswordAlgorithm {
 
             let e = k1;
 
-            // Taking the first 16 bytes of E as an unsigned big-endian integer, compute the
-            // remainder, modulo 3. If the result is 0, the next hash used is SHA-256. If the
-            // result is 1, the next hash used is SHA-384. If the result is 2, the next hash used
-            // is SHA-256.
-            //
-            // Using the hash algorithm determined in the previous step, take the hash of E. The
-            // result is a new value of K, which will be 32, 48 or 64 bytes in length.
+            // Pick the next hash (SHA-256/384/256) by E[0..16] mod 3; it becomes the new K.
             k = match e[..16].iter().map(|v| *v as u32).sum::<u32>() % 3 {
                 0 => Sha256::digest(&e).to_vec(),
                 1 => Sha384::digest(&e).to_vec(),
@@ -562,11 +488,7 @@ impl PasswordAlgorithm {
                 _ => unreachable!(),
             };
 
-            // Look at the very last byte of E. If the value of that byte (taken as an unsigned
-            // integer) is greater than the round number - 32, repeat the round again.
-            //
-            // Repeat rounds until the value of the last byte is less than or equal to (round
-            // number) - 32.
+            // Repeat the round while E's last byte is greater than round - 32.
             if round >= 64 && e.last().copied().unwrap_or(0) as u32 <= round - 32 {
                 break;
             }
@@ -602,17 +524,7 @@ impl PasswordAlgorithm {
             .map(|password| password.as_ref())
             .unwrap_or(user_password);
 
-        // Pad or truncate the resulting password string to exactly 32 bytes. If the password string is
-        // more than 32 bytes long, use only its first 32 bytes; if it is less than 32 bytes long, pad
-        // it by appending the required number of additional bytes from the beginning of the following
-        // padding string (see `PAD_BYTES`).
-        //
-        // That is, if the password is n bytes long, append the first 32 - n bytes of the padding
-        // string to the end of the password string. If the password string is empty (zero-length),
-        // meaning there is no user password, substitute the entire padding string in its place.
-        //
-        // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the first len bytes of `PAD_BYTES`.
+        // Truncate or pad the password to 32 bytes, filling from the start of `PAD_BYTES`.
         let len = password.len().min(32);
 
         // Initialize the MD5 hash function and pass the result as input to this function.
@@ -631,10 +543,7 @@ impl PasswordAlgorithm {
             }
         }
 
-        // Create an RC4 file encryption key using the first n bytes of the output from the final MD5
-        // hash, where n shall always be 5 for security handlers of revision 2 but, for security
-        // handlers of revision 3 or greater, shall depend on the value of the encryption dictionary's
-        // Length entry.
+        // The key is the first n bytes of the final MD5 digest (n = 5 for R2, else /Length / 8).
         let n = if self.revision >= 3 {
             self.length.unwrap_or(40) / 8
         } else {
@@ -646,17 +555,7 @@ impl PasswordAlgorithm {
             return Err(DecryptionError::InvalidKeyLength);
         }
 
-        // Pad or truncate the user password string to exactly 32 bytes. If the user password string is
-        // more than 32 bytes long, use only its first 32 bytes; if it is less than 32 bytes long, pad
-        // it by appending the required number of additional bytes from the beginning of the following
-        // padding string (see `PAD_BYTES`).
-        //
-        // That is, if the password is n bytes long, append the first 32 - n bytes of the padding
-        // string to the end of the password string. If the password string is empty (zero-length),
-        // meaning there is no user password, substitute the entire padding string in its place.
-        //
-        // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the first len bytes of `PAD_BYTES`.
+        // Truncate or pad the password to 32 bytes, filling from the start of `PAD_BYTES`.
         let len = user_password.len().min(32);
 
         // Encrypt the result of the previous step using an RC4 encryption function with the RC4 file
@@ -668,11 +567,8 @@ impl PasswordAlgorithm {
 
         let mut result = Rc4::new(&hash[..n]).encrypt(bytes);
 
-        // (Security handlers of revision 3 or greater) Do the following 19 times: Take the output from
-        // the previous invocation of the RC4 function and pass it as input to a new invocation of the
-        // function; use a file encryption key generated by taking each byte of the RC4 file encryption
-        // key and performing an XOR (exclusive or) operation between that byte and the single-byte
-        // value of the iteration counter (from 1 to 19).
+        // Revision 3+: 19 RC4 rounds, each key being the file key XORed with the counter byte
+        // (1 to 19).
         if self.revision >= 3 {
             let mut key = vec![0u8; n];
 
@@ -751,11 +647,7 @@ impl PasswordAlgorithm {
         // encryption key.
         let mut result = Rc4::new(&file_encryption_key).encrypt(hash);
 
-        // Do the following 19 times: Take the output from the previous invocation of the RC4 function
-        // and pass it as input to a new invocation of the function; use a file encryption key
-        // generated by taking each byte of the RC4 file encryption key and performing an XOR
-        // (exclusive or) operation between that byte and the single-byte value of the iteration
-        // counter (from 1 to 19).
+        // 19 RC4 rounds, each key being the file key XORed with the counter byte (1 to 19).
         let mut key = vec![0u8; file_encryption_key.len()];
 
         for i in 1..=19 {
@@ -766,9 +658,7 @@ impl PasswordAlgorithm {
             result = Rc4::new(&key).encrypt(&result);
         }
 
-        // Append 16 bytes of arbitrary padding to the output from the final invocation of the RC4
-        // function and store the 32-byte result as the value of the U entry in the encryption
-        // dictionary.
+        // Pad the final RC4 output to 32 bytes; that is /U.
         result.resize(32, 0);
 
         let mut rng = rand::rng();
@@ -786,18 +676,14 @@ impl PasswordAlgorithm {
     where
         U: AsRef<[u8]>,
     {
-        // Perform all but the last step of Algorithm 4 (security handlers of revision 2) or Algorithm
-        // 5 (security handlers of revision 3 or 4) using the supplied password string to compute the
-        // encryption dictionary's U-entry value.
+        // All but the last step of Algorithm 4 (R2) or 5 (R3/R4): compute the /U value.
         let hashed_user_password = match self.revision {
             2 => self.compute_hashed_user_password_r2(doc, &user_password)?,
             3 | 4 => self.compute_hashed_user_password_r3_r4(doc, &user_password)?,
             _ => return Err(DecryptionError::InvalidRevision),
         };
 
-        // If the result of the previous step is equal to the value of the encryption dictionary's U
-        // entry (comparing on the first 16 bytes in the case of security handlers of revision 3 or
-        // greater), the password supplied is the correct user password.
+        // A match with /U (first 16 bytes for R3+) means the user password is correct.
         let len = match self.revision {
             3 | 4 => 16,
             _ => hashed_user_password.len(),
@@ -852,17 +738,7 @@ impl PasswordAlgorithm {
     {
         let password = owner_password.as_ref();
 
-        // Pad or truncate the resulting password string to exactly 32 bytes. If the password string is
-        // more than 32 bytes long, use only its first 32 bytes; if it is less than 32 bytes long, pad
-        // it by appending the required number of additional bytes from the beginning of the following
-        // padding string (see `PAD_BYTES`).
-        //
-        // That is, if the password is n bytes long, append the first 32 - n bytes of the padding
-        // string to the end of the password string. If the password string is empty (zero-length),
-        // meaning there is no user password, substitute the entire padding string in its place.
-        //
-        // i.e., we will simply calculate `len = min(password length, 32)` and use the first len bytes
-        // of password and the first len bytes of `PAD_BYTES`.
+        // Truncate or pad the password to 32 bytes, filling from the start of `PAD_BYTES`.
         let len = password.len().min(32);
 
         // Initialize the MD5 hash function and pass the result as input to this function.
@@ -881,10 +757,7 @@ impl PasswordAlgorithm {
             }
         }
 
-        // Create an RC4 file encryption key using the first n bytes of the output from the final MD5
-        // hash, where n shall always be 5 for security handlers of revision 2 but, for security
-        // handlers of revision 3 or greater, shall depend on the value of the encryption dictionary's
-        // Length entry.
+        // The key is the first n bytes of the final MD5 digest (n = 5 for R2, else /Length / 8).
         let n = if self.revision >= 3 {
             self.length.unwrap_or(40) / 8
         } else {
@@ -900,11 +773,8 @@ impl PasswordAlgorithm {
         // with the file encryption key to retrieve the user password.
         let mut result = self.owner_value.to_vec();
 
-        // (Security handlers of revision 3 or greater) Do the following 19 times: Take the output from
-        // the previous invocation of the RC4 function and pass it as input to a new invocation of the
-        // function; use a file encryption key generated by taking each byte of the RC4 file encryption
-        // key and performing an XOR (exclusive or) operation between that byte and the single-byte
-        // value of the iteration counter (from 19 to 1).
+        // Revision 3+: 19 RC4 rounds, each key being the file key XORed with the counter byte
+        // (19 down to 1).
         if self.revision >= 3 {
             let mut key = vec![0u8; n];
 
@@ -917,15 +787,11 @@ impl PasswordAlgorithm {
             }
         }
 
-        // (Security handler of revision 2 and the final step for revision 3 or greater) Decrypt the
-        // value of the encryption dictionary's O entry, using an RC4 encryption function with the file
-        // encryption key.
+        // Decrypt /O with RC4 using the file encryption key.
         result = Rc4::new(&hash[..n]).decrypt(&result);
 
-        // The result of the previous step purports to be the user password. Authenticate this user
-        // password using Algorithm 5. If it is correct, the password supplied is the correct owner
-        // password, and `result` — the padded 32-byte recovered user password — is what Algorithm 2
-        // must be given to derive the correct file encryption key.
+        // The result purports to be the user password: authenticate it with Algorithm 5, then feed
+        // it to Algorithm 2 to derive the file key.
         self.authenticate_user_password_r4(doc, &result)?;
         Ok(result)
     }
@@ -943,12 +809,8 @@ impl PasswordAlgorithm {
         let file_encryption_key = file_encryption_key.as_ref();
         let user_password = user_password.as_ref();
 
-        // Generate 16 random bytes of data using a strong random number generator. The first 8
-        // bytes are the user validation salt. The second 8 bytes are the user key salt. Compute
-        // the 32-byte hash using algorithm 2.B with an input string consisting of the UTF-8
-        // password concatenated with the user validation salt. The 48-byte string consisting of
-        // the 32-byte hash followed by the user validation salt followed by the user key salt is
-        // stored as the U key.
+        // /U = 2.B(password + user validation salt) + validation salt + user key salt, where the
+        // two 8-byte salts are fresh random bytes.
         let mut user_value = [0u8; 48];
         let mut rng = rand::rng();
 
@@ -975,9 +837,7 @@ impl PasswordAlgorithm {
 
         let hash = self.compute_hash(user_password, user_key_salt, None)?;
 
-        // Using this hash as the key, encrypt the file encryption key using AES-256 in CBC mode
-        // with no padding and initialization vector of zero. The resulting 32-byte string is
-        // stored as the UE key.
+        // /UE is the file key encrypted with this hash: AES-256 CBC, zero IV, no padding.
         let mut key = [0u8; 32];
         key.copy_from_slice(&hash);
 
@@ -1006,13 +866,8 @@ impl PasswordAlgorithm {
         let file_encryption_key = file_encryption_key.as_ref();
         let owner_password = owner_password.as_ref();
 
-        // Generate 16 random bytes of data using a strong random number generator. The first 8
-        // bytes are the owner validation salt. The second 8 bytes are the owner key salt. Compute
-        // the 32-byte hash using algorithm 2.B with an input string consisting of the UTF-8
-        // password concatenated with the owner validation salt and then concatenated with the
-        // 48-byte U string as generated in Algorithm 8. The 48-byte string consisting of the
-        // 32-byte hash followed by the owner validation salt followed by the owner key salt is
-        // stored as the O key.
+        // /O = 2.B(password + owner validation salt + U) + validation salt + owner key salt, where
+        // the two 8-byte salts are fresh random bytes.
         let mut owner_value = [0u8; 48];
         let mut rng = rand::rng();
 
@@ -1029,9 +884,7 @@ impl PasswordAlgorithm {
 
         let hash = self.compute_hash(owner_password, owner_key_salt, Some(&self.user_value))?;
 
-        // Using this hash as the key, encrypt the file encryption key using AES-256 in CBC mode
-        // with no padding and initialization vector of zero. The resulting 32-byte string is
-        // stored as the OE key.
+        // /OE is the file key encrypted with this hash: AES-256 CBC, zero IV, no padding.
         let mut key = [0u8; 32];
         key.copy_from_slice(&hash);
 
@@ -1103,10 +956,7 @@ impl PasswordAlgorithm {
             user_password = &user_password[..127];
         }
 
-        // Test the password against the user key by computing a hash using algorithm 2.B with an
-        // input string consisting of the UTF-8 password concatenated with the 8 bytes of user
-        // validation salt. If the 32-byte result matches the first 32-bytes of the U string, this
-        // is the user password.
+        // Algorithm 2.B over password + user validation salt; a match with U is the user password.
         let mut input = Vec::with_capacity(user_password.len() + user_validation_salt.len());
 
         input.extend_from_slice(user_password);
@@ -1136,10 +986,7 @@ impl PasswordAlgorithm {
             owner_password = &owner_password[..127];
         }
 
-        // Test the password against the owner key by computing a hash using algorithm 2.B with an
-        // input string consisting of the UTF-8 password concatenated with the 8 bytes of owner
-        // validation salt and the 48 byte U string. If the 32-byte result matches the first
-        // 32-bytes of the O string, this is the owner password.
+        // Algorithm 2.B over password + owner validation salt + U; a match with O is the owner password.
         let mut input = Vec::with_capacity(owner_password.len() + owner_validation_salt.len());
 
         input.extend_from_slice(owner_password);

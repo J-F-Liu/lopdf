@@ -1,7 +1,5 @@
-//! Streams whose `/Length` is an indirect reference to an integer stored in an
-//! object stream. The length is resolved while the stream is parsed, which
-//! reads the object stream; the decoded object stream is reused for every
-//! such length instead of being inflated and parsed again for each stream.
+//! Streams whose `/Length` is an indirect reference to an integer inside an object stream:
+//! the decoded container is reused for every such length rather than re-inflated each time.
 
 use std::io::Write;
 

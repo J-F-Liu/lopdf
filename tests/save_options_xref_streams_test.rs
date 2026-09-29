@@ -1,7 +1,5 @@
-//! `SaveOptions::use_xref_streams` on its own, without object streams.
-//!
-//! The two features are independent in the PDF specification, so asking for a
-//! cross-reference stream should not require asking for object streams as well.
+//! `SaveOptions::use_xref_streams` alone. The two features are independent in the PDF
+//! specification, so one must not require the other.
 
 #![cfg(not(feature = "async"))]
 

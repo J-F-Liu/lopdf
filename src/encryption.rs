@@ -549,10 +549,8 @@ impl EncryptionState {
             return Err(Error::NotEncrypted);
         }
 
-        // The name of the preferred security handler for this document. It shall be the name of
-        // the security handler that was used to encrypt the document.
-        //
-        // Standard shall be the name of the built-in password-based security handler.
+        // `/Filter` names the security handler; only the built-in password-based
+        // "Standard" handler is supported.
         let filter = document
             .get_encrypted()
             .and_then(|dict| dict.get(b"Filter"))
@@ -564,10 +562,9 @@ impl EncryptionState {
         }
 
         let algorithm = PasswordAlgorithm::try_from(document)?;
-        // The caller may have supplied either the user or the owner password;
-        // only the user password (or the value Algorithm 7 recovers from `/O`
-        // for an owner password) is valid input to Algorithm 2. See
-        // `PasswordAlgorithm::resolve_password_for_key_derivation`.
+        // Either password may be given, but only the user password (or, for an owner password,
+        // the value Algorithm 7 recovers from `/O`) is valid input to Algorithm 2.
+        // See `PasswordAlgorithm::resolve_password_for_key_derivation`.
         let resolved_password = algorithm.resolve_password_for_key_derivation(document, password)?;
         let file_encryption_key = algorithm.compute_file_encryption_key(document, resolved_password)?;
 
@@ -697,10 +694,8 @@ pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         return Ok(());
     }
 
-    // A stream filter type, the Crypt filter can be specified for any stream in the document to
-    // override the default filter for streams. The stream's DecodeParms entry shall contain a
-    // Crypt filter decode parameters dictionary whose Name entry specifies the particular crypt
-    // filter that shell be used (if missing, Identity is used).
+    // A stream's DecodeParms /Crypt /Name may override the document's default crypt filter;
+    // Identity is used when absent.
     let override_crypt_filter = obj
         .as_stream()
         .ok()
@@ -723,9 +718,8 @@ pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
     // Retrieve the plaintext and the crypt filter to use to decrypt the ciphertext from the given
     // object.
     let (mut crypt_filter, plaintext) = match obj {
-        // Encryption applies to all strings and streams in the document's PDF file, i.e., we have to
-        // recursively process array and dictionary objects to decrypt any string and stream objects
-        // stored inside of those.
+        // Every string and stream is covered, so recurse into arrays and dictionaries
+        // to reach the ones nested inside.
         Object::Array(objects) => {
             for obj in objects {
                 encrypt_object(state, obj_id, obj)?;
@@ -791,10 +785,8 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
         return Ok(());
     }
 
-    // A stream filter type, the Crypt filter can be specified for any stream in the document to
-    // override the default filter for streams. The stream's DecodeParms entry shall contain a
-    // Crypt filter decode parameters dictionary whose Name entry specifies the particular crypt
-    // filter that shell be used (if missing, Identity is used).
+    // A stream's DecodeParms /Crypt /Name may override the document's default crypt filter;
+    // Identity is used when absent.
     let override_crypt_filter = obj
         .as_stream()
         .ok()
@@ -817,9 +809,8 @@ pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
     // Retrieve the ciphertext and the crypt filter to use to decrypt the ciphertext from the given
     // object.
     let (mut crypt_filter, ciphertext) = match obj {
-        // Encryption applies to all strings and streams in the document's PDF file, i.e., we have to
-        // recursively process array and dictionary objects to decrypt any string and stream objects
-        // stored inside of those.
+        // Every string and stream is covered, so recurse into arrays and dictionaries
+        // to reach the ones nested inside.
         Object::Array(objects) => {
             for obj in objects {
                 decrypt_object(state, obj_id, obj)?;

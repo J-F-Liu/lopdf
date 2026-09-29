@@ -180,17 +180,9 @@ fn test_load_with_password_correct_password() {
 #[cfg(not(feature = "async"))]
 #[test]
 fn test_load_with_password_owner_password_recovers_correct_content() {
-    // Regression test: the owner and user passwords are independent
-    // credentials, and either is sufficient to open a document — but the
-    // file encryption key (Algorithm 2) is always derived from the *user*
-    // password. Supplying the owner password used to authenticate
-    // successfully (via Algorithm 7's owner-password check) but then derive
-    // the file key from the literal owner password instead of the user
-    // password Algorithm 7 recovers from `/O`. That produces a
-    // *different, wrong* file key whenever the two passwords differ:
-    // structure and page count still resolve correctly (dictionaries,
-    // names, integers and references are never encrypted), so no error is
-    // raised, but every decrypted string and stream comes out as garbage.
+    // The owner and user passwords are independent and either opens the document, but the file
+    // key (Algorithm 2) is always derived from the *user* password. Deriving it from the literal
+    // owner password yields a wrong key that still parses, since structure is never encrypted.
     let mut doc = document_with_pages(&["Password Protected Content!"]);
     encrypt(&mut doc, "owner_secret", "user_secret");
 
@@ -206,10 +198,7 @@ fn test_load_with_password_owner_password_recovers_correct_content() {
     );
     assert_eq!(loaded.get_pages().len(), 1);
 
-    // This is the crux of the bug: page count and structure resolve
-    // correctly even with a wrong file key, since dictionaries, names,
-    // integers and references are never encrypted. Only the decrypted
-    // *content* reveals a wrong key.
+    // Only the decrypted *content* reveals a wrong key.
     assert!(
         extract_text(&loaded).contains("Password Protected Content!"),
         "Owner-password decryption must recover the same content as user-password \

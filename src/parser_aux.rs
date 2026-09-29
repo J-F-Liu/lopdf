@@ -167,9 +167,8 @@ impl Document {
                     }
                     None => warn!("Could not decode extracted text"),
                 },
-                // PDF 32000-1 §9.4.3 — `'` is equivalent to `T* Tj`:
-                // move to next line, then show string from the single
-                // string operand.
+                // PDF 32000-1 §9.4.3: `'` is `T* Tj` — move to the next line, then show
+                // the single string operand.
                 "'" => match current_encoding {
                     Some(encoding) => {
                         if !current_text.ends_with('\n') {
@@ -182,11 +181,8 @@ impl Document {
                     }
                     None => warn!("Could not decode extracted text"),
                 },
-                // PDF 32000-1 §9.4.3 — `"` is equivalent to
-                // `aw Tw ac Tc T* Tj` with operands `[aw, ac, string]`.
-                // Operands 0/1 set word/character spacing for rendering
-                // and don't affect the extracted character sequence;
-                // operand 2 is the string to show.
+                // PDF 32000-1 §9.4.3: `"` is `aw Tw ac Tc T* Tj`. Operands 0/1 only affect
+                // rendering spacing; operand 2 is the string to show.
                 "\"" => match current_encoding {
                     Some(encoding) => {
                         if !current_text.ends_with('\n') {
@@ -201,10 +197,8 @@ impl Document {
                     }
                     None => warn!("Could not decode extracted text"),
                 },
-                // PDF 32000-1 §9.4.2 — `T*` moves to the start of the
-                // next line. For text extraction we approximate this
-                // as `\n`, matching how the `ET` arm above handles end
-                // of text object.
+                // PDF 32000-1 §9.4.2: `T*` moves to the next line, approximated as `\n`
+                // like the `ET` arm above.
                 "T*" if !current_text.ends_with('\n') => current_text.push('\n'),
                 "T*" => {}
                 "ET" if !current_text.ends_with('\n') => current_text.push('\n'),
@@ -437,16 +431,10 @@ fn try_to_replace_encoded_text(
                 let mut str_collected = String::new();
                 collect_text(&mut str_collected, encoding, arr)?;
                 if str_collected == text_to_replace {
-                    // The number of `Object::String` items in a `TJ` array is
-                    // not guaranteed to match the character count of the
-                    // decoded text (each string may hold several glyphs, and
-                    // numeric kerning entries are interleaved).
-                    //
-                    // There is no **good** way to interpolate between the OG
-                    // and the replacement, but putting the full encoded replacement
-                    // into the first string slot and emptying out the remaining
-                    // string slots, leaving any numeric kerning entries in place
-                    // seems like the least bad option.
+                    // The `Object::String` count in a `TJ` array need not match the decoded
+                    // character count, and kerning entries are interleaved. Least bad option:
+                    // fill the first string slot with the whole replacement, empty the rest,
+                    // and leave the kerning entries in place.
                     let encoded_replacement = encode(encoding, replacement, default_str);
                     let mut placed = false;
                     for item in arr.iter_mut() {
@@ -559,9 +547,8 @@ pub fn decode_xref_stream_with_limit(
             .and_then(parse_integer_array)
             .map_err(|_| ParseError::InvalidXref)?;
 
-        // Each width is a byte count for one xref-stream field. The PDF spec doesn't need more than a
-        // few bytes per field (8 covers the full u64/i64 range); bound them before sizing a Vec from
-        // them, or a crafted stream can request an allocation of up to (2^64-1) bytes per field.
+        // Each width is a byte count for one xref-stream field; 8 covers the full u64/i64 range.
+        // Bound them before sizing a Vec, or a crafted stream requests up to 2^64-1 bytes per field.
         const MAX_XREF_FIELD_WIDTH: i64 = 8;
         if field_widths.len() < 3
             || field_widths[0].is_negative()
@@ -574,10 +561,8 @@ pub fn decode_xref_stream_with_limit(
             return Err(ParseError::InvalidXref.into());
         }
 
-        // Total bytes one entry consumes. With every width zero an entry reads nothing, so the loop
-        // below would run purely on the attacker-controlled /Index counts and never reach the end of
-        // the stream. Such a stream carries no information and can only be malformed, so reject it
-        // (this also keeps the body-capacity check below from dividing by zero).
+        // Total bytes one entry consumes. With every width zero the loop below would spin on
+        // attacker-controlled /Index counts forever, so reject it (also avoids a division by zero).
         let entry_width = (field_widths[0] + field_widths[1] + field_widths[2]) as usize;
         if entry_width == 0 {
             return Err(ParseError::InvalidXref.into());
@@ -591,12 +576,9 @@ pub fn decode_xref_stream_with_limit(
                 let count = usize::try_from(section[1]).map_err(|_| ParseError::InvalidXref)?;
                 total.checked_add(count).ok_or(ParseError::InvalidXref)
             })?;
-        // An entry can't be read from bytes that aren't there. Validate the total before inserting
-        // anything so multiple individually plausible /Index sections cannot overrun the body.
-        //
-        // deliberate: Records narrower than three bytes are rejected to limit amplification from
-        // decoded bytes into retained map entries. /W [1 2 0] is a plausible three-byte record and
-        // remains accepted; lopdf's writer emits /W [1 4 2], so its output is unaffected.
+        // Validate the total before inserting anything so multiple plausible /Index sections
+        // cannot overrun the body. Records narrower than three bytes are rejected to limit
+        // amplification; lopdf's writer emits /W [1 4 2], so its own output is unaffected.
         const MIN_ENTRY_WIDTH: usize = 3;
         if index_entries > reader.get_ref().len() / entry_width.max(MIN_ENTRY_WIDTH) {
             return Err(ParseError::InvalidXref.into());

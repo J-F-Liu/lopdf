@@ -300,9 +300,8 @@ impl ObjectStream {
 
     /// Check if a PDF document is linearized
     fn is_linearized(doc: &Document) -> bool {
-        // In a linearized PDF, the first object after the header should be a
-        // linearization dictionary with /Linearized entry
-        // For simplicity, we check if any object has a /Linearized entry
+        // In a linearized PDF the first object is a linearization dictionary; we just look for
+        // any object with a /Linearized entry.
         for obj in doc.objects.values() {
             if let Object::Dictionary(dict) = obj
                 && dict.has(b"Linearized")

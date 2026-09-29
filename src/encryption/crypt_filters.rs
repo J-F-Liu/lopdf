@@ -53,18 +53,12 @@ impl CryptFilter for Rc4CryptFilter {
 
         hasher.update(key);
 
-        // For all strings and streams without crypt filter specifier; treating the object number
-        // and generation number as binary integers, extend the original n-byte file encryption key
-        // to n + 5 bytes by appending the low-order 3 bytes of the object number and the low-order
-        // 2 bytes of the generation number in that order, low-order byte first.
+        // Extend the file key to n + 5 bytes: low-order 3 bytes of the object number then
+        // low-order 2 bytes of the generation number.
         hasher.update(&obj_id.0.to_le_bytes()[..3]);
         hasher.update(&obj_id.1.to_le_bytes()[..2]);
 
-        // Initialise the MD5 hash function and pass the result of the previous step as an input to
-        // this function.
-        //
-        // Use the first (n + 5) bytes, up to a maximum of 16, of the output from the MD5 hash as
-        // the key for the AES symmetric key algorithm.
+        // The first min(n + 5, 16) bytes of the MD5 output are the AES key.
         let key_len = std::cmp::min(key.len() + 5, 16);
         let key = hasher.finalize()[..key_len].to_vec();
 
@@ -93,10 +87,8 @@ impl CryptFilter for Aes128CryptFilter {
 
         builder.extend_from_slice(key);
 
-        // For all strings and streams without crypt filter specifier; treating the object number
-        // and generation number as binary integers, extend the original n-byte file encryption key
-        // to n + 5 bytes by appending the low-order 3 bytes of the object number and the low-order
-        // 2 bytes of the generation number in that order, low-order byte first.
+        // Extend the file key to n + 5 bytes: low-order 3 bytes of the object number then
+        // low-order 2 bytes of the generation number.
         builder.extend_from_slice(&obj_id.0.to_le_bytes()[..3]);
         builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
 
@@ -104,11 +96,7 @@ impl CryptFilter for Aes128CryptFilter {
         // adding the value "sAlT".
         builder.extend_from_slice(b"sAlT");
 
-        // Initialise the MD5 hash function and pass the result of the previous step as an input to
-        // this function.
-        //
-        // Use the first (n + 5) bytes, up to a maximum of 16, of the output from the MD5 hash as
-        // the key for the AES symmetric key algorithm.
+        // The first min(n + 5, 16) bytes of the MD5 output are the AES key.
         let key_len = std::cmp::min(key.len() + 5, 16);
         let key = Md5::digest(builder)[..key_len].to_vec();
 
@@ -139,12 +127,7 @@ impl CryptFilter for Aes128CryptFilter {
         ciphertext.extend_from_slice(plaintext);
         ciphertext.resize(16 + ciphertext_len, 0);
 
-        // Use the 128-bit AES-CBC algorithm with PKCS#5 padding to encrypt the plaintext.
-        //
-        // Strings and streams encrypted with AES shall use a padding scheme that is described in
-        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
-        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
-        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
+        // AES-128 CBC with PKCS#5 padding (RFC 2898).
         Aes128CbcEnc::new(key.into(), &iv.into())
             .encrypt_padded::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
             // Padding errors should not occur when encrypting, but avoid causing a panic.
@@ -173,12 +156,7 @@ impl CryptFilter for Aes128CryptFilter {
         let mut iv = [0x00u8; 16];
         iv.copy_from_slice(&ciphertext[..16]);
 
-        // Use the 128-bit AES-CBC algorithm with PKCS#5 padding to decrypt the ciphertext.
-        //
-        // Strings and streams encrypted with AES shall use a padding scheme that is described in
-        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
-        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
-        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
+        // AES-128 CBC with PKCS#5 padding (RFC 2898).
         let data = &mut ciphertext[16..].to_vec();
 
         Ok(Aes128CbcDec::new(key.into(), &iv.into())
@@ -225,12 +203,7 @@ impl CryptFilter for Aes256CryptFilter {
         ciphertext.extend_from_slice(plaintext);
         ciphertext.resize(16 + ciphertext_len, 0);
 
-        // Use the 256-bit AES-CBC algorithm with PKCS#5 padding to encrypt the plaintext.
-        //
-        // Strings and streams encrypted with AES shall use a padding scheme that is described in
-        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
-        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
-        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
+        // AES-256 CBC with PKCS#5 padding (RFC 2898).
         Aes256CbcEnc::new(key.into(), &iv.into())
             .encrypt_padded::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
             // Padding errors should not occur when encrypting, but avoid causing a panic.
@@ -259,12 +232,7 @@ impl CryptFilter for Aes256CryptFilter {
         let mut iv = [0x00u8; 16];
         iv.copy_from_slice(&ciphertext[..16]);
 
-        // Use the 256-bit AES-CBC algorithm with PKCS#7 padding to decrypt the ciphertext.
-        //
-        // Strings and streams encrypted with AES shall use a padding scheme that is described in
-        // the Internet RFC 2898, PKCS #5: Password-Based Cryptography Specification Version 2.0;
-        // see the Bibliography. For an original message length of M, the pad shall consist of 16 -
-        // (M mod 16) bytes whose value shall also be 16 - (M mod 16).
+        // AES-256 CBC with PKCS#7 padding (RFC 2898).
         let data = &mut ciphertext[16..].to_vec();
 
         Ok(Aes256CbcDec::new(key.into(), &iv.into())

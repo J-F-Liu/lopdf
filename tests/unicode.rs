@@ -5,22 +5,12 @@ use lopdf::{Document, Object, Stream, StringFormat, dictionary};
 fn unicode_can_be_written_to_pdf_and_read() {
     let mut doc = Document::new();
 
-    // literal corresponds to the chars:
-    // U+1F600
-    // U+1F527
-    // U+1F528
-    // which are encoded in font cmap with the following hex
-    // <005F>
-    // <0060>
-    // <0061>
-    // please mind that indicated BaseFont might not contain
-    // those unicode emojis in practice
+    // U+1F600, U+1F527 and U+1F528, encoded in the font cmap as <005F>, <0060> and <0061>.
+    // The BaseFont itself may not actually contain these glyphs.
     let unicode_literal = "😀🔧🔨";
     let literal_encoded_with_cmap = [0x00, 0x5F, 0x00, 0x60, 0x00, 0x61];
 
-    // majority of below code correspond to create document example
-    // we are just inserting an appropriate unicode text
-    // and Type0 font with approriate characters encoding
+    // As in the create example, but with unicode text and a Type0 font.
     let pages_id = doc.new_object_id();
 
     let cmap_stream_id = doc.add_object(Stream::new(
@@ -130,9 +120,7 @@ fn get_text_from_first_page(doc: &Document) -> String {
 fn unicode_can_be_extracted_from_loaded_pdf() -> lopdf::Result<()> {
     let doc = Document::load("assets/unicode.pdf")?;
     let extracted_text = get_text_from_first_page(&doc);
-    // extract text can currently map a consecutive fragment of text
-    // to one divided into multiple lines, therefore we have to remove the
-    // new lines
+    // Extraction may split one text fragment across lines, so drop the newlines.
     assert_eq!(extracted_text.replace("\n", ""), "😀🔧🔨");
     Ok(())
 }

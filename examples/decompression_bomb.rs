@@ -1,11 +1,8 @@
 //! Demonstrates bounding stream decompression to reject decompression bombs.
+//! Run with: cargo run --example decompression_bomb
 //!
-//! Run with:  cargo run --example decompression_bomb
-//!
-//! A decompression bomb is a tiny compressed stream that inflates to an enormous
-//! size. This example builds one and decodes it with a size limit, for a direct
-//! stream, a chained-filter stream, and a bomb embedded in a PDF that is decoded
-//! during `Document::load`.
+//! Builds a bomb and decodes it with a size limit: directly, through a filter chain, and
+//! embedded in a PDF decoded during `Document::load`.
 
 use std::io::Write;
 use std::time::Instant;
@@ -69,8 +66,7 @@ fn main() {
     );
 
     // ---- 2. A chained-filter bomb: [FlateDecode FlateDecode] -------------
-    // Each layer amplifies ~1000x, so two layers reach ~1,000,000x. The guard
-    // bounds every layer, so the bomb is caught at the second one.
+    // Each layer amplifies ~1000x, so the guard catches the bomb at the second one.
     let inner = flate_bomb(256 * MIB);
     let outer = zlib_compress(&inner);
     let mut dict = Dictionary::new();
@@ -86,8 +82,7 @@ fn main() {
     }
 
     // ---- 3. A bomb inside a PDF's cross-reference stream ----------------
-    // The xref stream is decoded during Document::load to build the xref
-    // table, so the limit is supplied through LoadOptions.
+    // Decoded during Document::load, so the limit goes through LoadOptions.
     let pdf = xref_stream_bomb_pdf(&bomb);
     println!("Loading a PDF whose cross-reference stream is the bomb...");
     match Document::load_mem(&pdf) {

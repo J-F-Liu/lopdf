@@ -1,14 +1,8 @@
-//! Tests for bounded stream decompression (decompression-bomb handling).
+//! Bounded stream decompression (decompression-bomb handling). Covers the unbounded API and
+//! the bounded one (`decompressed_content_with_limit`, `decompress_to_writer`,
+//! `LoadOptions::max_decompressed_size`) for nested filters and `Document::load`.
 //!
-//! By default `Stream::decompressed_content` is unbounded, so a small compressed
-//! stream can inflate to an arbitrarily large output (a decompression bomb).
-//! These tests cover both the unbounded behavior and the bounded API
-//! (`decompressed_content_with_limit`, `decompress_to_writer`, and
-//! `LoadOptions::max_decompressed_size`) that rejects oversized output,
-//! including nested filters and streams decoded during `Document::load`.
-//!
-//! Bombs are built by streaming zeros through the compressor, so the test
-//! process itself never allocates the full (large) plaintext.
+//! Bombs stream zeros through the compressor, so the process never allocates the plaintext.
 
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
@@ -212,9 +206,8 @@ fn load_time_xref_stream_bomb_is_rejected_with_limit() {
     }
 }
 
-// Page content is decompressed on demand by `Document::get_page_content` (and
-// thus `extract_text`), which is unbounded. `get_page_content_with_limit` bounds
-// the whole concatenated page content to a caller-supplied budget.
+// `get_page_content_with_limit` bounds the whole concatenated page content, unlike
+// the per-stream-unbounded `get_page_content` used by `extract_text`.
 
 /// Build a single-page document whose `/Contents` is the given streams, and
 /// return the document plus the page's object id. No page tree / fonts, so this

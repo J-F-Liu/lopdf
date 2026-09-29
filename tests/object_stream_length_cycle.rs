@@ -1,7 +1,5 @@
-//! An object stream whose `/Length` can only be resolved by reading an object
-//! stream that depends on it. Before the fix every such file overflowed the
-//! stack while loading, which aborts the whole process instead of returning
-//! an error.
+//! An object stream whose `/Length` needs reading an object stream that depends on it. Such
+//! files used to overflow the stack while loading, aborting the process instead of erroring.
 
 use lopdf::Document;
 
@@ -162,11 +160,8 @@ fn pdf_marked_as_compressed_in_itself() -> Vec<u8> {
 
 #[test]
 fn object_stream_marked_as_compressed_in_itself_does_not_overflow_the_stack() {
-    // The cross-reference stream says object stream 5 is stored inside object
-    // stream 5. Its own /Length is direct, so no length cycle is involved:
-    // reading the container goes back to `get_compressed_object` straight from
-    // the xref entry. Stream 6 takes its /Length from object 4, which lives in
-    // stream 5, so loading the document has to resolve it.
+    // The xref says object stream 5 is stored inside itself. Its /Length is direct, so no
+    // cycle is involved; stream 6's /Length does come from an object inside stream 5.
     let pdf = pdf_marked_as_compressed_in_itself();
 
     let document = Document::load_mem(&pdf).expect("the rest of the document is intact");

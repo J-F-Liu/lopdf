@@ -1,6 +1,5 @@
-// Display a summary of the annotations in a PDF file to the terminal
-//
-//   Run with `cargo run --example print_annotations <pdf-file>`
+// Display a summary of the annotations in a PDF file to the terminal.
+// Run with `cargo run --example print_annotations <pdf-file>`
 
 use core::str;
 use env_logger::Env;

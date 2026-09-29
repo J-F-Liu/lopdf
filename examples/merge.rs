@@ -78,9 +78,8 @@ fn main() {
     let mut documents_objects = BTreeMap::new();
     let mut document = Document::with_version("1.5");
 
-    // Lets try to set these to be bigger to avoid multi allocations for faster handling of files.
-    // We are just saying each Document it about 1000 objects in size. can be adjusted for better speeds.
-    // This can only be used if you use nightly or the #![feature(extend_one)] is stablized.
+    // Preallocating avoids repeated reallocation, assuming ~1000 objects per document.
+    // Requires nightly (`extend_reserve`), so it is commented out.
     // documents_pages.extend_reserve(documents.len() * 1000);
     // documents_objects.extend_reserve(documents.len() * 1000);
 
@@ -91,9 +90,7 @@ fn main() {
         None,
     ));
 
-    // Can set bookmark formatting and color per report bookmark added.
-    // Formating is 1 for italic 2 for bold 3 for bold and italic
-    // Color is RGB 0.0..255.0
+    // Bookmark formatting is 1 italic, 2 bold, 3 bold-italic; color is RGB 0.0..255.0.
     for (layer, mut doc) in documents {
         let color = [0.0, 0.0, 0.0];
         let format = 0;
@@ -130,13 +127,7 @@ fn main() {
         // Lets shadow our pointer back if nothing then set to (0,0) tto point to the next page
         let object = first_object.unwrap_or((0, 0));
 
-        // This will use the layering to implement children under Parents in the bookmarks
-        // Example as we are generating it here.
-        // Table of Contents
-        // - Page 1
-        // -- Page 2
-        // -- Page 3
-        // --- Page 4
+        // Layering nests bookmarks: - Page 1, -- Page 2/3, --- Page 4.
 
         if layer == 0 {
             layer_parent[0] = Some(document.add_bookmark(Bookmark::new(display, color, format, object), None));
@@ -284,8 +275,7 @@ fn main() {
         dict.set("Outlines", Object::Reference(outline_id));
     }
 
-    // Most of the time this does nothing unless there are a lot of streams
-    // Can be disabled to speed up the process.
+    // Usually a no-op unless there are many streams; disabling it speeds things up.
     // document.compress();
 
     // Save the merged PDF

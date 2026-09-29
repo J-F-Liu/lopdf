@@ -1,7 +1,5 @@
-//! A cross-reference stream declares how many entries it holds in its `/Index`
-//! array, but the entries themselves live in the (decoded) stream body. If the
-//! declared count is allowed to run past what the body can hold, `load` spins on
-//! an attacker-controlled number instead of the bytes actually present.
+//! A cross-reference stream declares its entry count in `/Index`, but the entries live in the
+//! decoded body. Without a bound, `load` spins on the declared count rather than the bytes.
 
 #![cfg(not(feature = "async"))]
 
@@ -103,10 +101,8 @@ fn incremental_classic_xref_pdf(objects: usize) -> Vec<u8> {
     pdf
 }
 
-// With `/W [0 0 0]` every entry reads zero bytes, so before the bound the loop ran
-// purely on `/Index`. A 137-byte file claiming a million entries returned Ok with a
-// million-node xref table; `i64::MAX` never returned at all. It must be rejected,
-// and quickly.
+// With `/W [0 0 0]` the loop used to run purely on `/Index`; a 137-byte file claiming
+// a million entries built a million-node xref table. It must be rejected, and quickly.
 #[test]
 fn zero_width_xref_stream_is_rejected() {
     let pdf = xref_stream_pdf([0, 0, 0], 1_000_000, b"");
@@ -120,10 +116,8 @@ fn zero_width_xref_stream_is_rejected() {
     }
 }
 
-// Non-zero widths already terminate once the reader runs dry, but only after
-// inserting one map entry per byte first. Bounding the count against the bytes
-// present stops that up front: three body bytes at `/W [1 1 1]` hold one entry, so
-// a section claiming a million is malformed.
+// Non-zero widths terminate once the reader runs dry, but only after one map entry per
+// byte: three body bytes at `/W [1 1 1]` hold one entry, so a million is malformed.
 #[test]
 fn index_count_past_stream_length_is_rejected() {
     let pdf = xref_stream_pdf([1, 1, 1], 1_000_000, &[1, 0, 0]);
@@ -166,9 +160,8 @@ fn total_index_count_past_stream_length_is_rejected() {
     ));
 }
 
-// `/W [0 1 0]` records consume one decoded byte but retain a full map entry.
-// Floor the effective width so a valid-sized body cannot amplify into a much
-// larger in-memory xref table, independently of any decompression budget.
+// `/W [0 1 0]` records consume one decoded byte but retain a full map entry; flooring the
+// effective width caps that amplification independently of the decompression budget.
 #[test]
 fn degenerate_narrow_xref_records_are_rejected() {
     let pdf = xref_stream_pdf([0, 1, 0], 4, &[0; 4]);
@@ -190,9 +183,7 @@ fn incremental_classic_xref_loads_under_budget() {
         .expect("classic xref entries should not consume the decompression budget");
 }
 
-// The bound is derived from the real per-entry width, so a genuine xref stream
-// whose `/Index` matches its body still loads. Written by lopdf's own writer to be
-// sure the shape is exactly what the reader expects.
+// Written by lopdf's own writer, so the shape is exactly what the reader expects.
 #[test]
 fn valid_xref_stream_still_loads() {
     let mut doc = Document::with_version("1.5");

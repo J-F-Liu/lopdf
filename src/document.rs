@@ -387,23 +387,13 @@ impl Document {
                 let cfm = filter.get(b"CFM").and_then(|object| object.as_name()).ok();
 
                 let crypt_filter: Arc<dyn CryptFilter> = match cfm {
-                    // The application shall ask the security handler for the file encryption key
-                    // and shall implicitly decrypt data using the RC4 algorithm.
+                    // RC4.
                     Some(b"V2") => Arc::new(Rc4CryptFilter),
-                    // The application shall ask the security handler for the file encryption key
-                    // and shall implicitly decrypt data using the AES-128 algorithm in Cipher
-                    // Block Chaining (CBC) mode with a 16-byte block size and an initialization
-                    // vector that shall be randomly generated and placed as the first 16 bytes in
-                    // the stream or string. The key size (Length) shall be 128 bits.
+                    // AES-128 in CBC mode: 16-byte block, random IV prefixed to the data, 128-bit key.
                     Some(b"AESV2") => Arc::new(Aes128CryptFilter),
-                    // The application shall ask the security handler for the file encryption key
-                    // and shall implicitly decrypt data using the AES-256 algorithm in Cipher
-                    // Block Chaining (CBC) with padding mode with a 16-byte block size and an
-                    // initialization vector that is randomly generated and placed as the first 16
-                    // bytes in the stream or string. The key size (Length) shall be 256 bits.
+                    // AES-256 in padded CBC mode: 16-byte block, random IV prefixed to the data, 256-bit key.
                     Some(b"AESV3") => Arc::new(Aes256CryptFilter),
-                    // The application shall not decrypt data but shall direct the input stream to
-                    // the security handler for decryption.
+                    // No decryption here; the security handler is left to the application.
                     Some(b"Identity") | None => Arc::new(IdentityCryptFilter),
                     // Unknown crypt filter method.
                     _ => continue,
@@ -501,10 +491,9 @@ impl Document {
         let object_id = self.trailer.remove(b"Encrypt").unwrap().as_reference()?;
         self.objects.remove(&object_id);
 
-        // Remember the object id of the original /Encrypt dictionary so that
-        // callers doing an incremental save can point the appended trailer's
-        // /Encrypt back at the (still-intact) dictionary bytes in the previous
-        // revision. See `IncrementalDocument::save_internal`.
+        // Remember the original /Encrypt id so an incremental save can point the appended
+        // trailer at the still-intact dictionary in the previous revision.
+        // See `IncrementalDocument::save_internal`.
         state.encrypt_object_id = Some(object_id);
 
         self.encryption_state = Some(state);
@@ -642,10 +631,8 @@ impl Document {
                         }
                         .into());
                     }
-                    // Mirror `get_page_content`'s lenient fallback to the raw
-                    // (still-compressed) bytes when a stream can't be decoded, but
-                    // keep that fallback within the page's remaining budget so a
-                    // large raw stream can't bypass the guard.
+                    // Like `get_page_content`, fall back to the raw bytes when decoding fails,
+                    // but count them against the page's remaining budget.
                     Err(_) => {
                         if content_stream.content.len() > remaining {
                             return Err(DecompressError::MemoryLimitExceeded {
@@ -785,9 +772,7 @@ impl Document {
             Inline(usize),
         }
 
-        // Plan the work under a shared borrow, recording where the entries live
-        // and classifying each one. The borrow ends with this block, before we
-        // reach for mutable access below.
+        // Plan the work under a shared borrow; it ends here, before mutable access.
         let (container_id, plan, referenced): (ObjectId, Vec<Slot>, HashSet<ObjectId>) = {
             let Ok(page) = self.get_dictionary(page_id) else {
                 return Ok(vec![]);
@@ -815,9 +800,8 @@ impl Document {
             (container_id, plan, referenced)
         };
 
-        // Collect every mutable reference we need in one pass. Referenced
-        // annotations are their own top-level objects; inline dictionaries all
-        // live inside the single container object, so it is kept aside.
+        // Gather every mutable reference in one pass. Inline dictionaries all live in the one
+        // container object, so it is kept aside.
         let need_container = plan.iter().any(|slot| matches!(slot, Slot::Inline(_)));
         let mut container_obj: Option<&mut Object> = None;
         let mut referenced_objs: HashMap<ObjectId, &mut Object> = HashMap::new();

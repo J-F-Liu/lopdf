@@ -627,17 +627,13 @@ impl Reader<'_> {
         self.set_reference_table(xref);
         self.document.trailer = trailer.clone();
         let encrypted = self.document.trailer.get(b"Encrypt").is_ok();
-        // For encrypted PDFs, set up decryption so the Info dictionary can be
-        // read. If the document is protected by a password we cannot supply,
-        // still report what we have (notably `encrypted`) rather than failing
-        // the whole call; callers needing the Info fields should use a
-        // `*_with_password` loader.
+        // For encrypted PDFs, set up decryption so the Info dictionary can be read. Without a
+        // usable password, report what we have rather than failing the whole call; callers
+        // needing the Info fields should use a `*_with_password` loader.
         let needs_password = if encrypted {
             match self.setup_encryption_for_metadata() {
                 Ok(()) => false,
-                // No usable password was available (empty password failed and
-                // none was supplied): report `encrypted` without the Info
-                // fields. A wrong supplied password still surfaces as an error.
+                // No usable password: report `encrypted` without the Info fields.
                 Err(Error::Unimplemented(_)) => true,
                 Err(e) => return Err(e),
             }
@@ -747,9 +743,8 @@ impl Reader<'_> {
     }
 
     fn get_pages_tree_count(&self, pages_id: ObjectId, seen: &mut HashSet<ObjectId>, depth: usize) -> Result<u32> {
-        // `seen` catches a repeated node (a cycle); it does not bound the depth of a long,
-        // non-cyclic /Pages chain with no /Count, which recurses once per level. Cap that
-        // separately, matching this crate's existing MAX_NESTING_DEPTH budget.
+        // `seen` catches cycles but not a long non-cyclic /Pages chain with no /Count,
+        // which recurses once per level.
         if depth >= MAX_NESTING_DEPTH {
             return Ok(0);
         }
@@ -844,9 +839,8 @@ impl Reader<'_> {
             self.load_objects_raw(filter_func)?;
         }
 
-        // Object-stream members join `objects` only during loading, after
-        // `max_id` was derived from the xref size. Keep the ceiling at least
-        // at the highest loaded object so new ids cannot collide with live ones.
+        // Object-stream members join `objects` after `max_id` was derived from the xref size,
+        // so raise the ceiling to the highest loaded object.
         if let Some(&max_loaded_id) = self.document.objects.keys().next_back() {
             self.document.max_id = self.document.max_id.max(max_loaded_id.0);
         }
@@ -938,9 +932,7 @@ impl Reader<'_> {
             }
 
             let mut stored_state = state.clone();
-            // Record the /Encrypt dictionary's object id so that a later
-            // incremental save can restore `/Encrypt N G R` in the appended
-            // trailer. See `IncrementalDocument::save_internal`.
+            // Record the /Encrypt id so a later incremental save can restore it in the trailer.
             stored_state.encrypt_object_id = encrypt_ref;
             self.document.encryption_state = Some(stored_state);
 
@@ -981,9 +973,8 @@ impl Reader<'_> {
         let zero_length_streams = Mutex::new(vec![]);
         let object_streams = Mutex::new(vec![]);
 
-        // Build a map of which container each compressed object belongs to
-        // according to the xref. This prevents stale ObjStm copies (e.g., from
-        // linearization first-page sections) from overriding the correct version.
+        // Map each compressed object to its xref container, so stale ObjStm copies (e.g. from
+        // linearization first-page sections) cannot override the correct version.
         let compressed_obj_containers: BTreeMap<u32, u32> = self
             .document
             .reference_table
@@ -1011,9 +1002,8 @@ impl Reader<'_> {
                     Ok(obj) => obj,
                     Err(e) => {
                         if is_encrypted {
-                            // Expected for some encrypted objects - but log which
-                            // ones. These failures stay non-fatal even in strict
-                            // mode because they do not indicate a malformed file.
+                            // Non-fatal even in strict mode: an encrypted object does not
+                            // indicate a malformed file.
                             warn!("Skipping encrypted object at offset {}: {:?}", offset, e);
                             return Ok(None);
                         }
@@ -1141,9 +1131,8 @@ impl Reader<'_> {
             .and_then(|value| self.document.dereference(value))
             .and_then(|(_id, obj)| match obj.as_i64() {
                 Ok(length) => Ok(length),
-                // ISO 32000-1 s7.3.8.2 requires /Length to be an integer, but some producers
-                // write it as a real ("42." instead of "42"). Accept one whose value is
-                // integral and in range rather than dropping the stream's content.
+                // s7.3.8.2 requires an integer /Length, but some producers write a real ("42.");
+                // accept one whose value is integral and in range.
                 Err(err) => match obj.as_f32() {
                     Ok(value) if value.fract() == 0.0 && value >= -(2f32.powi(63)) && value < 2f32.powi(63) => {
                         Ok(value as i64)
@@ -1396,9 +1385,8 @@ impl Reader<'_> {
             return Err(Error::InvalidOffset(offset));
         }
 
-        // Objects are parsed against the full buffer so a wrong *neighbor*
-        // xref offset cannot truncate a well-formed object; `end` only limits
-        // how far malformed-stream length recovery may scan.
+        // Parse against the full buffer so a wrong xref offset cannot truncate a well-formed
+        // object; `end` only bounds stream length recovery.
         parser::indirect_object(self.buffer, offset, expected_id, self, already_seen, Some(end))
     }
 
@@ -1486,9 +1474,7 @@ impl Reader<'_> {
         xref.size = xref.max_id().saturating_add(1);
 
         let (_trailer_pos, trailer) = self.find_latest_trailer(&xref)?;
-        // deliberate: no on-disk table exists to point at. Zero marks the
-        // offset "unknown" so `Document::new_from_prev` omits `/Prev` instead
-        // of recording end-of-file; `object_end` clamps to the buffer either way.
+        // Zero marks the offset "unknown" so `Document::new_from_prev` omits `/Prev`.
         self.document.xref_start = 0;
 
         warn!(
@@ -1512,9 +1498,8 @@ impl Reader<'_> {
         let mut at_line_start = true;
         let mut pos = 0;
         while pos < buffer.len() {
-            // Skip raw stream data: an uncompressed payload may embed
-            // convincing `N G obj` lines whose later offsets would otherwise
-            // override the genuine entries for those object numbers.
+            // Skip raw stream data: a payload may embed convincing `N G obj` lines whose
+            // offsets would otherwise override the genuine entries.
             if buffer[pos..].starts_with(STREAM_KEYWORD)
                 && !buffer[..pos].ends_with(b"end")
                 && matches!(buffer.get(pos + STREAM_KEYWORD.len()), Some(b'\r' | b'\n'))
@@ -1528,10 +1513,8 @@ impl Reader<'_> {
                     at_line_start = false;
                     continue;
                 }
-                // Damaged stream without terminator: fall back to the
-                // dictionary's /Length hint so the payload cannot hide
-                // line-start pseudo headers, while objects written after it
-                // stay reachable.
+                // Damaged stream without terminator: fall back to the /Length hint so the
+                // payload cannot hide pseudo headers, while later objects stay reachable.
                 if let Some(resume) = Self::payload_end_by_length(buffer, pos) {
                     pos = resume;
                     at_line_start = false;
@@ -1546,9 +1529,7 @@ impl Reader<'_> {
                 && buffer[pos].is_ascii_digit()
                 && let Some(id) = Self::parse_object_header(&buffer[pos..])
             {
-                // A huge bogus number would inflate `size` (and thus
-                // `max_id`) via `Xref::insert`; genuine numbering stays
-                // within the same cap as the marker count.
+                // A huge bogus number would inflate `size` (and thus `max_id`) via `Xref::insert`.
                 if id.0 > MAX_RECONSTRUCTED_OBJECTS as u32 {
                     if !oversized_number_warned {
                         warn!("ignoring object headers numbered above {MAX_RECONSTRUCTED_OBJECTS}");
@@ -1926,10 +1907,8 @@ fn search_substring_finds_last_occurrence() {
 #[cfg(all(test, not(feature = "async")))]
 #[test]
 fn get_xref_start_ignores_startxref_past_eof() {
-    // Simulate a PDF with two revisions where the second has a corrupted %%EOF.
-    // The valid %%EOF is at a known position; a second startxref appears after it
-    // but belongs to the corrupted revision. get_xref_start must pick the
-    // startxref *before* the valid %%EOF.
+    // Two revisions, the second with a corrupted %%EOF: the startxref *before* the valid
+    // %%EOF must win over the one after it.
     let mut buf = Vec::new();
     // Padding so the buffer is large enough
     buf.extend_from_slice(&[b' '; 200]);
@@ -1952,9 +1931,8 @@ fn get_xref_start_ignores_startxref_past_eof() {
 #[cfg(all(test, not(feature = "async")))]
 #[test]
 fn recovers_from_miswritten_startxref_offset() {
-    // Some generators write the offset of the line *after* the `xref` keyword
-    // into `startxref` instead of the offset of the keyword itself. Lenient
-    // loading must recover; strict loading must still reject the file.
+    // Some generators point `startxref` at the line *after* the `xref` keyword: lenient
+    // loading must recover, strict loading must still reject.
     let header = "%PDF-1.5\n";
     let obj1 = "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
     let obj2 = "2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n";
@@ -1993,9 +1971,7 @@ startxref
 #[cfg(all(test, not(feature = "async")))]
 #[test]
 fn stream_length_written_as_real() {
-    // ISO 32000-1 s7.3.8.2 requires /Length to be an integer, but some generators
-    // emit "/Length 42." instead of "/Length 42". Such a stream must still resolve
-    // to its content rather than silently loading as empty.
+    // "/Length 42." must still resolve to the stream content rather than load as empty.
     let obj4 = "4 0 obj\n<< /Length 42. >>\nstream\nBT /F1 12 Tf 20 100 Td (Hello World) Tj ET\nendstream\nendobj\n";
     let header = "%PDF-1.7\n";
     let obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";

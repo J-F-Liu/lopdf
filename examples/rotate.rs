@@ -12,9 +12,7 @@ fn main() {
     let output_file = &args[3];
     let mut doc = Document::load(input_file).unwrap();
 
-    // Note: this example sets Rotate on each page individually for flexibility,
-    //  but you can also set it on any node in the page tree and child pages will
-    //  inherit the value.
+    // Set on each page for flexibility; any page tree node works too, since children inherit it.
     for (_, page_id) in doc.get_pages() {
         let page_dict = doc
             .get_object_mut(page_id)
@@ -43,9 +41,7 @@ async fn main() {
     let output_file = &args[3];
     let mut doc = Document::load(input_file).await.unwrap();
 
-    // Note: this example sets Rotate on each page individually for flexibility,
-    //  but you can also set it on any node in the page tree and child pages will
-    //  inherit the value.
+    // Set on each page for flexibility; any page tree node works too, since children inherit it.
     for (_, page_id) in doc.get_pages() {
         let page_dict = doc
             .get_object_mut(page_id)
