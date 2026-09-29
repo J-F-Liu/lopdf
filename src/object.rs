@@ -10,6 +10,47 @@ use std::collections::HashSet;
 use std::fmt;
 use std::str;
 
+/// Every bounded decoder shares this one guard: a decoded buffer that has
+/// grown past `limit` is a decompression bomb and is rejected as such. A
+/// `limit` of `None` means the caller accepted an unbounded decode, so the
+/// check passes unconditionally.
+fn reject_over_limit(len: usize, limit: Option<usize>) -> Result<()> {
+    match limit {
+        Some(max) if len > max => Err(DecompressError::MemoryLimitExceeded { limit: max }.into()),
+        _ => Ok(()),
+    }
+}
+
+/// Starting capacity for a decoded buffer: a guess of twice the compressed
+/// size, never beyond one byte past the limit so a bomb cannot force a large
+/// allocation before a single byte has been decoded.
+fn initial_capacity(input_len: usize, limit: Option<usize>) -> usize {
+    let guess = input_len.saturating_mul(2);
+    match limit {
+        Some(max) => guess.min(max.saturating_add(1)),
+        None => guess,
+    }
+}
+
+/// Deflate `content` into a zlib stream. `level` follows the usual 0-9 zlib
+/// scale, which object streams map from their 0-6 builder setting.
+pub(crate) fn zlib_compress(content: &[u8], level: u32) -> Result<Vec<u8>> {
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
+
+    let compression = match level {
+        0 => Compression::none(),
+        1..=3 => Compression::fast(),
+        4..=6 => Compression::default(),
+        _ => Compression::best(),
+    };
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), compression);
+    encoder.write_all(content)?;
+    Ok(encoder.finish()?)
+}
+
 /// Object identifier consists of two parts: object number and generation number.
 pub type ObjectId = (u32, u16);
 
@@ -56,33 +97,52 @@ pub enum StringFormat {
     Hexadecimal,
 }
 
-impl From<bool> for Object {
-    fn from(value: bool) -> Self {
-        Object::Boolean(value)
-    }
+/// Lifts a value straight into an `Object` variant, so a payload type costs
+/// one macro line rather than a hand-written `From` impl.
+macro_rules! from_variants {
+    ($( $source:ty => $variant:ident($($arg:ident: $ty:ty),*) as $body:expr; )+) => {
+        $(
+            impl From<$source> for Object {
+                fn from($($arg: $ty),*) -> Self {
+                    Object::$variant($body)
+                }
+            }
+        )+
+    };
 }
 
-impl From<i64> for Object {
-    fn from(number: i64) -> Self {
-        Object::Integer(number)
-    }
+from_variants! {
+    bool => Boolean(value: bool) as value;
+    i64 => Integer(number: i64) as number;
+    String => Name(name: String) as name.into_bytes();
+    Vec<Object> => Array(array: Vec<Object>) as array;
+    Dictionary => Dictionary(dict: Dictionary) as dict;
+    Stream => Stream(stream: Stream) as stream;
+    ObjectId => Reference(id: ObjectId) as id;
 }
 
 macro_rules! from_smaller_ints {
-	($( $Int: ty )+) => {
-		$(
-			impl From<$Int> for Object {
-				fn from(number: $Int) -> Self {
-					Object::Integer(i64::from(number))
-				}
-			}
-		)+
-	}
+    ($( $Int:ty )+) => {
+        $(
+            impl From<$Int> for Object {
+                fn from(number: $Int) -> Self {
+                    Object::Integer(i64::from(number))
+                }
+            }
+        )+
+    };
 }
 
 from_smaller_ints! {
     i8 i16 i32
     u8 u16 u32
+}
+
+/// A borrowed name needs a lifetime, so it stays hand-written.
+impl<'a> From<&'a str> for Object {
+    fn from(name: &'a str) -> Self {
+        Object::Name(name.as_bytes().to_vec())
+    }
 }
 
 impl From<f64> for Object {
@@ -97,40 +157,45 @@ impl From<f32> for Object {
     }
 }
 
-impl From<String> for Object {
-    fn from(name: String) -> Self {
-        Object::Name(name.into_bytes())
-    }
+/// Generates the `as_*` accessor pair for a variant whose payload is
+/// returned by reference, plus a mutable form reaching the payload itself.
+macro_rules! object_getters {
+    ($(
+        $get:ident / $get_mut:ident : $variant:ident => ($ret:ty, $mut_ty:ty) = $expected:literal, ($($pat:tt)*);
+    )+) => {
+        $(
+            pub fn $get(&self) -> Result<$ret> {
+                match self {
+                    Object::$variant($($pat)*) => Ok($($pat)*),
+                    other => Err(other.type_error($expected)),
+                }
+            }
+
+            pub fn $get_mut(&mut self) -> Result<$mut_ty> {
+                match self {
+                    Object::$variant($($pat)*) => Ok($($pat)*),
+                    other => Err(other.type_error($expected)),
+                }
+            }
+        )+
+    };
 }
 
-impl<'a> From<&'a str> for Object {
-    fn from(name: &'a str) -> Self {
-        Object::Name(name.as_bytes().to_vec())
-    }
-}
-
-impl From<Vec<Object>> for Object {
-    fn from(array: Vec<Object>) -> Self {
-        Object::Array(array)
-    }
-}
-
-impl From<Dictionary> for Object {
-    fn from(dict: Dictionary) -> Self {
-        Object::Dictionary(dict)
-    }
-}
-
-impl From<Stream> for Object {
-    fn from(stream: Stream) -> Self {
-        Object::Stream(stream)
-    }
-}
-
-impl From<ObjectId> for Object {
-    fn from(id: ObjectId) -> Self {
-        Object::Reference(id)
-    }
+/// Generates the read-only accessor for a `Copy`-payload variant, which
+/// copies out rather than borrowing.
+macro_rules! object_copy_getters {
+    ($(
+        $get:ident : $variant:ident => $ret:ty = $expected:literal, $pat:ident;
+    )+) => {
+        $(
+            pub fn $get(&self) -> Result<$ret> {
+                match self {
+                    Object::$variant($pat) => Ok(*$pat),
+                    other => Err(other.type_error($expected)),
+                }
+            }
+        )+
+    };
 }
 
 impl Object {
@@ -142,146 +207,53 @@ impl Object {
         matches!(*self, Object::Null)
     }
 
-    pub fn as_bool(&self) -> Result<bool> {
-        match self {
-            Object::Boolean(value) => Ok(*value),
-            _ => Err(Error::ObjectType {
-                expected: "Boolean",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_i64(&self) -> Result<i64> {
-        match self {
-            Object::Integer(value) => Ok(*value),
-            _ => Err(Error::ObjectType {
-                expected: "Integer",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_f32(&self) -> Result<f32> {
-        match self {
-            Object::Real(value) => Ok(*value),
-            _ => Err(Error::ObjectType {
-                expected: "Real",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
     /// Get the object value as a float.
     /// Unlike [`Object::as_f32`] this will also cast an Integer to a Real.
     pub fn as_float(&self) -> Result<f32> {
         match self {
             Object::Integer(value) => Ok(*value as f32),
             Object::Real(value) => Ok(*value),
-            _ => Err(Error::ObjectType {
-                expected: "Integer or Real",
-                found: self.enum_variant(),
-            }),
+            _ => Err(self.type_error("Integer or Real")),
         }
     }
 
-    pub fn as_name(&self) -> Result<&[u8]> {
-        match self {
-            Object::Name(name) => Ok(name),
-            _ => Err(Error::ObjectType {
-                expected: "Name",
-                found: self.enum_variant(),
-            }),
-        }
+    object_copy_getters! {
+        as_bool: Boolean => bool = "Boolean", value;
+        as_i64: Integer => i64 = "Integer", value;
+        as_f32: Real => f32 = "Real", value;
+        as_reference: Reference => ObjectId = "Reference", value;
     }
 
+    // Includes `as_name_mut`, the mutable counterpart of `as_name`; the other
+    // `_mut` accessors here predate this macro.
+    object_getters! {
+        as_name / as_name_mut: Name => (&[u8], &mut Vec<u8>) = "Name", (value);
+        as_array / as_array_mut: Array => (&Vec<Object>, &mut Vec<Object>) = "Array", (value);
+        as_dict / as_dict_mut: Dictionary => (&Dictionary, &mut Dictionary) = "Dictionary", (value);
+        as_stream / as_stream_mut: Stream => (&Stream, &mut Stream) = "Stream", (value);
+    }
+    /// `Object::String` also carries a [`StringFormat`], so it is not one of
+    /// the single-payload variants the macros above cover.
     pub fn as_str(&self) -> Result<&[u8]> {
         match self {
             Object::String(string, _) => Ok(string),
-            _ => Err(Error::ObjectType {
-                expected: "String",
-                found: self.enum_variant(),
-            }),
+            _ => Err(self.type_error("String")),
         }
     }
 
     pub fn as_str_mut(&mut self) -> Result<&mut Vec<u8>> {
         match self {
             Object::String(string, _) => Ok(string),
-            _ => Err(Error::ObjectType {
-                expected: "String",
-                found: self.enum_variant(),
-            }),
+            _ => Err(self.type_error("String")),
         }
     }
 
-    pub fn as_reference(&self) -> Result<ObjectId> {
-        match self {
-            Object::Reference(id) => Ok(*id),
-            _ => Err(Error::ObjectType {
-                expected: "Reference",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_array(&self) -> Result<&Vec<Object>> {
-        match self {
-            Object::Array(arr) => Ok(arr),
-            _ => Err(Error::ObjectType {
-                expected: "Array",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_array_mut(&mut self) -> Result<&mut Vec<Object>> {
-        match self {
-            Object::Array(arr) => Ok(arr),
-            _ => Err(Error::ObjectType {
-                expected: "Array",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_dict(&self) -> Result<&Dictionary> {
-        match self {
-            Object::Dictionary(dict) => Ok(dict),
-            _ => Err(Error::ObjectType {
-                expected: "Dictionary",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_dict_mut(&mut self) -> Result<&mut Dictionary> {
-        match self {
-            Object::Dictionary(dict) => Ok(dict),
-            _ => Err(Error::ObjectType {
-                expected: "Dictionary",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_stream(&self) -> Result<&Stream> {
-        match self {
-            Object::Stream(stream) => Ok(stream),
-            _ => Err(Error::ObjectType {
-                expected: "Stream",
-                found: self.enum_variant(),
-            }),
-        }
-    }
-
-    pub fn as_stream_mut(&mut self) -> Result<&mut Stream> {
-        match self {
-            Object::Stream(stream) => Ok(stream),
-            _ => Err(Error::ObjectType {
-                expected: "Stream",
-                found: self.enum_variant(),
-            }),
+    /// The mismatch error every `as_*` accessor reports, naming both what the
+    /// accessor wanted and what the object actually is.
+    fn type_error(&self, expected: &'static str) -> Error {
+        Error::ObjectType {
+            expected,
+            found: self.enum_variant(),
         }
     }
 
@@ -290,10 +262,7 @@ impl Object {
         match self {
             Object::Dictionary(dict) => dict.get_type(),
             Object::Stream(stream) => stream.dict.get_type(),
-            obj => Err(Error::ObjectType {
-                expected: "Dictionary or Stream",
-                found: obj.enum_variant(),
-            }),
+            obj => Err(obj.type_error("Dictionary or Stream")),
         }
     }
 
@@ -514,10 +483,7 @@ impl Dictionary {
                     }
                 }
                 ref object => {
-                    return Err(Error::ObjectType {
-                        expected: "Name or Reference or Dictionary",
-                        found: object.enum_variant(),
-                    });
+                    return Err(object.type_error("Name or Reference or Dictionary"));
                 }
             }
         }
@@ -567,10 +533,7 @@ impl Dictionary {
                     current_code = current_code.wrapping_add(1);
                 }
                 _ => {
-                    return Err(Error::ObjectType {
-                        expected: "Integer or Name",
-                        found: obj.enum_variant(),
-                    });
+                    return Err(obj.type_error("Integer or Name"));
                 }
             }
         }
@@ -627,24 +590,12 @@ impl Dictionary {
                         replaced_array.extend(array.to_owned());
                         new_dict.insert(key.to_owned(), Object::Array(replaced_array));
                     }
-                    (Object::Integer(old_id), Object::Integer(id)) => {
-                        let array = vec![Object::Integer(*old_id), Object::Integer(*id)];
-                        new_dict.insert(key.to_owned(), Object::Array(array));
-                    }
-                    (Object::Real(old_id), Object::Real(id)) => {
-                        let array = vec![Object::Real(*old_id), Object::Real(*id)];
-                        new_dict.insert(key.to_owned(), Object::Array(array));
-                    }
-                    (Object::String(old_ids, old_format), Object::String(ids, format)) => {
-                        let array = vec![
-                            Object::String(old_ids.to_owned(), old_format.to_owned()),
-                            Object::String(ids.to_owned(), format.to_owned()),
-                        ];
-                        new_dict.insert(key.to_owned(), Object::Array(array));
-                    }
-                    (Object::Reference(old_object_id), Object::Reference(object_id)) => {
-                        let array = vec![Object::Reference(*old_object_id), Object::Reference(*object_id)];
-                        new_dict.insert(key.to_owned(), Object::Array(array));
+                    (Object::Integer(_), Object::Integer(_))
+                    | (Object::Real(_), Object::Real(_))
+                    | (Object::String(_, _), Object::String(_, _))
+                    | (Object::Reference(_), Object::Reference(_)) => {
+                        // Two values of the same scalar type keep both, oldest first.
+                        new_dict.insert(key.to_owned(), Object::Array(vec![old_value, value.to_owned()]));
                     }
                     (Object::Null, _) | (Object::Boolean(_), _) | (Object::Name(_), _) | (Object::Stream(_), _) => {
                         new_dict.insert(key.to_owned(), old_value);
@@ -808,10 +759,7 @@ impl Stream {
         } else if let Ok(names) = filter.as_array() {
             names.iter().map(Object::as_name).collect()
         } else {
-            Err(Error::ObjectType {
-                expected: "Name or Array",
-                found: filter.enum_variant(),
-            })
+            Err(filter.type_error("Name or Array"))
         }
     }
 
@@ -823,15 +771,11 @@ impl Stream {
     pub fn set_plain_content(&mut self, content: Vec<u8>) {
         self.dict.remove(b"DecodeParms");
         self.dict.remove(b"Filter");
-        self.dict.set("Length", content.len() as i64);
-        self.content = content;
+        self.set_content(content);
     }
 
     pub fn get_plain_content(&self) -> Result<Vec<u8>> {
-        match self.filters() {
-            Ok(vec) if !vec.is_empty() => self.decompressed_content(),
-            _ => Ok(self.content.clone()),
-        }
+        self.plain_content(None)
     }
 
     /// Bomb-safe counterpart to [`Stream::get_plain_content`]: decode the stream,
@@ -839,26 +783,27 @@ impl Stream {
     /// would exceed `max_output` bytes. An uncompressed stream whose raw content
     /// already exceeds the limit is rejected too.
     pub fn get_plain_content_with_limit(&self, max_output: usize) -> Result<Vec<u8>> {
+        self.plain_content(Some(max_output))
+    }
+
+    /// Shared implementation of [`Stream::get_plain_content`] and its bounded
+    /// counterpart: an unfiltered stream returns its raw bytes, a filtered one
+    /// goes through the decoder chain. Either way the limit is honored, which
+    /// for an unfiltered stream means bounding the raw content.
+    fn plain_content(&self, limit: Option<usize>) -> Result<Vec<u8>> {
         match self.filters() {
-            Ok(vec) if !vec.is_empty() => self.decompressed_content_with_limit(max_output),
+            Ok(filters) if !filters.is_empty() => self.decode_filters(limit),
             _ => {
-                if self.content.len() > max_output {
-                    return Err(DecompressError::MemoryLimitExceeded { limit: max_output }.into());
-                }
+                reject_over_limit(self.content.len(), limit)?;
                 Ok(self.content.clone())
             }
         }
     }
 
     pub fn compress(&mut self) -> Result<()> {
-        use flate2::Compression;
-        use flate2::write::ZlibEncoder;
-        use std::io::prelude::*;
-
         if self.dict.get(b"Filter").is_err() {
-            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
-            encoder.write_all(self.content.as_slice())?;
-            let compressed = encoder.finish()?;
+            let compressed = zlib_compress(&self.content, 9)?;
+
             if compressed.len() + 19 < self.content.len() {
                 self.dict.set("Filter", "FlateDecode");
                 self.set_content(compressed);
@@ -920,11 +865,7 @@ impl Stream {
             // No /Filter key means the stream is uncompressed. The raw content is
             // already in memory, but still honor the caller's limit.
             Err(_) => {
-                if let Some(max) = limit
-                    && self.content.len() > max
-                {
-                    return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-                }
+                reject_over_limit(self.content.len(), limit)?;
                 return Ok(self.content.clone());
             }
         };
@@ -943,11 +884,7 @@ impl Stream {
                 b"RunLengthDecode" => Self::decode_run_length(input, limit)?,
                 _ => return Err(Error::Unimplemented("decompression algorithms")),
             };
-            if let Some(max) = limit
-                && output.len() > max
-            {
-                return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-            }
+            reject_over_limit(output.len(), limit)?;
             input = &output;
         }
         Ok(output)
@@ -958,18 +895,10 @@ impl Stream {
 
         // Unlike the Flate path there is no raw-deflate fallback, so a corrupt stream
         // fails hard instead of yielding partial output. Intentional for a new filter.
-        let initial_capacity = match limit {
-            Some(max) => input.len().saturating_mul(2).min(max.saturating_add(1)),
-            None => input.len().saturating_mul(2),
-        };
-        let mut output = Vec::with_capacity(initial_capacity);
+        let mut output = Vec::with_capacity(initial_capacity(input.len(), limit));
         Self::read_capped(Decompressor::new(input, 4096), &mut output, limit)
             .map_err(|err| Error::InvalidStream(format!("Brotli decompression failed: {err}")))?;
-        if let Some(max) = limit
-            && output.len() > max
-        {
-            return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-        }
+        reject_over_limit(output.len(), limit)?;
         // /DecodeParms predictors are deliberately NOT applied: pdf.js and pypdf ignore them
         // and only MuPDF applies them. They would also corrupt [/BrotliDecode /FlateDecode]
         // chains, since the shared dict-form /DecodeParms reaches every filter.
@@ -982,6 +911,7 @@ impl Stream {
     /// full decompressed output.
     fn read_capped<R: std::io::Read>(reader: R, output: &mut Vec<u8>, limit: Option<usize>) -> std::io::Result<()> {
         use std::io::Read;
+
         match limit {
             Some(max) => Read::take(reader, (max as u64).saturating_add(1))
                 .read_to_end(output)
@@ -1010,11 +940,7 @@ impl Stream {
         };
 
         let output = Self::decompress_lzw_loop(input, &mut decoder, limit);
-        if let Some(max) = limit
-            && output.len() > max
-        {
-            return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-        }
+        reject_over_limit(output.len(), limit)?;
         Self::decompress_predictor(output, params)
     }
 
@@ -1042,11 +968,7 @@ impl Stream {
 
         // Reserve a starting capacity, but never pre-allocate beyond the limit so
         // a bomb cannot force a huge allocation up front.
-        let initial_capacity = match limit {
-            Some(max) => input.len().saturating_mul(2).min(max.saturating_add(1)),
-            None => input.len().saturating_mul(2),
-        };
-        let mut output = Vec::with_capacity(initial_capacity);
+        let mut output = Vec::with_capacity(initial_capacity(input.len(), limit));
 
         if !input.is_empty()
             && let Err(err) = Self::read_capped(ZlibDecoder::new(input), &mut output, limit)
@@ -1060,11 +982,7 @@ impl Stream {
                 }
             }
         }
-        if let Some(max) = limit
-            && output.len() > max
-        {
-            return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-        }
+        reject_over_limit(output.len(), limit)?;
         Self::decompress_predictor(output, params)
     }
 
@@ -1082,11 +1000,7 @@ impl Stream {
         for &ch in input_no_eod {
             // ASCII85 amplifies up to 4x (each `z` is four zero bytes), so bound the output
             // here; each iteration adds at most 4 bytes, so it never exceeds max + 4.
-            if let Some(max) = limit
-                && output.len() > max
-            {
-                return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-            }
+            reject_over_limit(output.len(), limit)?;
             if ch == b'z' {
                 if count != 0 {
                     return Err(DecompressError::Ascii85("z character is not allowed in the middle of a group").into());
@@ -1139,11 +1053,7 @@ impl Stream {
         let mut output = vec![];
         let mut high: Option<u8> = None;
         for &ch in input {
-            if let Some(max) = limit
-                && output.len() > max
-            {
-                return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-            }
+            reject_over_limit(output.len(), limit)?;
             if ch == b'>' {
                 break;
             }
@@ -1172,11 +1082,7 @@ impl Stream {
         let mut output = vec![];
         let mut i = 0;
         while i < input.len() {
-            if let Some(max) = limit
-                && output.len() > max
-            {
-                return Err(DecompressError::MemoryLimitExceeded { limit: max }.into());
-            }
+            reject_over_limit(output.len(), limit)?;
             let length = input[i];
             i += 1;
             match length {
@@ -1199,29 +1105,33 @@ impl Stream {
     fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>) -> Result<Vec<u8>> {
         use crate::filters::png;
 
-        if let Some(params) = params {
-            let predictor = params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1);
-            if predictor == 2 {
-                // TIFF Predictor 2 (horizontal differencing), distinct from the PNG
-                // predictors below and previously ignored.
-                let columns = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
-                let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
-                let bits = max(1, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
-                data = Self::reverse_tiff_predictor2(data, columns, colors, bits)?;
-            } else if (10..=15).contains(&predictor) {
-                // PNG predictors 10-15. Rows pack to a byte boundary, so a sub-byte depth still
-                // takes ceil(Columns*Colors*bits/8) bytes per row; the left reference is one
-                // whole byte, rounded up.
-                let columns = max(1, params.get(b"Columns").and_then(Object::as_i64).unwrap_or(1)) as usize;
-                let colors = max(1, params.get(b"Colors").and_then(Object::as_i64).unwrap_or(1)) as usize;
-                let bits = max(1, params.get(b"BitsPerComponent").and_then(Object::as_i64).unwrap_or(8)) as usize;
+        let Some(params) = params else {
+            return Ok(data);
+        };
+
+        // Columns pack to a byte boundary, so a sub-byte depth still takes
+        // ceil(Columns*Colors*bits/8) bytes per row; the left reference is one
+        // whole byte, rounded up. A zero or absent value means one sample.
+        let sample =
+            |key: &[u8], default: i64| max(1, params.get(key).and_then(Object::as_i64).unwrap_or(default)) as usize;
+        let (columns, colors, bits) = (
+            sample(b"Columns", 1),
+            sample(b"Colors", 1),
+            sample(b"BitsPerComponent", 8),
+        );
+
+        match params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1) {
+            // TIFF Predictor 2 (horizontal differencing), distinct from the PNG
+            // predictors below.
+            2 => Self::reverse_tiff_predictor2(data, columns, colors, bits),
+            // PNG predictors 10-15.
+            10..=15 => {
                 let bytes_per_row = (columns * colors * bits).div_ceil(8);
                 let bpp = (colors * bits).div_ceil(8);
                 data = png::decode_frame(data.as_slice(), bpp, bytes_per_row)?;
+                Ok(data)
             }
-            Ok(data)
-        } else {
-            Ok(data)
+            _ => Ok(data),
         }
     }
 
@@ -1312,11 +1222,7 @@ impl Stream {
     }
 
     pub fn decompress(&mut self) -> Result<()> {
-        let data = self.decompressed_content()?;
-        self.dict.remove(b"DecodeParms");
-        self.dict.remove(b"Filter");
-        self.set_content(data);
-        Ok(())
+        self.decompress_inner(None)
     }
 
     /// Decompress this stream in place like [`Stream::decompress`], but reject it
@@ -1324,10 +1230,15 @@ impl Stream {
     /// exceed `max_output` bytes. Used on the load path to bound the memory a
     /// single object/xref stream can consume.
     pub fn decompress_with_limit(&mut self, max_output: usize) -> Result<()> {
-        let data = self.decompressed_content_with_limit(max_output)?;
-        self.dict.remove(b"DecodeParms");
-        self.dict.remove(b"Filter");
-        self.set_content(data);
+        self.decompress_inner(Some(max_output))
+    }
+
+    /// Shared implementation of [`Stream::decompress`] and its bounded
+    /// counterpart: decode in place and drop the filter entries, so the stream
+    /// keeps the decoded bytes under its own `/Length`.
+    fn decompress_inner(&mut self, limit: Option<usize>) -> Result<()> {
+        let data = self.decode_filters(limit)?;
+        self.set_plain_content(data);
         Ok(())
     }
 

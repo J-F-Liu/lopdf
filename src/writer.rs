@@ -61,6 +61,14 @@ impl Document {
         self.save_with_options(target, options)
     }
 
+    /// Objects whose own bytes are never rewritten in a plain save: an object
+    /// stream or cross-reference stream is regenerated from `self.objects`, and
+    /// the linearization dictionary is dropped, so copying them forward would
+    /// contradict the new file layout.
+    fn is_regenerated_on_save(object: &Object) -> bool {
+        matches!(object.type_name(), Ok(name) if name == b"ObjStm" || name == b"XRef" || name == b"Linearized")
+    }
+
     fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
         let mut target = CountingWrite {
             inner: target,
@@ -73,33 +81,33 @@ impl Document {
         Writer::write_binary_mark(&mut target, &self.binary_mark)?;
 
         for (&(id, generation), object) in &self.objects {
-            if object
-                .type_name()
-                .map(|name| [b"ObjStm".as_slice(), b"XRef".as_slice(), b"Linearized".as_slice()].contains(&name))
-                .ok()
-                != Some(true)
-            {
+            if !Self::is_regenerated_on_save(object) {
                 Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
             }
         }
 
         let xref_start = target.bytes_written;
+        self.write_xref_and_trailer(&mut target, &mut xref, xref_start)
+    }
 
+    /// Write the cross-reference data in the requested form, then the
+    /// `startxref` pointer that closes the file.
+    fn write_xref_and_trailer<W: Write>(
+        &mut self, target: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: usize,
+    ) -> Result<()> {
         // Pick right cross reference stream.
         match xref.cross_reference_type {
             XrefType::CrossReferenceTable => {
-                Writer::write_xref(&mut target, &xref)?;
-                self.write_trailer(&mut target)?;
+                Writer::write_xref(target, xref)?;
+                self.write_trailer(target)?;
             }
             XrefType::CrossReferenceStream => {
                 // Cross Reference Stream instead of XRef and Trailer
-                self.write_cross_reference_stream(&mut target, &mut xref, xref_start as u32)?;
+                self.write_cross_reference_stream(target, xref, xref_start as u32)?;
             }
         }
         // Write `startxref` part of trailer
-        write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
-
-        Ok(())
+        write!(target, "\nstartxref\n{xref_start}\n%%EOF")
     }
 
     /// Save PDF with object streams enabled
@@ -183,13 +191,11 @@ impl Document {
             let stream_id = self.max_id + 1 + stream_count;
             let stream_obj = obj_stream.to_stream_object().map_err(std::io::Error::other)?;
 
-            // Record compressed objects in xref
-            // Must use the same sort order as build_stream_content()
-            let mut sorted_objects: Vec<_> = obj_stream.objects.keys().cloned().collect();
-            sorted_objects.sort_by_key(|id| *id);
-            for (index_in_stream, (obj_id, _gen)) in sorted_objects.iter().enumerate() {
+            // Record compressed objects in xref. The index must match the order
+            // the stream actually stores its members in.
+            for (index_in_stream, obj_id) in obj_stream.sorted_object_ids().iter().enumerate() {
                 xref.insert(
-                    *obj_id,
+                    obj_id.0,
                     XrefEntry::Compressed {
                         container: stream_id,
                         index: index_in_stream as u16,
@@ -206,20 +212,7 @@ impl Document {
         self.max_id += stream_count;
 
         let xref_start = target.bytes_written;
-
-        // Write cross-reference
-        match xref.cross_reference_type {
-            XrefType::CrossReferenceTable => {
-                Writer::write_xref(&mut target, &xref)?;
-                self.write_trailer(&mut target)?;
-            }
-            XrefType::CrossReferenceStream => {
-                self.write_cross_reference_stream(&mut target, &mut xref, xref_start as u32)?;
-            }
-        }
-
-        write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
-        Ok(())
+        self.write_xref_and_trailer(&mut target, &mut xref, xref_start)
     }
 
     /// Write the Cross Reference Stream.
@@ -364,20 +357,16 @@ impl IncrementalDocument {
         // Encrypt a clone of each object, leaving the in-memory ones as plaintext so repeated
         // saves do not double-encrypt.
         for (&(id, generation), object) in &self.new_document.objects {
-            if object
-                .type_name()
-                .map(|name| [b"ObjStm".as_slice(), b"XRef".as_slice(), b"Linearized".as_slice()].contains(&name))
-                .ok()
-                != Some(true)
-            {
-                if let Some(state) = encryption_state.as_ref() {
-                    let mut encrypted = object.clone();
-                    encryption::encrypt_object(state, (id, generation), &mut encrypted)
-                        .map_err(std::io::Error::other)?;
-                    Writer::write_indirect_object(&mut target, id, generation, &encrypted, &mut xref)?;
-                } else {
-                    Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
-                }
+            // `Self` is an `IncrementalDocument` here; the helper belongs to `Document`.
+            if Document::is_regenerated_on_save(object) {
+                continue;
+            }
+            if let Some(state) = encryption_state.as_ref() {
+                let mut encrypted = object.clone();
+                encryption::encrypt_object(state, (id, generation), &mut encrypted).map_err(std::io::Error::other)?;
+                Writer::write_indirect_object(&mut target, id, generation, &encrypted, &mut xref)?;
+            } else {
+                Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
             }
         }
 
@@ -397,22 +386,9 @@ impl IncrementalDocument {
         let xref_start = target.bytes_written;
 
         // Pick right cross reference stream.
-        let write_result: Result<()> = (|| {
-            match xref.cross_reference_type {
-                XrefType::CrossReferenceTable => {
-                    Writer::write_xref(&mut target, &xref)?;
-                    self.new_document.write_trailer(&mut target)?;
-                }
-                XrefType::CrossReferenceStream => {
-                    // Cross Reference Stream instead of XRef and Trailer
-                    self.new_document
-                        .write_cross_reference_stream(&mut target, &mut xref, xref_start as u32)?;
-                }
-            }
-            // Write `startxref` part of trailer
-            write!(target, "\nstartxref\n{xref_start}\n%%EOF")?;
-            Ok(())
-        })();
+        let write_result = self
+            .new_document
+            .write_xref_and_trailer(&mut target, &mut xref, xref_start);
 
         // Restore the original in-memory trailer even if writing failed.
         if let Some(saved) = saved_trailer {
@@ -444,87 +420,78 @@ impl Writer {
         )
     }
 
+    /// Group the table's entries into the contiguous runs a cross-reference
+    /// table or stream is built from.
+    ///
+    /// Iterate to the actual highest entry: `xref.size` is fixed before object
+    /// streams and the xref stream itself are appended, so entries past it
+    /// would never reach the output. A section starts at the first *present*
+    /// id; starting it at a missing id would shift every subsequent entry by
+    /// one. Object 0 is left out; only a table has to invent an entry for it,
+    /// and [`Self::write_xref`] is where that happens.
+    fn xref_sections(xref: &Xref) -> Vec<XrefSection> {
+        let mut sections = Vec::new();
+        let mut current = XrefSection::new(0);
+
+        for obj_id in 1..=xref.max_id() {
+            if let Some(entry) = xref.get(obj_id) {
+                if current.is_empty() {
+                    current = XrefSection::new(obj_id);
+                }
+                current.add_entry(entry.clone());
+            } else {
+                // Skip over the gap, but close the section first if one is open.
+                if !current.is_empty() {
+                    sections.push(current);
+                    current = XrefSection::new(0);
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            sections.push(current);
+        }
+
+        sections
+    }
+
     /// Write Cross Reference Table.
     ///
     /// Note: This is different from a "Cross Reference Stream".
     fn write_xref(file: &mut dyn Write, xref: &Xref) -> Result<()> {
         writeln!(file, "xref")?;
 
-        let mut xref_section = XrefSection::new(0);
-        // Add first (0) entry
-        xref_section.add_unusable_free_entry();
+        let mut sections = Self::xref_sections(xref);
 
-        // Iterate to the actual highest entry: `xref.size` is fixed before object streams and
-        // the xref stream itself are appended, so entries past it would never reach the table.
-        for obj_id in 1..=xref.max_id() {
-            if let Some(entry) = xref.get(obj_id) {
-                // A section starts at the first *present* id; starting it at
-                // a missing id would shift every subsequent entry by one.
-                if xref_section.is_empty() {
-                    xref_section = XrefSection::new(obj_id);
-                }
-                match *entry {
-                    XrefEntry::Normal { offset, generation } => {
-                        // Add entry
-                        xref_section.add_entry(XrefEntry::Normal { offset, generation });
-                    }
-                    XrefEntry::Compressed { container: _, index: _ } => {
-                        xref_section.add_unusable_free_entry();
-                    }
-                    XrefEntry::Free => {
-                        xref_section.add_entry(XrefEntry::Free);
-                    }
-                    XrefEntry::UnusableFree => {
-                        xref_section.add_unusable_free_entry();
-                    }
-                }
-            } else {
-                // Skip over `obj_id`, but finish section if not empty.
-                if !xref_section.is_empty() {
-                    xref_section.write_xref_section(file)?;
-                    xref_section = XrefSection::new(0);
-                }
-            }
+        // A table has to list object 0 as free. It can only share a subsection
+        // with the ids that directly follow it, so it joins the first section
+        // when that section starts at object 1, and otherwise gets a section of
+        // its own — appending it to a section that starts later would attribute
+        // that section's first entry to object 1. A document with no objects at
+        // all still needs the lone entry, which the `insert` covers.
+        if sections.first().is_some_and(|section| section.starting_id == 1) {
+            sections[0].starting_id = 0;
+        } else {
+            sections.insert(0, XrefSection::new(0));
         }
-        // Print last section
-        if !xref_section.is_empty() {
-            xref_section.write_xref_section(file)?;
+        sections[0].entries.insert(0, XrefEntry::UnusableFree);
+
+        // `XrefEntry::write_xref_entry` already renders a compressed object in
+        // the free-slot form the spec gives it, so the entries go out as they
+        // are.
+        for section in &sections {
+            section.write_xref_section(file)?;
         }
+
         Ok(())
     }
 
     /// Create stream for Cross reference stream.
     fn create_xref_steam(xref: &Xref, filter: XRefStreamFilter) -> Result<(Vec<u8>, usize, Object)> {
-        let mut xref_sections = Vec::new();
-        let mut xref_section = XrefSection::new(0);
-
-        // Iterate to the actual highest entry: `xref.size` is fixed before object streams and
-        // the xref stream itself are appended, so entries past it would never reach the stream.
-        for obj_id in 1..=xref.max_id() {
-            if let Some(entry) = xref.get(obj_id) {
-                // A section starts at the first *present* id; starting it at
-                // a missing id would shift every subsequent entry by one.
-                if xref_section.is_empty() {
-                    xref_section = XrefSection::new(obj_id);
-                }
-                xref_section.add_entry(entry.clone());
-            } else {
-                // Skip over but finish section if not empty
-                if !xref_section.is_empty() {
-                    xref_sections.push(xref_section);
-                    xref_section = XrefSection::new(0);
-                }
-            }
-        }
-        // Print last section
-        if !xref_section.is_empty() {
-            xref_sections.push(xref_section);
-        }
-
         let mut xref_stream = Vec::new();
         let mut xref_index = Vec::new();
 
-        for section in xref_sections {
+        for section in Self::xref_sections(xref) {
             // Add indexes to list
             xref_index.push(Integer(section.starting_id as i64));
             xref_index.push(Integer(section.entries.len() as i64));

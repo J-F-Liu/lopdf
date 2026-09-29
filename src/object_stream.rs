@@ -153,73 +153,80 @@ impl ObjectStream {
         self.objects.len()
     }
 
-    /// Build the stream content in the format required by PDF spec
-    pub fn build_stream_content(&self) -> Result<Vec<u8>> {
-        if self.objects.is_empty() {
-            return Ok(Vec::new());
-        }
+    /// The members in id order, each paired with its serialization: an object
+    /// stream stores them sorted, and both the offset table and the body walk
+    /// them in that order. The order comes from [`Self::sorted_object_ids`], so
+    /// the body and the cross-reference indices cannot drift apart.
+    fn sorted_serializations(&self) -> Result<Vec<(ObjectId, Vec<u8>)>> {
+        self.sorted_object_ids()
+            .into_iter()
+            .map(|id| {
+                let mut bytes = Vec::new();
+                crate::writer::Writer::write_object(&mut bytes, &self.objects[&id])?;
+                Ok((id, bytes))
+            })
+            .collect()
+    }
 
-        // Sort objects by ID for consistent output
-        let mut sorted_objects: Vec<_> = self.objects.iter().collect();
-        sorted_objects.sort_by_key(|(id, _)| *id);
+    /// The contained object ids in the order [`Self::build_stream_content`]
+    /// writes them, so a caller recording cross-reference entries can assign
+    /// each object the index it actually occupies in the stream. This is the
+    /// single source of that order.
+    pub(crate) fn sorted_object_ids(&self) -> Vec<ObjectId> {
+        let mut ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
 
-        // First build the offset table to know its size
-        let mut offset_entries = Vec::new();
+    /// The `N M N M ...` header of object numbers and their offsets from the
+    /// start of the body, which the `/First` entry records the length of.
+    fn offset_table(members: &[(ObjectId, Vec<u8>)]) -> String {
+        let mut entries = Vec::with_capacity(members.len());
         let mut current_offset = 0;
 
-        for ((obj_num, _gen), obj) in &sorted_objects {
-            // Store the object number and its offset
-            offset_entries.push(format!("{obj_num} {current_offset}"));
-
-            // Calculate size of this object's serialization
-            let mut obj_bytes = Vec::new();
-            crate::writer::Writer::write_object(&mut obj_bytes, obj)?;
-            current_offset += obj_bytes.len() + 1; // +1 for space separator
+        for ((obj_num, _gen), bytes) in members {
+            entries.push(format!("{obj_num} {current_offset}"));
+            // +1 for the space separator written after each object
+            current_offset += bytes.len() + 1;
         }
 
-        // Build the complete offset table with proper spacing
-        let offset_table = offset_entries.join(" ") + " ";
+        // Joined with spaces and a trailing space, so the body starts on a
+        // fresh token.
+        entries.join(" ") + " "
+    }
 
-        // Now build the final content
+    /// Build the stream content in the format required by PDF spec
+    pub fn build_stream_content(&self) -> Result<Vec<u8>> {
+        self.build_body().map(|(content, _)| content)
+    }
+
+    /// The object stream body — the offset table followed by the serialized
+    /// objects — together with the `/First` offset, which is where the table
+    /// ends. Both are needed to build the stream, so they are produced together
+    /// rather than by serializing the members twice.
+    fn build_body(&self) -> Result<(Vec<u8>, usize)> {
+        if self.objects.is_empty() {
+            return Ok((Vec::new(), 0));
+        }
+
+        let members = self.sorted_serializations()?;
+        let table = Self::offset_table(&members);
+        let first_offset = table.len();
+
         let mut content = Vec::new();
-        content.extend_from_slice(offset_table.as_bytes());
+        content.extend_from_slice(table.as_bytes());
 
-        // Add serialized objects with space separators
-        for ((_, _), obj) in &sorted_objects {
-            let mut obj_bytes = Vec::new();
-            crate::writer::Writer::write_object(&mut obj_bytes, obj)?;
-            content.extend_from_slice(&obj_bytes);
+        for (_, bytes) in &members {
+            content.extend_from_slice(bytes);
             content.push(b' '); // Space separator between objects
         }
 
-        Ok(content)
+        Ok((content, first_offset))
     }
 
     /// Convert to a Stream object ready for insertion into a PDF
     pub fn to_stream_object(&self) -> Result<Stream> {
-        let content = self.build_stream_content()?;
-
-        // Calculate where the first object starts
-        // We need to find the size of the offset table
-        let mut sorted_objects: Vec<_> = self.objects.iter().collect();
-        sorted_objects.sort_by_key(|(id, _)| *id);
-
-        // Build the offset entries to calculate exact size
-        let mut offset_entries = Vec::new();
-        let mut current_offset = 0;
-
-        for ((obj_num, _gen), obj) in &sorted_objects {
-            offset_entries.push(format!("{obj_num} {current_offset}"));
-
-            // Calculate size of this object's serialization
-            let mut obj_bytes = Vec::new();
-            crate::writer::Writer::write_object(&mut obj_bytes, obj)?;
-            current_offset += obj_bytes.len() + 1; // +1 for space separator
-        }
-
-        // The offset table is joined with spaces and has a trailing space
-        let offset_table = offset_entries.join(" ") + " ";
-        let first_offset = offset_table.len();
+        let (content, first_offset) = self.build_body()?;
 
         let dict = dictionary! {
             "Type" => "ObjStm",
@@ -231,22 +238,7 @@ impl ObjectStream {
 
         // Apply compression - object streams should always be compressed
         if self.compression_level > 0 {
-            // Force compression by setting Filter directly
-            use flate2::Compression;
-            use flate2::write::ZlibEncoder;
-            use std::io::prelude::*;
-
-            let compression = match self.compression_level {
-                0 => Compression::none(),
-                1..=3 => Compression::fast(),
-                4..=6 => Compression::default(),
-                _ => Compression::best(),
-            };
-
-            let mut encoder = ZlibEncoder::new(Vec::new(), compression);
-            encoder.write_all(&stream.content)?;
-            let compressed = encoder.finish()?;
-
+            let compressed = crate::object::zlib_compress(&stream.content, self.compression_level)?;
             stream.dict.set("Filter", "FlateDecode");
             stream.set_content(compressed);
         }

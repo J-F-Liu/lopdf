@@ -11,6 +11,16 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str;
 use std::sync::Arc;
 
+/// Which credential a caller-supplied password is checked against.
+#[derive(Clone, Copy)]
+enum PasswordRole {
+    Owner,
+    User,
+    /// Either will do: the two are independent credentials and the file
+    /// encryption key is then resolved from whichever matched.
+    Either,
+}
+
 /// A PDF document.
 ///
 /// This can both be a combination of multiple incremental updates
@@ -60,19 +70,7 @@ pub struct Document {
 impl Document {
     /// Create new PDF document.
     pub fn new() -> Self {
-        Self {
-            version: "1.4".to_string(),
-            binary_mark: vec![0xBB, 0xAD, 0xC0, 0xDE],
-            trailer: Dictionary::new(),
-            reference_table: Xref::new(0, XrefType::CrossReferenceStream),
-            objects: BTreeMap::new(),
-            max_id: 0,
-            max_bookmark_id: 0,
-            bookmarks: Vec::new(),
-            bookmark_table: HashMap::new(),
-            xref_start: 0,
-            encryption_state: None,
-        }
+        Self::with_baseline(Dictionary::new(), XrefType::CrossReferenceStream, 0, 0)
     }
 
     /// Create a new PDF document that is an incremental update to a previous document.
@@ -83,14 +81,26 @@ impl Document {
         if prev.xref_start != 0 {
             new_trailer.set("Prev", Object::Integer(prev.xref_start as i64));
         }
+        Self::with_baseline(
+            new_trailer,
+            prev.reference_table.cross_reference_type,
+            prev.max_id,
+            prev.max_bookmark_id,
+        )
+    }
+
+    /// The state a freshly started document shares, whether it begins from
+    /// nothing or as an incremental update of a previous one. Only the
+    /// trailer, the cross-reference type and the two id ceilings carry over.
+    fn with_baseline(trailer: Dictionary, cross_reference_type: XrefType, max_id: u32, max_bookmark_id: u32) -> Self {
         Self {
             version: "1.4".to_string(),
             binary_mark: vec![0xBB, 0xAD, 0xC0, 0xDE],
-            trailer: new_trailer,
-            reference_table: Xref::new(0, prev.reference_table.cross_reference_type),
+            trailer,
+            reference_table: Xref::new(0, cross_reference_type),
             objects: BTreeMap::new(),
-            max_id: prev.max_id,
-            max_bookmark_id: prev.max_bookmark_id,
+            max_id,
+            max_bookmark_id,
             bookmarks: Vec::new(),
             bookmark_table: HashMap::new(),
             xref_start: 0,
@@ -274,20 +284,35 @@ impl Document {
         self.encryption_state.is_some()
     }
 
+    /// The security handler for this document, or [`Error::NotEncrypted`] if
+    /// the trailer carries no `/Encrypt` entry.
+    fn password_algorithm(&self) -> Result<PasswordAlgorithm> {
+        if !self.is_encrypted() {
+            return Err(Error::NotEncrypted);
+        }
+
+        PasswordAlgorithm::try_from(self)
+    }
+
+    /// Run the owner and/or user check against an already-prepared password.
+    fn authenticate_with(&self, algorithm: &PasswordAlgorithm, password: &[u8], role: PasswordRole) -> Result<()> {
+        match role {
+            PasswordRole::Owner => algorithm.authenticate_owner_password(self, password)?,
+            PasswordRole::User => algorithm.authenticate_user_password(self, password)?,
+            PasswordRole::Either => algorithm
+                .authenticate_owner_password(self, password)
+                .or(algorithm.authenticate_user_password(self, password))?,
+        }
+
+        Ok(())
+    }
+
     /// Authenticate the provided owner password directly as bytes without sanitization
     pub fn authenticate_raw_owner_password<P>(&self, password: P) -> Result<()>
     where
         P: AsRef<[u8]>,
     {
-        if !self.is_encrypted() {
-            return Err(Error::NotEncrypted);
-        }
-
-        let password = password.as_ref();
-        let algorithm = PasswordAlgorithm::try_from(self)?;
-        algorithm.authenticate_owner_password(self, password)?;
-
-        Ok(())
+        self.authenticate_with(&self.password_algorithm()?, password.as_ref(), PasswordRole::Owner)
     }
 
     /// Authenticate the provided user password directly as bytes without sanitization
@@ -295,15 +320,7 @@ impl Document {
     where
         P: AsRef<[u8]>,
     {
-        if !self.is_encrypted() {
-            return Err(Error::NotEncrypted);
-        }
-
-        let password = password.as_ref();
-        let algorithm = PasswordAlgorithm::try_from(self)?;
-        algorithm.authenticate_user_password(self, password)?;
-
-        Ok(())
+        self.authenticate_with(&self.password_algorithm()?, password.as_ref(), PasswordRole::User)
     }
 
     /// Authenticate the provided owner/user password as bytes without sanitization
@@ -311,58 +328,30 @@ impl Document {
     where
         P: AsRef<[u8]>,
     {
-        if !self.is_encrypted() {
-            return Err(Error::NotEncrypted);
-        }
-
-        let password = password.as_ref();
-        let algorithm = PasswordAlgorithm::try_from(self)?;
-        algorithm
-            .authenticate_owner_password(self, password)
-            .or(algorithm.authenticate_user_password(self, password))?;
-
-        Ok(())
+        self.authenticate_with(&self.password_algorithm()?, password.as_ref(), PasswordRole::Either)
     }
 
     /// Authenticate the provided owner password
     pub fn authenticate_owner_password(&self, password: &str) -> Result<()> {
-        if !self.is_encrypted() {
-            return Err(Error::NotEncrypted);
-        }
-
-        let algorithm = PasswordAlgorithm::try_from(self)?;
-        let password = algorithm.sanitize_password(password)?;
-        algorithm.authenticate_owner_password(self, &password)?;
-
-        Ok(())
+        self.authenticate_sanitized(password, PasswordRole::Owner)
     }
 
     /// Authenticate the provided user password
     pub fn authenticate_user_password(&self, password: &str) -> Result<()> {
-        if !self.is_encrypted() {
-            return Err(Error::NotEncrypted);
-        }
-
-        let algorithm = PasswordAlgorithm::try_from(self)?;
-        let password = algorithm.sanitize_password(password)?;
-        algorithm.authenticate_user_password(self, &password)?;
-
-        Ok(())
+        self.authenticate_sanitized(password, PasswordRole::User)
     }
 
     /// Authenticate the provided owner/user password
     pub fn authenticate_password(&self, password: &str) -> Result<()> {
-        if !self.is_encrypted() {
-            return Err(Error::NotEncrypted);
-        }
+        self.authenticate_sanitized(password, PasswordRole::Either)
+    }
 
-        let algorithm = PasswordAlgorithm::try_from(self)?;
+    /// Normalize `password` for this document's revision, then check it.
+    fn authenticate_sanitized(&self, password: &str, role: PasswordRole) -> Result<()> {
+        let algorithm = self.password_algorithm()?;
         let password = algorithm.sanitize_password(password)?;
-        algorithm
-            .authenticate_owner_password(self, &password)
-            .or(algorithm.authenticate_user_password(self, &password))?;
 
-        Ok(())
+        self.authenticate_with(&algorithm, &password, role)
     }
 
     /// Returns a `BTreeMap` of the crypt filters available in the PDF document if any.
@@ -585,18 +574,9 @@ impl Document {
 
     /// Get content of a page.
     pub fn get_page_content(&self, page_id: ObjectId) -> Vec<u8> {
-        let mut content = Vec::new();
-        let content_streams = self.get_page_contents(page_id);
-        for object_id in content_streams {
-            if let Ok(content_stream) = self.get_object(object_id).and_then(Object::as_stream) {
-                match content_stream.decompressed_content() {
-                    Ok(data) => content.extend_from_slice(&data),
-                    Err(_) => content.extend_from_slice(&content_stream.content),
-                };
-                content.push(b'\n');
-            }
-        }
-        content
+        // With no limit there is nothing to exceed, so the unlimited path cannot
+        // fail today; the fallback just keeps a future error from panicking.
+        self.page_content(page_id, None).unwrap_or_default()
     }
 
     /// Get the content of a page, bounding the total decompressed output to
@@ -618,33 +598,45 @@ impl Document {
     /// *other* than the size limit falls back to its raw bytes, but that fallback
     /// is also kept within the remaining budget.
     pub fn get_page_content_with_limit(&self, page_id: ObjectId, max_decompressed_size: usize) -> Result<Vec<u8>> {
+        self.page_content(page_id, Some(max_decompressed_size))
+    }
+
+    /// Shared implementation of [`Document::get_page_content`] and its bounded
+    /// counterpart: concatenate the page's content streams, newline-separated.
+    ///
+    /// A stream that fails to decode falls back to its raw bytes; under a limit,
+    /// the fallback is itself charged against the remaining budget, and a stream
+    /// that would exceed the limit is rejected rather than truncated.
+    fn page_content(&self, page_id: ObjectId, max_decompressed_size: Option<usize>) -> Result<Vec<u8>> {
+        let exceeded = || {
+            DecompressError::MemoryLimitExceeded {
+                limit: max_decompressed_size.unwrap_or(0),
+            }
+            .into()
+        };
+
         let mut content = Vec::new();
-        let content_streams = self.get_page_contents(page_id);
-        for object_id in content_streams {
-            if let Ok(content_stream) = self.get_object(object_id).and_then(Object::as_stream) {
-                let remaining = max_decompressed_size.saturating_sub(content.len());
-                match content_stream.decompressed_content_with_limit(remaining) {
+        for object_id in self.get_page_contents(page_id) {
+            let Ok(content_stream) = self.get_object(object_id).and_then(Object::as_stream) else {
+                continue;
+            };
+            let remaining = max_decompressed_size.map(|max| max.saturating_sub(content.len()));
+
+            match remaining {
+                Some(remaining) => match content_stream.decompressed_content_with_limit(remaining) {
                     Ok(data) => content.extend_from_slice(&data),
-                    Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
-                        return Err(DecompressError::MemoryLimitExceeded {
-                            limit: max_decompressed_size,
-                        }
-                        .into());
-                    }
-                    // Like `get_page_content`, fall back to the raw bytes when decoding fails,
-                    // but count them against the page's remaining budget.
-                    Err(_) => {
-                        if content_stream.content.len() > remaining {
-                            return Err(DecompressError::MemoryLimitExceeded {
-                                limit: max_decompressed_size,
-                            }
-                            .into());
-                        }
+                    Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => return Err(exceeded()),
+                    Err(_) if content_stream.content.len() <= remaining => {
                         content.extend_from_slice(&content_stream.content);
                     }
-                }
-                content.push(b'\n');
+                    Err(_) => return Err(exceeded()),
+                },
+                None => match content_stream.decompressed_content() {
+                    Ok(data) => content.extend_from_slice(&data),
+                    Err(_) => content.extend_from_slice(&content_stream.content),
+                },
             }
+            content.push(b'\n');
         }
         Ok(content)
     }
@@ -732,14 +724,7 @@ impl Document {
     /// An entry that is neither is skipped, as is a reference that does not resolve to a
     /// dictionary: a damaged entry costs its own annotation rather than the whole page.
     pub fn get_page_annotations(&self, page_id: ObjectId) -> Result<Vec<&Dictionary>> {
-        let Ok(page) = self.get_dictionary(page_id) else {
-            return Ok(vec![]);
-        };
-        let entries = match page.get(b"Annots") {
-            Ok(Object::Reference(id)) => self.get_object(*id).and_then(Object::as_array)?,
-            Ok(Object::Array(entries)) => entries,
-            _ => return Ok(vec![]),
-        };
+        let (_, entries) = self.annots_container(page_id)?;
         let mut annotations = Vec::with_capacity(entries.len());
         for entry in entries {
             match entry {
@@ -753,6 +738,20 @@ impl Document {
             }
         }
         Ok(annotations)
+    }
+
+    /// Resolve a page's `/Annots` to the array of annotation entries, together
+    /// with the object that array lives in: either an indirect array or, when
+    /// `/Annots` is written directly into the page, the page itself.
+    fn annots_container(&self, page_id: ObjectId) -> Result<(ObjectId, &[Object])> {
+        let Ok(page) = self.get_dictionary(page_id) else {
+            return Ok((page_id, &[]));
+        };
+        match page.get(b"Annots") {
+            Ok(Object::Reference(id)) => Ok((*id, self.get_object(*id).and_then(Object::as_array)?)),
+            Ok(Object::Array(entries)) => Ok((page_id, entries)),
+            _ => Ok((page_id, &[])),
+        }
     }
 
     /// Get mutable references to the PDF annotations of a page, the counterpart
@@ -774,16 +773,10 @@ impl Document {
 
         // Plan the work under a shared borrow; it ends here, before mutable access.
         let (container_id, plan, referenced): (ObjectId, Vec<Slot>, HashSet<ObjectId>) = {
-            let Ok(page) = self.get_dictionary(page_id) else {
+            // Unlike the read-only version, a `/Annots` array that does not
+            // resolve costs the page its annotations rather than the call.
+            let Ok((container_id, entries)) = self.annots_container(page_id) else {
                 return Ok(vec![]);
-            };
-            let (container_id, entries) = match page.get(b"Annots") {
-                Ok(Object::Reference(id)) => match self.get_object(*id).and_then(Object::as_array) {
-                    Ok(entries) => (*id, entries),
-                    Err(_) => return Ok(vec![]),
-                },
-                Ok(Object::Array(entries)) => (page_id, entries),
-                _ => return Ok(vec![]),
             };
             let mut plan = Vec::with_capacity(entries.len());
             let mut referenced = HashSet::new();

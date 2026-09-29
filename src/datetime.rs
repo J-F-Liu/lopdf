@@ -2,20 +2,19 @@ use super::Object;
 
 #[cfg(feature = "chrono")]
 mod chrono_impl {
-    use crate::{Object, datetime::convert_utc_offset};
+    use crate::Object;
+    use crate::datetime::{date_literal, date_with_offset};
     use chrono::prelude::*;
 
     impl From<DateTime<FixedOffset>> for Object {
         fn from(date: DateTime<FixedOffset>) -> Self {
-            let mut timezone_str = date.format("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
-            convert_utc_offset(&mut timezone_str);
-            Object::string_literal(timezone_str)
+            date_with_offset(date.format("D:%Y%m%d%H%M%S%:z'").to_string())
         }
     }
 
     impl From<DateTime<Utc>> for Object {
         fn from(date: DateTime<Utc>) -> Self {
-            Object::string_literal(date.format("D:%Y%m%d%H%M%SZ").to_string())
+            date_literal(date.format("D:%Y%m%d%H%M%SZ").to_string())
         }
     }
 
@@ -47,14 +46,13 @@ mod chrono_impl {
 /// document can have dates for `chrono` and `num-traits` alone.
 #[cfg(feature = "chrono-clock")]
 mod chrono_clock_impl {
-    use crate::{Object, datetime::convert_utc_offset};
+    use crate::Object;
+    use crate::datetime::date_with_offset;
     use chrono::prelude::*;
 
     impl From<DateTime<Local>> for Object {
         fn from(date: DateTime<Local>) -> Self {
-            let mut timezone_str = date.format("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
-            convert_utc_offset(&mut timezone_str);
-            Object::string_literal(timezone_str)
+            date_with_offset(date.format("D:%Y%m%d%H%M%S%:z'").to_string())
         }
     }
 
@@ -69,20 +67,19 @@ mod chrono_clock_impl {
 
 #[cfg(feature = "jiff")]
 mod jiff_impl {
-    use crate::{Object, datetime::convert_utc_offset};
+    use crate::Object;
+    use crate::datetime::{date_literal, date_with_offset};
     use jiff::{Timestamp, Zoned};
 
     impl From<Zoned> for Object {
         fn from(date: Zoned) -> Self {
-            let mut timezone_str = date.strftime("D:%Y%m%d%H%M%S%:z'").to_string().into_bytes();
-            convert_utc_offset(&mut timezone_str);
-            Object::string_literal(timezone_str)
+            date_with_offset(date.strftime("D:%Y%m%d%H%M%S%:z'").to_string())
         }
     }
 
     impl From<Timestamp> for Object {
         fn from(date: Timestamp) -> Self {
-            Object::string_literal(date.strftime("D:%Y%m%d%H%M%SZ").to_string())
+            date_literal(date.strftime("D:%Y%m%d%H%M%SZ").to_string())
         }
     }
 
@@ -107,6 +104,7 @@ mod jiff_impl {
 
 #[cfg(feature = "time")]
 mod time_impl {
+    use super::date_literal;
     use crate::Object;
     use time::{OffsetDateTime, PrimitiveDateTime};
 
@@ -120,26 +118,23 @@ mod time_impl {
     /// PDF date anyway, which must start at the year.)
     impl From<PrimitiveDateTime> for Object {
         fn from(date: PrimitiveDateTime) -> Self {
-            Object::string_literal({
-                // D:%Y%m%d%H%M%SZ
-                let format =
-                    time::format_description::parse_borrowed::<3>("D:[year][month][day][hour][minute][second]Z")
-                        .unwrap();
-                date.format(&format).unwrap()
-            })
+            // D:%Y%m%d%H%M%SZ
+            let format =
+                time::format_description::parse_borrowed::<3>("D:[year][month][day][hour][minute][second]Z").unwrap();
+            date_literal(date.format(&format).unwrap())
         }
     }
 
     impl From<OffsetDateTime> for Object {
         fn from(date: OffsetDateTime) -> Self {
-            Object::string_literal({
-                // D:%Y%m%d%H%M%S:%z'
-                let format = time::format_description::parse_borrowed::<3>(
-                    "D:[year][month][day][hour][minute][second][offset_hour sign:mandatory]'[offset_minute]'",
-                )
-                .unwrap();
-                date.format(&format).unwrap()
-            })
+            // The `time` crate spells PDF's offset separator directly (the
+            // literal `'` in the format), so unlike chrono/jiff there is no
+            // `:` to fix up and the bytes are already correct.
+            let format = time::format_description::parse_borrowed::<3>(
+                "D:[year][month][day][hour][minute][second][offset_hour sign:mandatory]'[offset_minute]'",
+            )
+            .unwrap();
+            date_literal(date.format(&format).unwrap())
         }
     }
 
@@ -159,6 +154,25 @@ mod time_impl {
             Ok(OffsetDateTime::parse(&value.0, &format)?)
         }
     }
+}
+
+/// A PDF date carrying a fixed UTC offset: `D:YYYYMMDDHHMMSS+HH'mm'`
+/// (ISO 32000-1, 7.9.4). The offset uses an apostrophe where the common
+/// `%z`/`%:z` conventions use a colon, so the raw formatted bytes need
+/// fixing up.
+#[cfg(any(feature = "chrono", feature = "jiff"))]
+fn date_with_offset(text: String) -> Object {
+    let mut bytes = text.into_bytes();
+    convert_utc_offset(&mut bytes);
+    Object::string_literal(bytes)
+}
+
+/// Wrap date text that is already in PDF form. Use this for a date at UTC
+/// (`D:YYYYMMDDHHMMSSZ`) and for the `time` crate's offset form, which spells
+/// the `'` separator itself; only [`date_with_offset`] needs the fixup.
+#[cfg(any(feature = "chrono", feature = "jiff", feature = "time"))]
+fn date_literal(text: String) -> Object {
+    Object::string_literal(text)
 }
 
 // Find the last `:` and turn it into an `'` to account for PDF weirdness

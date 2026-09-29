@@ -223,90 +223,63 @@ pub struct EncryptionState {
     pub(crate) encrypt_object_id: Option<ObjectId>,
 }
 
+/// Fields shared by the AES-256 variants (`R5` and `V5`), which differ only
+/// in the revision they record.
+struct Aes256Params<'a> {
+    encrypt_metadata: bool,
+    crypt_filters: BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
+    file_encryption_key: &'a [u8],
+    stream_filter: Vec<u8>,
+    string_filter: Vec<u8>,
+    owner_password: &'a str,
+    user_password: &'a str,
+    permissions: Permissions,
+}
+
 impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
     type Error = Error;
 
     fn try_from(version: EncryptionVersion) -> Result<EncryptionState, Self::Error> {
-        match version {
+        Ok(match version {
             EncryptionVersion::V1 {
                 document,
                 owner_password,
                 user_password,
                 permissions,
-            } => {
-                let permissions = permissions.correct_bits();
-
-                let mut algorithm = PasswordAlgorithm {
-                    encrypt_metadata: true,
-                    length: None,
+            } => r4_state(
+                R4Params {
+                    document,
+                    owner_password,
+                    user_password,
+                    permissions,
+                    key_length: None,
                     version: 1,
                     revision: 2,
-                    permissions,
-                    ..Default::default()
-                };
-
-                let owner_password = algorithm.sanitize_password_r4(owner_password)?;
-                let user_password = algorithm.sanitize_password_r4(user_password)?;
-
-                algorithm.owner_value =
-                    algorithm.compute_hashed_owner_password_r4(Some(&owner_password), &user_password)?;
-
-                algorithm.user_value = algorithm.compute_hashed_user_password_r2(document, &user_password)?;
-
-                let file_encryption_key = algorithm.compute_file_encryption_key_r4(document, &user_password)?;
-
-                Ok(Self {
-                    version: algorithm.version,
-                    revision: algorithm.revision,
-                    key_length: algorithm.length,
-                    encrypt_metadata: algorithm.encrypt_metadata,
-                    file_encryption_key,
-                    owner_value: algorithm.owner_value,
-                    user_value: algorithm.user_value,
-                    permissions: algorithm.permissions,
-                    ..Default::default()
-                })
-            }
+                    user_hash: UserHash::R2,
+                    encrypt_metadata: true,
+                },
+                None,
+            )?,
             EncryptionVersion::V2 {
                 document,
                 owner_password,
                 user_password,
                 key_length,
                 permissions,
-            } => {
-                let permissions = permissions.correct_bits();
-
-                let mut algorithm = PasswordAlgorithm {
-                    encrypt_metadata: true,
-                    length: Some(key_length),
+            } => r4_state(
+                R4Params {
+                    document,
+                    owner_password,
+                    user_password,
+                    permissions,
+                    key_length: Some(key_length),
                     version: 2,
                     revision: 3,
-                    permissions,
-                    ..Default::default()
-                };
-
-                let owner_password = algorithm.sanitize_password_r4(owner_password)?;
-                let user_password = algorithm.sanitize_password_r4(user_password)?;
-
-                algorithm.owner_value =
-                    algorithm.compute_hashed_owner_password_r4(Some(&owner_password), &user_password)?;
-
-                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(document, &user_password)?;
-
-                let file_encryption_key = algorithm.compute_file_encryption_key_r4(document, &user_password)?;
-
-                Ok(Self {
-                    version: algorithm.version,
-                    revision: algorithm.revision,
-                    key_length: algorithm.length,
-                    encrypt_metadata: algorithm.encrypt_metadata,
-                    file_encryption_key,
-                    owner_value: algorithm.owner_value,
-                    user_value: algorithm.user_value,
-                    permissions,
-                    ..Default::default()
-                })
-            }
+                    user_hash: UserHash::R3R4,
+                    encrypt_metadata: true,
+                },
+                None,
+            )?,
             EncryptionVersion::V4 {
                 document,
                 encrypt_metadata,
@@ -316,43 +289,20 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 owner_password,
                 user_password,
                 permissions,
-            } => {
-                let permissions = permissions.correct_bits();
-
-                let mut algorithm = PasswordAlgorithm {
-                    encrypt_metadata,
-                    length: Some(128),
+            } => r4_state(
+                R4Params {
+                    document,
+                    owner_password,
+                    user_password,
+                    permissions,
+                    key_length: Some(128),
                     version: 4,
                     revision: 4,
-                    permissions,
-                    ..Default::default()
-                };
-
-                let owner_password = algorithm.sanitize_password_r4(owner_password)?;
-                let user_password = algorithm.sanitize_password_r4(user_password)?;
-
-                algorithm.owner_value =
-                    algorithm.compute_hashed_owner_password_r4(Some(&owner_password), &user_password)?;
-
-                algorithm.user_value = algorithm.compute_hashed_user_password_r3_r4(document, &user_password)?;
-
-                let file_encryption_key = algorithm.compute_file_encryption_key_r4(document, &user_password)?;
-
-                Ok(Self {
-                    version: algorithm.version,
-                    revision: algorithm.revision,
-                    key_length: algorithm.length,
-                    encrypt_metadata: algorithm.encrypt_metadata,
-                    file_encryption_key,
-                    crypt_filters,
-                    stream_filter,
-                    string_filter,
-                    owner_value: algorithm.owner_value,
-                    user_value: algorithm.user_value,
-                    permissions: algorithm.permissions,
-                    ..Default::default()
-                })
-            }
+                    user_hash: UserHash::R3R4,
+                    encrypt_metadata,
+                },
+                Some((crypt_filters, stream_filter, string_filter)),
+            )?,
             #[allow(deprecated)]
             EncryptionVersion::R5 {
                 encrypt_metadata,
@@ -363,56 +313,19 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 owner_password,
                 user_password,
                 permissions,
-            } => {
-                if file_encryption_key.len() != 32 {
-                    return Err(DecryptionError::InvalidKeyLength)?;
-                }
-
-                let permissions = permissions.correct_bits();
-
-                let mut algorithm = PasswordAlgorithm {
+            } => aes256_state(
+                5,
+                Aes256Params {
                     encrypt_metadata,
-                    version: 5,
-                    revision: 5,
-                    permissions,
-                    ..Default::default()
-                };
-
-                let owner_password = algorithm.sanitize_password_r6(owner_password)?;
-                let user_password = algorithm.sanitize_password_r6(user_password)?;
-
-                let (user_value, user_encrypted) =
-                    algorithm.compute_hashed_user_password_r6(file_encryption_key, user_password)?;
-
-                algorithm.user_value = user_value;
-                algorithm.user_encrypted = user_encrypted;
-
-                let (owner_value, owner_encrypted) =
-                    algorithm.compute_hashed_owner_password_r6(file_encryption_key, owner_password)?;
-
-                algorithm.owner_value = owner_value;
-                algorithm.owner_encrypted = owner_encrypted;
-
-                algorithm.permission_encrypted = algorithm.compute_permissions(file_encryption_key)?;
-
-                Ok(Self {
-                    version: algorithm.version,
-                    revision: algorithm.revision,
-                    key_length: algorithm.length,
-                    encrypt_metadata: algorithm.encrypt_metadata,
                     crypt_filters,
-                    file_encryption_key: file_encryption_key.to_vec(),
+                    file_encryption_key,
                     stream_filter,
                     string_filter,
-                    owner_value: algorithm.owner_value,
-                    owner_encrypted: algorithm.owner_encrypted,
-                    user_value: algorithm.user_value,
-                    user_encrypted: algorithm.user_encrypted,
-                    permissions: algorithm.permissions,
-                    permission_encrypted: algorithm.permission_encrypted,
-                    encrypt_object_id: None,
-                })
-            }
+                    owner_password,
+                    user_password,
+                    permissions,
+                },
+            )?,
             EncryptionVersion::V5 {
                 encrypt_metadata,
                 crypt_filters,
@@ -422,58 +335,185 @@ impl TryFrom<EncryptionVersion<'_>> for EncryptionState {
                 owner_password,
                 user_password,
                 permissions,
-            } => {
-                if file_encryption_key.len() != 32 {
-                    return Err(DecryptionError::InvalidKeyLength)?;
-                }
-
-                let permissions = permissions.correct_bits();
-
-                let mut algorithm = PasswordAlgorithm {
+            } => aes256_state(
+                6,
+                Aes256Params {
                     encrypt_metadata,
-                    version: 5,
-                    revision: 6,
-                    permissions,
-                    ..Default::default()
-                };
-
-                let owner_password = algorithm.sanitize_password_r6(owner_password)?;
-                let user_password = algorithm.sanitize_password_r6(user_password)?;
-
-                let (user_value, user_encrypted) =
-                    algorithm.compute_hashed_user_password_r6(file_encryption_key, user_password)?;
-
-                algorithm.user_value = user_value;
-                algorithm.user_encrypted = user_encrypted;
-
-                let (owner_value, owner_encrypted) =
-                    algorithm.compute_hashed_owner_password_r6(file_encryption_key, owner_password)?;
-
-                algorithm.owner_value = owner_value;
-                algorithm.owner_encrypted = owner_encrypted;
-
-                algorithm.permission_encrypted = algorithm.compute_permissions(file_encryption_key)?;
-
-                Ok(Self {
-                    version: algorithm.version,
-                    revision: algorithm.revision,
-                    key_length: algorithm.length,
-                    encrypt_metadata: algorithm.encrypt_metadata,
                     crypt_filters,
-                    file_encryption_key: file_encryption_key.to_vec(),
+                    file_encryption_key,
                     stream_filter,
                     string_filter,
-                    owner_value: algorithm.owner_value,
-                    owner_encrypted: algorithm.owner_encrypted,
-                    user_value: algorithm.user_value,
-                    user_encrypted: algorithm.user_encrypted,
-                    permissions: algorithm.permissions,
-                    permission_encrypted: algorithm.permission_encrypted,
-                    encrypt_object_id: None,
-                })
-            }
-        }
+                    owner_password,
+                    user_password,
+                    permissions,
+                },
+            )?,
+        })
     }
+}
+
+/// Which Algorithm 4 variant a revision uses to derive `/U`: revision 2 hashes
+/// the padded password on its own, revision 3 and above also mix in the file
+/// identifier. Named explicitly so that adding a revision cannot silently land
+/// on the wrong hash.
+#[derive(Clone, Copy)]
+enum UserHash {
+    /// Algorithm 4: MD5 of the padded password, then the RC4 rounds of
+    /// revision 2's own key derivation.
+    R2,
+    /// Algorithm 5: as above with the first `/ID` element mixed in.
+    R3R4,
+}
+
+/// Fields shared by the MD5-based revisions (`V1`, `V2` and `V4`), which run
+/// the same Algorithms 2 through 5 and differ only in version, revision, key
+/// length, user hash and metadata handling.
+struct R4Params<'a> {
+    document: &'a Document,
+    owner_password: &'a str,
+    user_password: &'a str,
+    permissions: Permissions,
+    key_length: Option<usize>,
+    version: i64,
+    revision: i64,
+    user_hash: UserHash,
+    encrypt_metadata: bool,
+}
+
+/// The per-object crypt filter triple `V4` and later carry, and the earlier
+/// revisions leave unset.
+type CryptFilters = (
+    BTreeMap<Vec<u8>, Arc<dyn CryptFilter>>,
+    Vec<u8>, // StmF
+    Vec<u8>, // StrF
+);
+
+/// Build the [`EncryptionState`] for one of the MD5-based revisions. The
+/// per-object crypt filters are present only from `V4` on.
+fn r4_state(params: R4Params<'_>, crypt_filters: Option<CryptFilters>) -> Result<EncryptionState, DecryptionError> {
+    let R4Params {
+        document,
+        owner_password,
+        user_password,
+        permissions,
+        key_length,
+        version,
+        revision,
+        user_hash,
+        encrypt_metadata,
+    } = params;
+
+    let mut algorithm = r4_algorithm(key_length, version, revision, encrypt_metadata, permissions);
+
+    let owner_password = algorithm.sanitize_password_r4(owner_password)?;
+    let user_password = algorithm.sanitize_password_r4(user_password)?;
+
+    algorithm.owner_value = algorithm.compute_hashed_owner_password_r4(Some(&owner_password), &user_password)?;
+
+    algorithm.user_value = match user_hash {
+        UserHash::R2 => algorithm.compute_hashed_user_password_r2(document, &user_password)?,
+        UserHash::R3R4 => algorithm.compute_hashed_user_password_r3_r4(document, &user_password)?,
+    };
+
+    let file_encryption_key = algorithm.compute_file_encryption_key_r4(document, &user_password)?;
+
+    let (crypt_filters, stream_filter, string_filter) = crypt_filters.unwrap_or_default();
+
+    Ok(EncryptionState {
+        version: algorithm.version,
+        revision: algorithm.revision,
+        key_length: algorithm.length,
+        encrypt_metadata: algorithm.encrypt_metadata,
+        file_encryption_key,
+        crypt_filters,
+        stream_filter,
+        string_filter,
+        owner_value: algorithm.owner_value,
+        user_value: algorithm.user_value,
+        // The corrected bits, which `r4_algorithm` recorded on the algorithm.
+        permissions: algorithm.permissions,
+        ..Default::default()
+    })
+}
+
+/// An [`PasswordAlgorithm`] seeded for one of the MD5-based revisions
+/// (2 through 4), which derive the file encryption key the same way and
+/// differ only in version, revision and key length. The permissions are
+/// corrected here, because every revision records them in `/P`.
+fn r4_algorithm(
+    key_length: Option<usize>, version: i64, revision: i64, encrypt_metadata: bool, permissions: Permissions,
+) -> PasswordAlgorithm {
+    PasswordAlgorithm {
+        encrypt_metadata,
+        length: key_length,
+        version,
+        revision,
+        permissions: permissions.correct_bits(),
+        ..Default::default()
+    }
+}
+
+/// An [`EncryptionState`] for the AES-256 revisions (5 and 6), which run the
+/// same Algorithms 8, 9 and 10 and differ only in the revision recorded.
+fn aes256_state(revision: i64, params: Aes256Params<'_>) -> Result<EncryptionState, DecryptionError> {
+    let Aes256Params {
+        encrypt_metadata,
+        crypt_filters,
+        file_encryption_key,
+        stream_filter,
+        string_filter,
+        owner_password,
+        user_password,
+        permissions,
+    } = params;
+
+    if file_encryption_key.len() != 32 {
+        return Err(DecryptionError::InvalidKeyLength);
+    }
+
+    let permissions = permissions.correct_bits();
+
+    let mut algorithm = PasswordAlgorithm {
+        encrypt_metadata,
+        version: 5,
+        revision,
+        permissions,
+        ..Default::default()
+    };
+
+    let owner_password = algorithm.sanitize_password_r6(owner_password)?;
+    let user_password = algorithm.sanitize_password_r6(user_password)?;
+
+    let (user_value, user_encrypted) = algorithm.compute_hashed_user_password_r6(file_encryption_key, user_password)?;
+
+    algorithm.user_value = user_value;
+    algorithm.user_encrypted = user_encrypted;
+
+    let (owner_value, owner_encrypted) =
+        algorithm.compute_hashed_owner_password_r6(file_encryption_key, owner_password)?;
+
+    algorithm.owner_value = owner_value;
+    algorithm.owner_encrypted = owner_encrypted;
+
+    algorithm.permission_encrypted = algorithm.compute_permissions(file_encryption_key)?;
+
+    Ok(EncryptionState {
+        version: algorithm.version,
+        revision: algorithm.revision,
+        key_length: algorithm.length,
+        encrypt_metadata: algorithm.encrypt_metadata,
+        crypt_filters,
+        file_encryption_key: file_encryption_key.to_vec(),
+        stream_filter,
+        string_filter,
+        owner_value: algorithm.owner_value,
+        owner_encrypted: algorithm.owner_encrypted,
+        user_value: algorithm.user_value,
+        user_encrypted: algorithm.user_encrypted,
+        permissions: algorithm.permissions,
+        permission_encrypted: algorithm.permission_encrypted,
+        encrypt_object_id: None,
+    })
 }
 
 impl EncryptionState {
@@ -676,8 +716,24 @@ impl EncryptionState {
     }
 }
 
-/// Encrypts `obj`.
-pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Object) -> Result<(), DecryptionError> {
+/// Which way a crypt filter is applied to an object's payload.
+#[derive(Clone, Copy)]
+enum Direction {
+    Encrypt,
+    Decrypt,
+}
+
+/// Applies the document's crypt filter to every string and stream in `obj`,
+/// recursing through arrays and dictionaries to reach the ones nested inside.
+///
+/// Encryption and decryption are the same walk over the object with the
+/// filter run forwards or backwards, so they share this traversal; the spec
+/// rules about which objects are exempt are identical in both directions
+/// (ISO 32000-1, 7.6). A direction that ever needs a different exemption
+/// belongs in its own wrapper rather than in a test of `direction` here.
+fn transform_object(
+    state: &EncryptionState, obj_id: ObjectId, obj: &mut Object, direction: Direction,
+) -> Result<(), DecryptionError> {
     // The cross-reference stream shall not be encrypted and strings appearing in the
     // cross-reference stream dictionary shall not be encrypted.
     let is_xref_stream = obj
@@ -715,21 +771,20 @@ pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
                 .unwrap_or(Arc::new(IdentityCryptFilter))
         });
 
-    // Retrieve the plaintext and the crypt filter to use to decrypt the ciphertext from the given
-    // object.
-    let (mut crypt_filter, plaintext) = match obj {
+    // Retrieve the payload and the crypt filter to use to transform it.
+    let (mut crypt_filter, payload) = match obj {
         // Every string and stream is covered, so recurse into arrays and dictionaries
         // to reach the ones nested inside.
         Object::Array(objects) => {
             for obj in objects {
-                encrypt_object(state, obj_id, obj)?;
+                transform_object(state, obj_id, obj, direction)?;
             }
 
             return Ok(());
         }
         Object::Dictionary(objects) => {
             for (_, obj) in objects.iter_mut() {
-                encrypt_object(state, obj_id, obj)?;
+                transform_object(state, obj_id, obj, direction)?;
             }
 
             return Ok(());
@@ -754,108 +809,29 @@ pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Objec
     // the corresponding object.
     let key = crypt_filter.compute_key(&state.file_encryption_key, obj_id)?;
 
-    // Encrypt the plaintext.
-    let ciphertext = crypt_filter.encrypt(&key, plaintext)?;
+    let transformed = match direction {
+        Direction::Encrypt => crypt_filter.encrypt(&key, payload)?,
+        Direction::Decrypt => crypt_filter.decrypt(&key, payload)?,
+    };
 
-    // Store the ciphertext in the object.
+    // Store the result in the object.
     match obj {
-        Object::Stream(stream) => stream.set_content(ciphertext),
-        Object::String(content, _) => *content = ciphertext,
+        Object::Stream(stream) => stream.set_content(transformed),
+        Object::String(content, _) => *content = transformed,
         _ => (),
     }
 
     Ok(())
 }
 
+/// Encrypts `obj`.
+pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Object) -> Result<(), DecryptionError> {
+    transform_object(state, obj_id, obj, Direction::Encrypt)
+}
+
 /// Decrypts `obj`.
 pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Object) -> Result<(), DecryptionError> {
-    // The cross-reference stream shall not be encrypted and strings appearing in the
-    // cross-reference stream dictionary shall not be encrypted.
-    let is_xref_stream = obj
-        .as_stream()
-        .map(|stream| stream.dict.has_type(b"XRef"))
-        .unwrap_or(false);
-
-    if is_xref_stream {
-        return Ok(());
-    }
-
-    // The Metadata stream shall only be encrypted if EncryptMetadata is set to true.
-    if obj.type_name().ok() == Some(b"Metadata") && !state.encrypt_metadata {
-        return Ok(());
-    }
-
-    // A stream's DecodeParms /Crypt /Name may override the document's default crypt filter;
-    // Identity is used when absent.
-    let override_crypt_filter = obj
-        .as_stream()
-        .ok()
-        .filter(|stream| {
-            stream
-                .filters()
-                .map(|filters| filters.contains(&&b"Crypt"[..]))
-                .unwrap_or(false)
-        })
-        .and_then(|stream| stream.dict.get(b"DecodeParms").ok())
-        .and_then(|object| object.as_dict().ok())
-        .map(|dict| {
-            dict.get(b"Name")
-                .and_then(|object| object.as_name())
-                .ok()
-                .and_then(|name| state.crypt_filters.get(name).cloned())
-                .unwrap_or(Arc::new(IdentityCryptFilter))
-        });
-
-    // Retrieve the ciphertext and the crypt filter to use to decrypt the ciphertext from the given
-    // object.
-    let (mut crypt_filter, ciphertext) = match obj {
-        // Every string and stream is covered, so recurse into arrays and dictionaries
-        // to reach the ones nested inside.
-        Object::Array(objects) => {
-            for obj in objects {
-                decrypt_object(state, obj_id, obj)?;
-            }
-
-            return Ok(());
-        }
-        Object::Dictionary(objects) => {
-            for (_, obj) in objects.iter_mut() {
-                decrypt_object(state, obj_id, obj)?;
-            }
-
-            return Ok(());
-        }
-        // Encryption applies to all strings and streams in the document's PDF file. We return the
-        // crypt filter and the content here.
-        Object::String(content, _) => (state.get_string_filter(), &*content),
-        Object::Stream(stream) => (state.get_stream_filter(), &stream.content),
-        // Encryption is not applied to other object types such as integers and boolean values.
-        _ => {
-            return Ok(());
-        }
-    };
-
-    // If the stream object specifies its own crypt filter, override the default one with the one
-    // from this stream object.
-    if let Some(filter) = override_crypt_filter {
-        crypt_filter = filter;
-    }
-
-    // Compute the key from the original file encryption key and the object identifier to use for
-    // the corresponding object.
-    let key = crypt_filter.compute_key(&state.file_encryption_key, obj_id)?;
-
-    // Decrypt the ciphertext.
-    let plaintext = crypt_filter.decrypt(&key, ciphertext)?;
-
-    // Store the plaintext in the object.
-    match obj {
-        Object::Stream(stream) => stream.set_content(plaintext),
-        Object::String(content, _) => *content = plaintext,
-        _ => (),
-    }
-
-    Ok(())
+    transform_object(state, obj_id, obj, Direction::Decrypt)
 }
 
 #[cfg(test)]

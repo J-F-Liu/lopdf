@@ -40,6 +40,24 @@ impl CryptFilter for IdentityCryptFilter {
     }
 }
 
+/// Extend the file key with the low-order 3 bytes of the object number and the
+/// low-order 2 bytes of the generation number, which is how every per-object
+/// key is seeded before hashing (Algorithms 1 and 2.B).
+fn key_with_object_number(key: &[u8], obj_id: ObjectId) -> Vec<u8> {
+    let mut builder = Vec::with_capacity(key.len() + 5);
+    builder.extend_from_slice(key);
+    builder.extend_from_slice(&obj_id.0.to_le_bytes()[..3]);
+    builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
+    builder
+}
+
+/// The per-object key is the first min(n + 5, 16) bytes of the MD5 of the
+/// extended file key, where n is the file key's length.
+fn md5_object_key(extended_key: &[u8], file_key_len: usize) -> Vec<u8> {
+    let key_len = (file_key_len + 5).min(16);
+    Md5::digest(extended_key)[..key_len].to_vec()
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Rc4CryptFilter;
 
@@ -49,20 +67,7 @@ impl CryptFilter for Rc4CryptFilter {
     }
 
     fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
-        let mut hasher = Md5::new();
-
-        hasher.update(key);
-
-        // Extend the file key to n + 5 bytes: low-order 3 bytes of the object number then
-        // low-order 2 bytes of the generation number.
-        hasher.update(&obj_id.0.to_le_bytes()[..3]);
-        hasher.update(&obj_id.1.to_le_bytes()[..2]);
-
-        // The first min(n + 5, 16) bytes of the MD5 output are the AES key.
-        let key_len = std::cmp::min(key.len() + 5, 16);
-        let key = hasher.finalize()[..key_len].to_vec();
-
-        Ok(key)
+        Ok(md5_object_key(&key_with_object_number(key, obj_id), key.len()))
     }
 
     fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
@@ -74,170 +79,111 @@ impl CryptFilter for Rc4CryptFilter {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Aes128CryptFilter;
+/// AES-CBC with PKCS#5 padding (RFC 2898) under a key of the width the named
+/// cipher takes. `Aes128CryptFilter` and `Aes256CryptFilter` agree on the
+/// whole CBC envelope and differ only in key size and cipher, so it is
+/// generated; `compute_key` stays per-filter because the two derive the key
+/// differently (Algorithms 1 and 2.B respectively).
+macro_rules! aes_cbc_crypt_filter {
+    ($name:ident, $method:literal, $key_len:literal, $enc:ty, $dec:ty, $compute_key:expr) => {
+        #[derive(Clone, Copy, Debug)]
+        pub struct $name;
 
-impl CryptFilter for Aes128CryptFilter {
-    fn method(&self) -> &[u8] {
-        b"AESV2"
-    }
+        impl CryptFilter for $name {
+            fn method(&self) -> &[u8] {
+                $method
+            }
 
-    fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
-        let mut builder = Vec::with_capacity(key.len() + 9);
+            fn compute_key(&self, key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
+                $compute_key(key, obj_id)
+            }
 
-        builder.extend_from_slice(key);
+            fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+                let key: &[u8; $key_len] = key.try_into().map_err(|_| DecryptionError::InvalidKeyLength)?;
 
-        // Extend the file key to n + 5 bytes: low-order 3 bytes of the object number then
-        // low-order 2 bytes of the generation number.
-        builder.extend_from_slice(&obj_id.0.to_le_bytes()[..3]);
-        builder.extend_from_slice(&obj_id.1.to_le_bytes()[..2]);
+                // The ciphertext needs to be a multiple of 16 bytes to include the padding.
+                let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
 
-        // If using the AES algorithm, extend the file encryption key an additional 4 bytes by
-        // adding the value "sAlT".
-        builder.extend_from_slice(b"sAlT");
+                // Allocate sufficient bytes for the initialization vector, the ciphertext and the padding
+                // combined.
+                let mut ciphertext = Vec::with_capacity(16 + ciphertext_len);
 
-        // The first min(n + 5, 16) bytes of the MD5 output are the AES key.
-        let key_len = std::cmp::min(key.len() + 5, 16);
-        let key = Md5::digest(builder)[..key_len].to_vec();
+                // Generate random numbers to populate the initialization vector.
+                let mut rng = rand::rng();
+                let mut iv = [0u8; 16];
+                rng.fill(&mut iv);
 
-        Ok(key)
-    }
+                // Combine the IV and the plaintext.
+                ciphertext.extend_from_slice(&iv);
+                ciphertext.extend_from_slice(plaintext);
+                ciphertext.resize(16 + ciphertext_len, 0);
 
-    fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
-        // Ensure that the key is 128 bits (i.e., 16 bytes).
-        if key.len() != 16 {
-            return Err(DecryptionError::InvalidKeyLength);
+                <$enc>::new(key.into(), &iv.into())
+                    .encrypt_padded::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
+                    // Padding errors should not occur when encrypting, but avoid causing a panic.
+                    .map_err(|_| DecryptionError::Padding)?;
+
+                Ok(ciphertext)
+            }
+
+            fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
+                let key: &[u8; $key_len] = key.try_into().map_err(|_| DecryptionError::InvalidKeyLength)?;
+
+                // Ensure that the ciphertext length is a multiple of 16 bytes.
+                if !ciphertext.len().is_multiple_of(16) {
+                    return Err(DecryptionError::InvalidCipherTextLength);
+                }
+
+                // There is nothing to decrypt if the ciphertext is empty or only contains the IV.
+                if ciphertext.is_empty() || ciphertext.len() == 16 {
+                    return Ok(vec![]);
+                }
+
+                let mut iv = [0x00u8; 16];
+                iv.copy_from_slice(&ciphertext[..16]);
+
+                let data = &mut ciphertext[16..].to_vec();
+
+                Ok(<$dec>::new(key.into(), &iv.into())
+                    .decrypt_padded::<Pkcs5>(data)
+                    .map_err(|_| DecryptionError::Padding)?
+                    .to_vec())
+            }
         }
-        let key: &[u8; 16] = key.try_into().map_err(|_| DecryptionError::InvalidKeyLength)?;
-
-        // The ciphertext needs to be a multiple of 16 bytes to include the padding.
-        let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
-
-        // Allocate sufficient bytes for the initialization vector, the ciphertext and the padding
-        // combined.
-        let mut ciphertext = Vec::with_capacity(16 + ciphertext_len);
-
-        // Generate random numbers to populate the initialization vector.
-        let mut rng = rand::rng();
-        let mut iv = [0u8; 16];
-        rng.fill(&mut iv);
-
-        // Combine the IV and the plaintext.
-        ciphertext.extend_from_slice(&iv);
-        ciphertext.extend_from_slice(plaintext);
-        ciphertext.resize(16 + ciphertext_len, 0);
-
-        // AES-128 CBC with PKCS#5 padding (RFC 2898).
-        Aes128CbcEnc::new(key.into(), &iv.into())
-            .encrypt_padded::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
-            // Padding errors should not occur when encrypting, but avoid causing a panic.
-            .map_err(|_| DecryptionError::Padding)?;
-
-        Ok(ciphertext)
-    }
-
-    fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
-        // Ensure that the key is 128 bits (i.e., 16 bytes).
-        if key.len() != 16 {
-            return Err(DecryptionError::InvalidKeyLength);
-        }
-        let key: &[u8; 16] = key.try_into().map_err(|_| DecryptionError::InvalidKeyLength)?;
-
-        // Ensure that the ciphertext length is a multiple of 16 bytes.
-        if !ciphertext.len().is_multiple_of(16) {
-            return Err(DecryptionError::InvalidCipherTextLength);
-        }
-
-        // There is nothing to decrypt if the ciphertext is empty or only contains the IV.
-        if ciphertext.is_empty() || ciphertext.len() == 16 {
-            return Ok(vec![]);
-        }
-
-        let mut iv = [0x00u8; 16];
-        iv.copy_from_slice(&ciphertext[..16]);
-
-        // AES-128 CBC with PKCS#5 padding (RFC 2898).
-        let data = &mut ciphertext[16..].to_vec();
-
-        Ok(Aes128CbcDec::new(key.into(), &iv.into())
-            .decrypt_padded::<Pkcs5>(data)
-            .map_err(|_| DecryptionError::Padding)?
-            .to_vec())
-    }
+    };
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Aes256CryptFilter;
+/// Algorithm 1: extend the file key with the object number and generation,
+/// then, for AES, with the "sAlT" marker, and take the first min(n + 5, 16)
+/// bytes of the MD5 as the key.
+fn aes128_compute_key(key: &[u8], obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
+    let mut builder = key_with_object_number(key, obj_id);
 
-impl CryptFilter for Aes256CryptFilter {
-    fn method(&self) -> &[u8] {
-        b"AESV3"
-    }
+    // If using the AES algorithm, extend the file encryption key an additional 4 bytes by
+    // adding the value "sAlT".
+    builder.extend_from_slice(b"sAlT");
 
-    fn compute_key(&self, key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
-        // Use the 32-byte file encryption key for the AES-256 symmetric key algorithm.
-        Ok(key.to_vec())
-    }
-
-    fn encrypt(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
-        // Ensure that the key is 256 bits (i.e., 32 bytes).
-        if key.len() != 32 {
-            return Err(DecryptionError::InvalidKeyLength);
-        }
-        let key: &[u8; 32] = key.try_into().map_err(|_| DecryptionError::InvalidKeyLength)?;
-
-        // The ciphertext needs to be a multiple of 16 bytes to include the padding.
-        let ciphertext_len = (plaintext.len() + 16) / 16 * 16;
-
-        // Allocate sufficient bytes for the initialization vector, the ciphertext and the padding
-        // combined.
-        let mut ciphertext = Vec::with_capacity(16 + ciphertext_len);
-
-        // Generate random numbers to populate the initialization vector.
-        let mut rng = rand::rng();
-        let mut iv = [0u8; 16];
-        rng.fill(&mut iv);
-
-        // Combine the IV and the plaintext.
-        ciphertext.extend_from_slice(&iv);
-        ciphertext.extend_from_slice(plaintext);
-        ciphertext.resize(16 + ciphertext_len, 0);
-
-        // AES-256 CBC with PKCS#5 padding (RFC 2898).
-        Aes256CbcEnc::new(key.into(), &iv.into())
-            .encrypt_padded::<Pkcs5>(&mut ciphertext[16..], plaintext.len())
-            // Padding errors should not occur when encrypting, but avoid causing a panic.
-            .map_err(|_| DecryptionError::Padding)?;
-
-        Ok(ciphertext)
-    }
-
-    fn decrypt(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, DecryptionError> {
-        // Ensure that the key is 256 bits (i.e., 32 bytes).
-        if key.len() != 32 {
-            return Err(DecryptionError::InvalidKeyLength);
-        }
-        let key: &[u8; 32] = key.try_into().map_err(|_| DecryptionError::InvalidKeyLength)?;
-
-        // Ensure that the ciphertext length is a multiple of 16 bytes.
-        if !ciphertext.len().is_multiple_of(16) {
-            return Err(DecryptionError::InvalidCipherTextLength);
-        }
-
-        // There is nothing to decrypt if the ciphertext is empty or only contains the IV.
-        if ciphertext.is_empty() || ciphertext.len() == 16 {
-            return Ok(vec![]);
-        }
-
-        let mut iv = [0x00u8; 16];
-        iv.copy_from_slice(&ciphertext[..16]);
-
-        // AES-256 CBC with PKCS#7 padding (RFC 2898).
-        let data = &mut ciphertext[16..].to_vec();
-
-        Ok(Aes256CbcDec::new(key.into(), &iv.into())
-            .decrypt_padded::<Pkcs5>(data)
-            .map_err(|_| DecryptionError::Padding)?
-            .to_vec())
-    }
+    Ok(md5_object_key(&builder, key.len()))
 }
+
+/// Algorithm 2.B: the 32-byte file encryption key is already the AES-256 key.
+fn aes256_compute_key(key: &[u8], _obj_id: ObjectId) -> Result<Vec<u8>, DecryptionError> {
+    Ok(key.to_vec())
+}
+
+aes_cbc_crypt_filter!(
+    Aes128CryptFilter,
+    b"AESV2",
+    16,
+    Aes128CbcEnc,
+    Aes128CbcDec,
+    aes128_compute_key
+);
+aes_cbc_crypt_filter!(
+    Aes256CryptFilter,
+    b"AESV3",
+    32,
+    Aes256CbcEnc,
+    Aes256CbcDec,
+    aes256_compute_key
+);

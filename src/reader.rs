@@ -27,6 +27,15 @@ use crate::parser;
 use crate::xref::{Xref, XrefEntry, XrefType};
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
+/// Open `path` and report its size, so the caller can pre-size the buffer it
+/// reads the file into.
+#[cfg(not(feature = "async"))]
+fn open_file<P: AsRef<Path>>(path: P) -> Result<(File, usize)> {
+    let file = File::open(path)?;
+    let capacity = file.metadata()?.len() as usize;
+    Ok((file, capacity))
+}
+
 #[cfg(not(feature = "async"))]
 impl Document {
     /// Load a PDF document from a specified file path.
@@ -38,9 +47,8 @@ impl Document {
     /// Load a PDF document from a specified file path with the given options.
     #[inline]
     pub fn load_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<Document> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity, options)
+        let (file, capacity) = open_file(path)?;
+        Self::load_internal(file, Some(capacity), options)
     }
 
     /// Load a PDF document from a specified file path with a password for encrypted PDFs.
@@ -78,18 +86,8 @@ impl Document {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
-        Reader {
-            buffer: &buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: options.password,
-            strict: options.strict,
-            max_decompressed_size: options.max_decompressed_size,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(options.filter)
+        let filter = options.filter;
+        Reader::with_options(&buffer, options).read(filter)
     }
 
     /// Load a PDF document from a memory slice.
@@ -99,18 +97,8 @@ impl Document {
 
     /// Load a PDF document from a memory slice with the given options.
     pub fn load_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<Document> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: options.password,
-            strict: options.strict,
-            max_decompressed_size: options.max_decompressed_size,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(options.filter)
+        let filter = options.filter;
+        Reader::with_options(buffer, options).read(filter)
     }
 
     /// Load a PDF document from a memory slice with a password for encrypted PDFs.
@@ -123,17 +111,15 @@ impl Document {
     /// This is much faster for large PDFs when you only need basic information.
     #[inline]
     pub fn load_metadata<P: AsRef<Path>>(path: P) -> Result<PdfMetadata> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_metadata_internal(file, capacity, None)
+        let (file, capacity) = open_file(path)?;
+        Self::load_metadata_internal(file, Some(capacity), None)
     }
 
     /// Load PDF metadata from a file path with a password for encrypted PDFs.
     #[inline]
     pub fn load_metadata_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<PdfMetadata> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_metadata_internal(file, capacity, Some(password.to_string()))
+        let (file, capacity) = open_file(path)?;
+        Self::load_metadata_internal(file, Some(capacity), Some(password.to_string()))
     }
 
     /// Load PDF metadata from an arbitrary source without loading the entire document.
@@ -151,35 +137,13 @@ impl Document {
     /// Load PDF metadata from a memory slice without loading the entire document.
     #[inline]
     pub fn load_metadata_mem(buffer: &[u8]) -> Result<PdfMetadata> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read_metadata()
+        Reader::for_metadata(buffer, None).read_metadata()
     }
 
     /// Load PDF metadata from a memory slice with a password for encrypted PDFs.
     #[inline]
     pub fn load_metadata_mem_with_password(buffer: &[u8], password: &str) -> Result<PdfMetadata> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: Some(password.to_string()),
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read_metadata()
+        Reader::for_metadata(buffer, Some(password.to_string())).read_metadata()
     }
 
     fn load_metadata_internal<R: Read>(
@@ -188,19 +152,17 @@ impl Document {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
-        Reader {
-            buffer: &buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read_metadata()
+        Reader::for_metadata(&buffer, password).read_metadata()
     }
+}
+
+/// Open `path` and report its size, so the caller can pre-size the buffer it
+/// reads the file into.
+#[cfg(feature = "async")]
+async fn open_file<P: AsRef<Path>>(path: P) -> Result<(File, usize)> {
+    let file = File::open(path).await?;
+    let capacity = file.metadata().await?.len() as usize;
+    Ok((file, capacity))
 }
 
 #[cfg(feature = "async")]
@@ -211,10 +173,8 @@ impl Document {
 
     /// Load a PDF document from a specified file path with the given options.
     pub async fn load_with_options<P: AsRef<Path>>(path: P, options: LoadOptions) -> Result<Document> {
-        let file = File::open(path).await?;
-        let metadata = file.metadata().await?;
-        let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity, options).await
+        let (file, capacity) = open_file(path).await?;
+        Self::load_internal(file, Some(capacity), options).await
     }
 
     /// Load a PDF document from a specified file path with a password for encrypted PDFs.
@@ -233,18 +193,8 @@ impl Document {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer).await?;
 
-        Reader {
-            buffer: &buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: options.password,
-            strict: options.strict,
-            max_decompressed_size: options.max_decompressed_size,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(options.filter)
+        let filter = options.filter;
+        Reader::with_options(&buffer, options).read(filter)
     }
 
     /// Load a PDF document from a memory slice.
@@ -254,37 +204,23 @@ impl Document {
 
     /// Load a PDF document from a memory slice with the given options.
     pub fn load_mem_with_options(buffer: &[u8], options: LoadOptions) -> Result<Document> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: options.password,
-            strict: options.strict,
-            max_decompressed_size: options.max_decompressed_size,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(options.filter)
+        let filter = options.filter;
+        Reader::with_options(buffer, options).read(filter)
     }
 
     /// Load PDF metadata (title and page count) without loading the entire document.
     /// This is much faster for large PDFs when you only need basic information.
     #[inline]
     pub async fn load_metadata<P: AsRef<Path>>(path: P) -> Result<PdfMetadata> {
-        let file = File::open(path).await?;
-        let metadata = file.metadata().await?;
-        let capacity = Some(metadata.len() as usize);
-        Self::load_metadata_internal(file, capacity, None).await
+        let (file, capacity) = open_file(path).await?;
+        Self::load_metadata_internal(file, Some(capacity), None).await
     }
 
     /// Load PDF metadata from a file path with a password for encrypted PDFs.
     #[inline]
     pub async fn load_metadata_with_password<P: AsRef<Path>>(path: P, password: &str) -> Result<PdfMetadata> {
-        let file = File::open(path).await?;
-        let metadata = file.metadata().await?;
-        let capacity = Some(metadata.len() as usize);
-        Self::load_metadata_internal(file, capacity, Some(password.to_string())).await
+        let (file, capacity) = open_file(path).await?;
+        Self::load_metadata_internal(file, Some(capacity), Some(password.to_string())).await
     }
 
     /// Load PDF metadata from an arbitrary source without loading the entire document.
@@ -302,35 +238,13 @@ impl Document {
     /// Load PDF metadata from a memory slice without loading the entire document.
     #[inline]
     pub fn load_metadata_mem(buffer: &[u8]) -> Result<PdfMetadata> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read_metadata()
+        Reader::for_metadata(buffer, None).read_metadata()
     }
 
     /// Load PDF metadata from a memory slice with a password for encrypted PDFs.
     #[inline]
     pub fn load_metadata_mem_with_password(buffer: &[u8], password: &str) -> Result<PdfMetadata> {
-        Reader {
-            buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: Some(password.to_string()),
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read_metadata()
+        Reader::for_metadata(buffer, Some(password.to_string())).read_metadata()
     }
 
     async fn load_metadata_internal<R: AsyncRead>(
@@ -341,18 +255,7 @@ impl Document {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer).await?;
 
-        Reader {
-            buffer: &buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read_metadata()
+        Reader::for_metadata(&buffer, password).read_metadata()
     }
 }
 
@@ -360,18 +263,7 @@ impl TryInto<Document> for &[u8] {
     type Error = Error;
 
     fn try_into(self) -> Result<Document> {
-        Reader {
-            buffer: self,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(None)
+        Reader::new(self).read(None)
     }
 }
 
@@ -380,9 +272,8 @@ impl IncrementalDocument {
     /// Load a PDF document from a specified file path.
     #[inline]
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path)?;
-        let capacity = Some(file.metadata()?.len() as usize);
-        Self::load_internal(file, capacity)
+        let (file, capacity) = open_file(path)?;
+        Self::load_internal(file, Some(capacity))
     }
 
     /// Load a PDF document from an arbitrary source.
@@ -395,18 +286,7 @@ impl IncrementalDocument {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer)?;
 
-        let document = Reader {
-            buffer: &buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(None)?;
+        let document = Reader::new(&buffer).read(None)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }
@@ -422,10 +302,8 @@ impl IncrementalDocument {
     /// Load a PDF document from a specified file path.
     #[inline]
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path).await?;
-        let metadata = file.metadata().await?;
-        let capacity = Some(metadata.len() as usize);
-        Self::load_internal(file, capacity).await
+        let (file, capacity) = open_file(path).await?;
+        Self::load_internal(file, Some(capacity)).await
     }
 
     /// Load a PDF document from an arbitrary source.
@@ -440,18 +318,7 @@ impl IncrementalDocument {
         let mut buffer = capacity.map(Vec::with_capacity).unwrap_or_default();
         source.read_to_end(&mut buffer).await?;
 
-        let document = Reader {
-            buffer: &buffer,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(None)?;
+        let document = Reader::new(&buffer).read(None)?;
 
         Ok(IncrementalDocument::create_from(buffer, document))
     }
@@ -466,18 +333,7 @@ impl TryInto<IncrementalDocument> for &[u8] {
     type Error = Error;
 
     fn try_into(self) -> Result<IncrementalDocument> {
-        let document = Reader {
-            buffer: self,
-            document: Document::new(),
-            encryption_state: None,
-            raw_objects: BTreeMap::new(),
-            password: None,
-            strict: false,
-            max_decompressed_size: None,
-            normal_offsets: Vec::new(),
-            object_streams: Mutex::default(),
-        }
-        .read(None)?;
+        let document = Reader::new(self).read(None)?;
 
         Ok(IncrementalDocument::create_from(self.to_vec(), document))
     }
@@ -602,7 +458,39 @@ const STANDARD_INFO_KEYS: &[&[u8]] = &[
     b"Trapped",
 ];
 
-impl Reader<'_> {
+impl<'a> Reader<'a> {
+    /// A reader with the default load options: no password, lenient, unlimited.
+    ///
+    /// This deliberately defers to `LoadOptions::default()`, so a field added
+    /// there later is picked up here rather than silently reset to a stale
+    /// value the way an explicit struct literal would.
+    fn new(buffer: &'a [u8]) -> Self {
+        Self::with_options(buffer, LoadOptions::default())
+    }
+
+    /// The metadata-only loaders accept a password but never the strictness,
+    /// filter or decompression-limit knobs, so they use their own defaults.
+    fn for_metadata(buffer: &'a [u8], password: Option<String>) -> Self {
+        Self {
+            password,
+            ..Self::new(buffer)
+        }
+    }
+
+    fn with_options(buffer: &'a [u8], options: LoadOptions) -> Self {
+        Self {
+            buffer,
+            document: Document::new(),
+            encryption_state: None,
+            raw_objects: BTreeMap::new(),
+            password: options.password,
+            strict: options.strict,
+            max_decompressed_size: options.max_decompressed_size,
+            normal_offsets: Vec::new(),
+            object_streams: Mutex::default(),
+        }
+    }
+
     /// Read metadata (title and page count) without loading the entire document.
     /// This is much faster for large PDFs when you only need basic information.
     ///
@@ -1299,58 +1187,29 @@ impl Reader<'_> {
         // Find object header (e.g., "19 0 obj")
         let slice = &self.buffer[offset..];
 
-        // Parse object ID
-        let mut pos = 0;
-        while pos < slice.len() && slice[pos].is_ascii_whitespace() {
-            pos += 1;
-        }
+        let pos = skip_whitespace(slice, 0);
 
         // Get object number
-        let num_start = pos;
-        while pos < slice.len() && slice[pos].is_ascii_digit() {
-            pos += 1;
-        }
-        let obj_num: u32 = std::str::from_utf8(&slice[num_start..pos])
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .ok_or(Error::Parse(ParseError::InvalidXref))?;
-
-        // Skip whitespace
-        while pos < slice.len() && slice[pos].is_ascii_whitespace() {
-            pos += 1;
-        }
+        let (obj_num, pos) = scan_number::<u32>(slice, pos)?;
+        let pos = skip_whitespace(slice, pos);
 
         // Get generation number
-        let gen_start = pos;
-        while pos < slice.len() && slice[pos].is_ascii_digit() {
-            pos += 1;
-        }
-        let obj_gen: u16 = std::str::from_utf8(&slice[gen_start..pos])
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .ok_or(Error::Parse(ParseError::InvalidXref))?;
+        let (obj_gen, pos) = scan_number::<u16>(slice, pos)?;
 
         // Skip to "obj"
-        while pos < slice.len() && slice[pos].is_ascii_whitespace() {
-            pos += 1;
-        }
+        let pos = skip_whitespace(slice, pos);
         if pos + 3 > slice.len() || &slice[pos..pos + 3] != b"obj" {
             return Err(Error::Parse(ParseError::InvalidXref));
         }
-        pos += 3;
+        let body_start = pos + 3;
 
         // Find "endobj"
-        let endobj_pattern = b"endobj";
-        let mut end_pos = pos;
-        while end_pos + endobj_pattern.len() <= slice.len() {
-            if &slice[end_pos..end_pos + endobj_pattern.len()] == endobj_pattern {
-                end_pos += endobj_pattern.len();
-                break;
-            }
-            end_pos += 1;
-        }
+        let end_pos = find_from(slice, body_start, b"endobj").map_or(0, |end| end + b"endobj".len());
 
-        if end_pos > slice.len() {
+        // A truncated file may lack the keyword. Returning the rest of the buffer
+        // would claim the object runs to the end of the file, so reject it and let
+        // the caller decide how much of the damage to tolerate.
+        if end_pos == 0 {
             return Err(Error::Parse(ParseError::InvalidXref));
         }
 
@@ -1746,6 +1605,40 @@ impl Reader<'_> {
             .rposition(|window| window == pattern)
             .map(|pos| start_pos + pos)
     }
+}
+
+/// Advance past ASCII whitespace, returning the first index that is not one (or
+/// `input.len()` when the rest is all whitespace).
+fn skip_whitespace(input: &[u8], mut pos: usize) -> usize {
+    while pos < input.len() && input[pos].is_ascii_whitespace() {
+        pos += 1;
+    }
+    pos
+}
+
+/// Read the run of ASCII digits at `pos` as `N`, together with the index just
+/// past it. An empty or unparsable run is a malformed file, not a short read.
+fn scan_number<N: std::str::FromStr>(input: &[u8], mut pos: usize) -> Result<(N, usize)> {
+    let start = pos;
+    while pos < input.len() && input[pos].is_ascii_digit() {
+        pos += 1;
+    }
+
+    let value = std::str::from_utf8(&input[start..pos])
+        .ok()
+        .and_then(|digits| digits.parse().ok())
+        .ok_or(Error::Parse(ParseError::InvalidXref))?;
+
+    Ok((value, pos))
+}
+
+/// The first index at or after `start` where `pattern` begins, or `None`.
+fn find_from(input: &[u8], start: usize, pattern: &[u8]) -> Option<usize> {
+    input
+        .get(start..)?
+        .windows(pattern.len())
+        .position(|window| window == pattern)
+        .map(|pos| start + pos)
 }
 
 #[cfg(all(test, not(feature = "async")))]

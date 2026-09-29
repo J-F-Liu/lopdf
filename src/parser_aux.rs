@@ -372,6 +372,11 @@ fn collect_text(text: &mut String, encoding: &Encoding, operands: &[Object]) -> 
     }
     Ok(())
 }
+
+/// The characters of `s` starting at character index `start`, up to `len` of
+/// them. Indices are counted in characters, not bytes, so a multi-byte
+/// character is never split. Note that `len == 0` yields one character, not
+/// none; this is long-standing behavior relied on by the sole caller.
 pub fn substr(s: &str, start: usize, len: usize) -> &str {
     let mut indices = s.char_indices();
 
@@ -392,29 +397,54 @@ pub fn substr(s: &str, start: usize, len: usize) -> &str {
 
     &s[start_idx..end_idx]
 }
+
+/// Everything from character index `start` to the end of `s`.
 pub fn substring(s: &str, start: usize) -> &str {
     s.char_indices().nth(start).map(|(idx, _)| &s[idx..]).unwrap_or("")
 }
 
 fn encode(encoding: &Encoding, txt: &str, default_str: &str) -> Vec<u8> {
-    if txt.chars().count() > 1 {
-        let mut cur = 0;
-        let mut result = Vec::new();
-        while cur < txt.chars().count() {
-            let c = substr(txt, cur, 1);
-            result.extend_from_slice(&encode(encoding, c, default_str));
-            cur += 1;
+    let mut chars = txt.chars();
+    match (chars.next(), chars.next()) {
+        // More than one character: encode each on its own, into one buffer.
+        (Some(first), Some(second)) => {
+            let mut result = Vec::with_capacity(txt.len());
+            result.extend_from_slice(&encode_one(encoding, first, default_str));
+            result.extend_from_slice(&encode_one(encoding, second, default_str));
+            for c in chars {
+                result.extend_from_slice(&encode_one(encoding, c, default_str));
+            }
+            result
         }
-        result
-    } else {
-        let encoded_bytes = Document::encode_text(encoding, txt);
-        if !encoded_bytes.is_empty() {
-            encoded_bytes
-        } else {
-            Document::encode_text(encoding, default_str)
+        // Exactly one character: encode it directly.
+        (Some(c), None) => encode_one(encoding, c, default_str),
+        // Empty: nothing to encode, but keep the caller's fallback contract.
+        (None, _) => {
+            let encoded = Document::encode_text(encoding, txt);
+            if encoded.is_empty() {
+                Document::encode_text(encoding, default_str)
+            } else {
+                encoded
+            }
         }
     }
 }
+
+/// Encode a single character, falling back to `default_str` when the encoding
+/// has no entry for it.
+fn encode_one(encoding: &Encoding, c: char, default_str: &str) -> Vec<u8> {
+    // A scratch buffer, so the common one-character case does not allocate a
+    // `String` per character on the text-extraction path.
+    let mut scratch = [0u8; 4];
+    let encoded_bytes = Document::encode_text(encoding, c.encode_utf8(&mut scratch));
+
+    if !encoded_bytes.is_empty() {
+        encoded_bytes
+    } else {
+        Document::encode_text(encoding, default_str)
+    }
+}
+
 fn try_to_replace_encoded_text(
     operation: &mut Operation, encoding: &Encoding, text_to_replace: &str, replacement: &str, default_str: &str,
 ) -> Result<()> {
@@ -925,5 +955,25 @@ mod tests {
             between.contains('\n'),
             "T* did not insert a line break between Tj strings: between={between:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod encode_equivalence_tests {
+    use super::encode;
+    use crate::encodings::Encoding;
+
+    /// The single-character path must encode one character exactly as the
+    /// whole-string path did, and the empty string must keep its fallback.
+    #[test]
+    fn encode_handles_empty_single_and_multi_character() {
+        let encoding = Encoding::SimpleEncoding(b"WinAnsiEncoding");
+
+        assert_eq!(encode(&encoding, "A", "?"), vec![b'A']);
+        assert_eq!(encode(&encoding, "AB", "?"), vec![b'A', b'B']);
+        // An unmappable character falls back per character.
+        assert_eq!(encode(&encoding, "A\u{1F600}B", "?"), vec![b'A', b'?', b'B']);
+        // The empty string yields no bytes of its own.
+        assert_eq!(encode(&encoding, "", "?"), vec![b'?']);
     }
 }
