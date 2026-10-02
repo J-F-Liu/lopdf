@@ -198,3 +198,66 @@ fn extract_text_does_not_error_with_empty_bfrange_font1() {
     let text = doc.extract_text(&[1]).expect("extract_text should not error");
     assert_eq!(text.trim_end(), " #%7a");
 }
+
+fn tounicode_with_codespaces(codespaces: &str, mappings: &str) -> String {
+    format!(
+        "/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Test def
+/CMapType 2 def
+{} begincodespacerange
+{codespaces}
+endcodespacerange
+{} beginbfchar
+{mappings}
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end",
+        codespaces.lines().count(),
+        mappings.lines().count(),
+    )
+}
+
+#[test]
+fn extract_text_preserves_characters_after_unmapped_codes() {
+    let cmap = tounicode_with_codespaces("<0000> <FFFF>", "<0001> <0041>\n<0002> <0042>");
+    for (codes, expected) in [
+        (vec![1, 2], "AB"),
+        (vec![0, 1, 2], "\u{fffd}AB"),
+        (vec![1, 0, 2], "A\u{fffd}B"),
+        (vec![1, 3, 2], "A\u{fffd}B"),
+        (vec![1, 0, 0, 2], "A\u{fffd}\u{fffd}B"),
+        (vec![1, 2, 0], "AB\u{fffd}"),
+    ] {
+        let encoded_text = codes.into_iter().flat_map(u16::to_be_bytes).collect();
+        let mut doc = build_doc_with_tounicode(&cmap, encoded_text);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        let loaded = Document::load_mem(&bytes).unwrap();
+        assert_eq!(loaded.extract_text(&[1]).unwrap(), format!("{expected}\n"));
+    }
+}
+
+#[test]
+fn decode_text_preserves_mixed_length_codes_after_unmapped_codes() {
+    let cmap = tounicode_with_codespaces(
+        "<00> <7F>\n<8140> <82FE>\n<820000> <8200FF>\n<83000000> <83FFFFFF>",
+        "<41> <0041>\n<8140> <0042>\n<820001> <0043>\n<83000001> <0044>",
+    );
+    let mut doc = Document::new();
+    let cmap_id = doc.add_object(Stream::new(dictionary! {}, cmap.into_bytes()));
+    let font = dictionary! { "Type" => "Font", "ToUnicode" => cmap_id };
+    let encoding = font.get_font_encoding(&doc).unwrap();
+    let encoded_text = [
+        0x00, 0x41, 0x81, 0x41, 0x81, 0x40, 0x82, 0x00, 0x00, 0x82, 0x00, 0x01, 0x83, 0x00, 0x00, 0x00, 0x83, 0x00,
+        0x00, 0x01,
+    ];
+    assert_eq!(
+        Document::decode_text(&encoding, &encoded_text).unwrap(),
+        "\u{fffd}A\u{fffd}B\u{fffd}C\u{fffd}D"
+    );
+}
