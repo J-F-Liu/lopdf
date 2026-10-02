@@ -96,7 +96,9 @@ impl Encoding<'_> {
                     }
                     bytes_in_considered_code += 1;
                     considered_source_code = considered_source_code * 256 + *byte as u32;
-                    if let Some(mut value) = unicode_map.get(considered_source_code, bytes_in_considered_code) {
+                    if let Some(mut value) =
+                        unicode_map.get_for_decoding(considered_source_code, bytes_in_considered_code)
+                    {
                         considered_source_code = 0;
                         bytes_in_considered_code = 0;
                         output_bytes.append(&mut value);
