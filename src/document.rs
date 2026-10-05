@@ -980,22 +980,29 @@ impl Iterator for PageTreeIter<'_> {
 
                 self.kids = Some(new_kids);
 
-                if let Ok(kid_id) = kid.as_reference()
-                    && let Ok(type_name) = self.doc.get_dictionary(kid_id).and_then(Dictionary::get_type)
-                {
-                    match type_name {
-                        b"Page" => {
+                if let Ok(kid_id) = kid.as_reference() {
+                    match self.doc.get_dictionary(kid_id).and_then(Dictionary::get_type) {
+                        Ok(b"Page") => {
                             return Some(kid_id);
                         }
-                        b"Pages" if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT => {
+                        Ok(b"Pages") if self.stack.len() < Self::PAGE_TREE_DEPTH_LIMIT => {
                             let kids = self.kids.unwrap();
                             if !kids.is_empty() {
                                 self.stack.push(kids);
                             }
                             self.kids = Self::kids(self.doc, kid_id);
                         }
-                        b"Pages" => {}
-                        _ => {}
+                        Ok(b"Pages") => {}
+                        Ok(_) => {}
+                        // The kid reference itself can't be loaded as a dictionary with a
+                        // type (missing object, unparseable object, wrong object kind).
+                        // Keep its slot as a stand-in page rather than shrinking the page
+                        // count, matching readers (e.g. MuPDF) that render such a page
+                        // blank instead of dropping it — callers already treat a page
+                        // whose dictionary fails to load as blank/needing OCR.
+                        Err(_) => {
+                            return Some(kid_id);
+                        }
                     }
                 }
             }
