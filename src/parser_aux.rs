@@ -21,6 +21,14 @@ impl Content<Vec<Operation>> {
         parser::content(data).ok_or(ParseError::InvalidContentStream.into())
     }
 
+    /// Decode content operations one at a time without collecting them.
+    ///
+    /// Yields the operations [`Content::decode`] returns, or its error at the point
+    /// where the decode fails.
+    pub fn decode_iter(data: &[u8]) -> parser::ContentOperations<'_> {
+        parser::ContentOperations::new(data)
+    }
+
     /// Strict decode content operations.
     pub fn decode_strict(data: &[u8]) -> Result<Self> {
         parser::content_strict(data).map_err(|e| e.into())
