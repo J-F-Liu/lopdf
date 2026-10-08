@@ -227,6 +227,57 @@ fn test_load_with_password_rejected_passwords() {
 
 #[cfg(not(feature = "async"))]
 #[test]
+fn test_load_with_password_non_ascii_password() {
+    // R2-R4 passwords are converted to PDFDocEncoding before use, so their bytes differ from
+    // the UTF-8 the caller passes in as soon as they contain a non-ASCII character.
+    let mut doc = document_with_pages(&["Non-ASCII Password!"]);
+    encrypt(&mut doc, "pröprietär", "geheimnis-ä");
+
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer).unwrap();
+
+    for password in ["geheimnis-ä", "pröprietär"] {
+        let loaded = Document::load_mem_with_options(&buffer, LoadOptions::with_password(password)).unwrap();
+        assert!(!loaded.is_encrypted(), "{password:?} should open the document");
+        assert!(extract_text(&loaded).contains("Non-ASCII Password!"));
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[test]
+fn test_load_with_password_saslprep_password() {
+    use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    // R6 passwords are normalized with SASLprep, which maps the "ﬁ" ligature to "fi".
+    let mut doc = document_with_pages(&["SASLprep Password!"]);
+    let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+    let state = lopdf::EncryptionState::try_from(lopdf::EncryptionVersion::V5 {
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        file_encryption_key: &[7u8; 32],
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password: "owner-\u{FB01}le",
+        user_password: "user-\u{FB01}le",
+        permissions: lopdf::Permissions::all(),
+    })
+    .unwrap();
+    doc.encrypt(&state).unwrap();
+
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer).unwrap();
+
+    for password in ["user-\u{FB01}le", "owner-\u{FB01}le", "user-file"] {
+        let loaded = Document::load_mem_with_options(&buffer, LoadOptions::with_password(password)).unwrap();
+        assert!(!loaded.is_encrypted(), "{password:?} should open the document");
+        assert!(extract_text(&loaded).contains("SASLprep Password!"));
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[test]
 fn test_load_mem_with_password() {
     let mut doc = document_with_pages(&["Memory Loaded!"]);
     encrypt(&mut doc, "mem_owner", "mem_user");
