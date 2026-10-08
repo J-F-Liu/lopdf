@@ -1581,8 +1581,14 @@ impl<'a> Reader<'a> {
     }
 
     fn get_xref_start(buffer: &[u8]) -> Result<usize> {
-        let seek_pos = buffer.len() - cmp::min(buffer.len(), 512);
-        Self::search_substring(buffer, b"%%EOF", seek_pos)
+        // Like other readers, tolerate white-space padding (often NUL bytes) after `%%EOF` and
+        // look for the marker within the last 1024 bytes of the rest.
+        let end = buffer
+            .iter()
+            .rposition(|c| !b" \t\n\r\0\x0C".contains(c))
+            .map_or(0, |pos| pos + 1);
+        let seek_pos = end - cmp::min(end, 1024);
+        Self::search_substring(&buffer[..end], b"%%EOF", seek_pos)
             .filter(|&eof_pos| eof_pos > 25)
             .and_then(|eof_pos| Self::search_substring(&buffer[..eof_pos], b"startxref", eof_pos - 25))
             .ok_or(Error::Xref(XrefError::Start))
@@ -1819,6 +1825,36 @@ fn get_xref_start_ignores_startxref_past_eof() {
     assert_eq!(result, xref_offset);
     // Verify it did NOT pick up 999 from the corrupted revision
     assert_ne!(result, 999);
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn get_xref_start_tolerates_data_after_eof() {
+    let mut doc = Document::load("assets/example.pdf").unwrap();
+    // A file with only a cross-reference stream has no `trailer` keyword, so reconstruction
+    // cannot recover it when `startxref` is not found.
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer).unwrap();
+    let xref_start = Reader::get_xref_start(&buffer).unwrap();
+
+    // NUL and white-space padding of any length.
+    let mut padded = buffer.clone();
+    padded.extend_from_slice(&[0; 20_000]);
+    padded.extend_from_slice(b"\r\n \x0C\t");
+    assert_eq!(Reader::get_xref_start(&padded).unwrap(), xref_start);
+
+    let options = LoadOptions {
+        strict: true,
+        ..Default::default()
+    };
+    let loaded = Document::load_mem_with_options(&padded, options).unwrap();
+    assert_eq!(loaded.get_pages().len(), 1);
+
+    // Other trailing data, as long as `%%EOF` is within the last 1024 bytes.
+    let mut trailing = buffer.clone();
+    trailing.extend_from_slice(&[b'x'; 1000]);
+    assert_eq!(Reader::get_xref_start(&trailing).unwrap(), xref_start);
 }
 
 #[cfg(all(test, not(feature = "async")))]
