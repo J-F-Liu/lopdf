@@ -715,9 +715,16 @@ fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     preceded(pair(tag(&b"BI"[..]), content_space), cut(inline_image_impl)).parse(input)
 }
 
+/// The single white-space character between `ID` and the image data (ISO 32000-2, 8.9.7),
+/// with a CR LF pair read as one end-of-line. White space after it is image data: a gray
+/// level of 32 is a space byte.
+fn inline_image_data_separator(input: ParserInput) -> NomResult<()> {
+    map(opt(alt((eol, take_while_m_n(1, 1, is_whitespace)))), |_| ()).parse(input)
+}
+
 fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     let (input, stream_dict) = inner_dictionary(crate::reader::MAX_NESTING_DEPTH).parse(input)?;
-    let (input, _) = pair(tag(&b"ID"[..]), content_space).parse(input)?;
+    let (input, _) = pair(tag(&b"ID"[..]), inline_image_data_separator).parse(input)?;
     match image_data_stream(input, stream_dict) {
         Ok((input, stream)) => {
             let (input, _) = (content_space, tag(&b"EI"[..]), content_space).parse(input)?;
@@ -1081,6 +1088,25 @@ EI";
             &out.0[0].as_stream().unwrap().content,
             b"00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz"
         )
+    }
+
+    #[test]
+    fn inline_image_data_starting_with_white_space() {
+        // A 3x1 gray image whose three pixels have level 32, i.e. space bytes. Only the
+        // first white-space character after ID separates it from the data.
+        let input = b"q\rBI\r/CS/DeviceGray/W 3/H 1/BPC 8\rID\r   \nEI\rQ\r";
+        let out = content_strict(test_span(input)).unwrap();
+        let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+        assert_eq!(ops, vec!["q", "BI", "Q"]);
+        assert_eq!(&out.operations[1].operands[0].as_stream().unwrap().content, b"   ");
+    }
+
+    #[test]
+    fn inline_image_data_after_crlf() {
+        // A CR LF after ID is one end-of-line, so the data starts after the LF.
+        let input = b"BI /CS /DeviceGray /W 2 /H 1 /BPC 8 ID\r\n\n\x80\nEI";
+        let out = super::inline_image(test_span(input)).unwrap().1;
+        assert_eq!(&out.0[0].as_stream().unwrap().content, b"\n\x80");
     }
 
     #[test]
