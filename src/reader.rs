@@ -19,7 +19,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::pin;
 
 use crate::common_data_structures;
-use crate::encryption::{self, EncryptionState};
+use crate::encryption::{self, EncryptionState, PasswordAlgorithm};
 use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
@@ -1162,7 +1162,9 @@ impl<'a> Reader<'a> {
         };
 
         if let Some(ref password) = password_to_use {
-            let state = EncryptionState::decode(&self.document, password)?;
+            // Derive the key from the same sanitized bytes `authenticate_password` checked.
+            let password = PasswordAlgorithm::try_from(&self.document)?.sanitize_password(password)?;
+            let state = EncryptionState::decode(&self.document, &password)?;
             self.encryption_state = Some(state);
             // Containers decoded before decryption was set up hold ciphertext.
             if let Ok(cache) = self.object_streams.get_mut() {
