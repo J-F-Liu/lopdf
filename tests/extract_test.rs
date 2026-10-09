@@ -261,3 +261,21 @@ fn decode_text_preserves_mixed_length_codes_after_unmapped_codes() {
         "\u{fffd}A\u{fffd}B\u{fffd}C\u{fffd}D"
     );
 }
+
+#[test]
+fn encoding_dictionary_entries_are_optional() {
+    // ISO 32000-1, Table 114: /Type, /BaseEncoding and /Differences may all be omitted.
+    let doc = Document::new();
+    for (encoding, expected) in [
+        (dictionary! { "Differences" => vec![65.into(), "B".into()] }, "B\u{d8}"),
+        (dictionary! { "BaseEncoding" => "WinAnsiEncoding" }, "A\u{e9}"),
+        (
+            dictionary! { "Type" => "Encoding", "BaseEncoding" => "WinAnsiEncoding" },
+            "A\u{e9}",
+        ),
+    ] {
+        let font = dictionary! { "Type" => "Font", "Encoding" => encoding };
+        let encoding = font.get_font_encoding(&doc).unwrap();
+        assert_eq!(Document::decode_text(&encoding, b"A\xe9").unwrap(), expected);
+    }
+}
