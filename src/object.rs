@@ -1119,6 +1119,9 @@ impl Stream {
             sample(b"Colors", 1),
             sample(b"BitsPerComponent", 8),
         );
+        if columns.checked_mul(colors).and_then(|n| n.checked_mul(bits)).is_none() {
+            return Err(DecompressError::Predictor("predictor row size overflows").into());
+        }
 
         match params.get(b"Predictor").and_then(Object::as_i64).unwrap_or(1) {
             // TIFF Predictor 2 (horizontal differencing), distinct from the PNG
@@ -1190,7 +1193,9 @@ impl Stream {
     fn reverse_tiff_predictor2_subbyte(row: &mut [u8], columns: usize, colors: usize, bits: usize) {
         let mask = (1u16 << bits) - 1;
         let samples = (columns * colors).min(row.len() * 8 / bits);
-        let mut acc = vec![0u16; colors];
+        // Only the first `samples` components can occur in a row, so a huge
+        // `/Colors` must not size the accumulator.
+        let mut acc = vec![0u16; colors.min(samples)];
         let mut out = vec![0u8; row.len()];
         let mut in_bit = 0usize;
         let mut out_buf = 0u32;
@@ -1379,6 +1384,34 @@ mod test {
             Stream::decompress_predictor(vec![0, 0, 0], Some(&params(1, 4, 3))),
             Err(Error::Decompress(DecompressError::Predictor(_)))
         ));
+    }
+
+    #[test]
+    fn test_decompress_predictor_huge_params() {
+        use crate::Dictionary;
+
+        fn params(predictor: i64, colors: i64, columns: i64, bits: i64) -> Dictionary {
+            let mut p = Dictionary::new();
+            p.set("Predictor", predictor);
+            p.set("Colors", colors);
+            p.set("Columns", columns);
+            p.set("BitsPerComponent", bits);
+            p
+        }
+
+        // A huge /Colors used to size the sub-byte accumulator and panic with
+        // "capacity overflow"; only the samples present in the row matter.
+        assert_eq!(
+            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(2, i64::MAX, 1, 1))).unwrap(),
+            vec![0b1010_1010]
+        );
+        // A row size that overflows is an error rather than a panic or a wrapped size.
+        for predictor in [2, 12] {
+            assert!(matches!(
+                Stream::decompress_predictor(vec![0, 1, 2, 3], Some(&params(predictor, i64::MAX, 3, 8))),
+                Err(Error::Decompress(DecompressError::Predictor(_)))
+            ));
+        }
     }
 
     #[test]
