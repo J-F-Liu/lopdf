@@ -146,12 +146,26 @@ mod time_impl {
         type Error = time::Error;
 
         fn try_from(value: super::DateTime) -> Result<OffsetDateTime, Self::Error> {
-            let format = time::format_description::parse_borrowed::<3>(
-                "[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]",
-            )
-            .unwrap();
+            use time::Date;
+            use time::format_description::parse_borrowed;
 
-            Ok(OffsetDateTime::parse(&value.0, &format)?)
+            // A `Z` means the time is UT (PDF 32000-1 §7.9.4).
+            let text = match value.0.strip_suffix('Z') {
+                Some(text) => format!("{text}+0000"),
+                None => value.0,
+            };
+            let parse = |format: &str| -> Result<OffsetDateTime, Self::Error> {
+                Ok(OffsetDateTime::parse(&text, &parse_borrowed::<3>(format)?)?)
+            };
+
+            // Like the chrono and jiff conversions, also accept a date without seconds or
+            // without a time of day.
+            parse("[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]")
+                .or_else(|_| parse("[year][month][day][hour][minute][offset_hour sign:mandatory][offset_minute]"))
+                .or_else(|_| {
+                    let date = Date::parse(&text, &parse_borrowed::<3>("[year][month][day]")?)?;
+                    Ok(date.midnight().assume_utc())
+                })
         }
     }
 }
@@ -376,4 +390,40 @@ fn parse_datetime() {
     assert_eq!(time2.time().hour(), time.time().hour());
     assert_eq!(time2.time().minute(), time.time().minute());
     assert_eq!(time2.time().second(), time.time().second());
+}
+
+#[cfg(feature = "time")]
+#[test]
+fn parse_datetime_utc_time() {
+    use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time};
+
+    // The `Z` form written by `From<PrimitiveDateTime>` must parse back.
+    let date = Date::from_calendar_date(1998, Month::December, 23).unwrap();
+    let time = PrimitiveDateTime::new(date, Time::from_hms(19, 52, 0).unwrap());
+    let text: Object = time.into();
+    let time2: Option<OffsetDateTime> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert_eq!(time2, Some(time.assume_utc()));
+}
+
+#[cfg(feature = "time")]
+#[test]
+fn parse_datetime_seconds_missing_time() {
+    use time::{OffsetDateTime, UtcOffset};
+
+    // this is the example from the PDF reference, version 1.7, chapter 3.8.3
+    let text = Object::string_literal("D:199812231952-08'00'");
+    let dt: OffsetDateTime = text.as_datetime().unwrap().try_into().unwrap();
+    assert_eq!((dt.hour(), dt.minute(), dt.second()), (19, 52, 0));
+    assert_eq!(dt.offset(), UtcOffset::from_hms(-8, 0, 0).unwrap());
+}
+
+#[cfg(feature = "time")]
+#[test]
+fn parse_datetime_time_missing_time() {
+    use time::{Date, Month, OffsetDateTime};
+
+    let text = Object::string_literal("D:20040229");
+    let dt: OffsetDateTime = text.as_datetime().unwrap().try_into().unwrap();
+    let date = Date::from_calendar_date(2004, Month::February, 29).unwrap();
+    assert_eq!(dt, date.midnight().assume_utc());
 }
