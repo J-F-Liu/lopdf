@@ -44,8 +44,22 @@ impl Document {
     /// annotation object itself is removed.
     pub fn remove_annot(&mut self, object_id: &ObjectId) -> Result<()> {
         for (_, page_id) in self.get_pages() {
-            let page = self.get_object_mut(page_id)?.as_dict_mut()?;
-            let annots = page.get_mut(b"Annots")?.as_array_mut()?;
+            // `/Annots` may be missing, an array in the page, or a reference to an array.
+            let annots_id = match self.get_dictionary(page_id).and_then(|page| page.get(b"Annots")) {
+                Ok(Object::Reference(id)) => Some(*id),
+                Ok(Object::Array(_)) => None,
+                _ => continue,
+            };
+            let annots = match annots_id {
+                Some(id) => self.get_object_mut(id).and_then(Object::as_array_mut),
+                None => self
+                    .get_dictionary_mut(page_id)
+                    .and_then(|page| page.get_mut(b"Annots"))
+                    .and_then(Object::as_array_mut),
+            };
+            let Ok(annots) = annots else {
+                continue;
+            };
 
             annots.retain(|object| {
                 if let Ok(id) = object.as_reference() {
