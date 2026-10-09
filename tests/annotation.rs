@@ -134,3 +134,59 @@ fn annotation_count() -> Result<()> {
     assert_eq!(doc.get_page_annotations(doc.page_iter().next().unwrap())?.len(), 33);
     Ok(())
 }
+
+/// Three pages: one without `/Annots`, one with the array written into the page
+/// and one with `/Annots` as a reference to an array. The last two both list the
+/// same annotation. Returns the document, the page ids and the annotation id.
+fn pages_with_shared_annot() -> (Document, Vec<lopdf::ObjectId>, lopdf::ObjectId) {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+    let annot_id = doc.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+    });
+    let annots_array_id = doc.add_object(vec![Object::Reference(annot_id)]);
+    let page_ids = vec![
+        doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id }),
+        doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Annots" => vec![Object::Reference(annot_id)],
+        }),
+        doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Annots" => annots_array_id,
+        }),
+    ];
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => page_ids.iter().map(|&id| Object::Reference(id)).collect::<Vec<_>>(),
+            "Count" => page_ids.len() as i64,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    (doc, page_ids, annot_id)
+}
+
+/// A page without `/Annots`, or whose `/Annots` is a reference to an array, used
+/// to make `remove_annot` and `get_object_page` fail with an error.
+#[test]
+fn annotation_lookup_handles_missing_and_indirect_annots() {
+    let (mut doc, page_ids, annot_id) = pages_with_shared_annot();
+    assert_eq!(doc.get_object_page(annot_id).unwrap(), page_ids[1]);
+
+    doc.remove_annot(&annot_id).unwrap();
+    assert!(!doc.objects.contains_key(&annot_id));
+    for page_id in &page_ids[1..] {
+        let annots = match doc.get_dictionary(*page_id).unwrap().get(b"Annots").unwrap() {
+            Object::Reference(id) => doc.get_object(*id).unwrap(),
+            annots => annots,
+        };
+        assert!(annots.as_array().unwrap().is_empty());
+    }
+    assert!(doc.get_object_page(annot_id).is_err());
+}

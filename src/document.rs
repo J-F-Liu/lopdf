@@ -195,8 +195,9 @@ impl Document {
     /// Get the object ID of the page that contains `id`.
     pub fn get_object_page(&self, id: ObjectId) -> Result<ObjectId> {
         for (_, object_id) in self.get_pages() {
-            let page = self.get_object(object_id)?.as_dict()?;
-            let annots = page.get(b"Annots")?.as_array()?;
+            let Ok((_, annots)) = self.annots_container(object_id) else {
+                continue;
+            };
             let mut objects_ids = annots.iter().map(Object::as_reference);
 
             let contains = objects_ids.any(|object_id| Some(id) == object_id.ok());
