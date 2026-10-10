@@ -453,10 +453,9 @@ impl Dictionary {
                     object = o;
                 }
                 Object::Dictionary(ref dict) => {
-                    let ty = dict.get(b"Type")?.as_name()?;
-
-                    match ty {
-                        b"Encoding" => {
+                    // `/Type` is optional, but must be `/Encoding` when present.
+                    match dict.get(b"Type").and_then(Object::as_name) {
+                        Ok(b"Encoding") | Err(_) => {
                             let mut base = None;
 
                             if let Ok(base_encoding) = dict.get(b"BaseEncoding")
@@ -470,8 +469,10 @@ impl Dictionary {
                                 None => Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING),
                             };
 
-                            let differences = dict.get(b"Differences")?.as_array()?;
-                            let differences = self.differences(base, differences)?;
+                            let Ok(differences) = dict.get(b"Differences") else {
+                                return Ok(base);
+                            };
+                            let differences = self.differences(base, differences.as_array()?)?;
                             return Ok(Encoding::Differences(differences));
                         }
                         _ => {
