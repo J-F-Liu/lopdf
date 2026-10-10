@@ -829,6 +829,64 @@ pub fn content(input: ParserInput) -> Option<Content<Vec<Operation>>> {
     strip_nom(_content.parse(input))
 }
 
+/// The operations of a content stream, decoded one at a time with the grammar of
+/// [`content`].
+///
+/// Yields exactly the operations `content` collects, in order, then an error where
+/// `content` fails, so the operations of a large stream need not all be held at once.
+pub struct ContentOperations<'a> {
+    input: ParserInput<'a>,
+    started: bool,
+    finished: bool,
+}
+
+impl<'a> ContentOperations<'a> {
+    pub(crate) fn new(input: ParserInput<'a>) -> Self {
+        ContentOperations {
+            input,
+            started: false,
+            finished: false,
+        }
+    }
+
+    fn fail(&mut self) -> Option<crate::Result<Operation>> {
+        self.finished = true;
+        Some(Err(error::ParseError::InvalidContentStream.into()))
+    }
+}
+
+impl Iterator for ContentOperations<'_> {
+    type Item = crate::Result<Operation>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        if !self.started {
+            self.started = true;
+            match content_space(self.input) {
+                Ok((input, ())) => self.input = input,
+                Err(_) => return self.fail(),
+            }
+        }
+        let len = self.input.len();
+        match operation(self.input) {
+            // `many0` fails when its parser succeeds without consuming input.
+            Ok((input, _)) if input.len() == len => self.fail(),
+            Ok((input, operation)) => {
+                self.input = input;
+                Some(Ok(operation))
+            }
+            // `many0` stops at a recoverable error, and `content` ignores the rest.
+            Err(nom::Err::Error(_)) => {
+                self.finished = true;
+                None
+            }
+            Err(_) => self.fail(),
+        }
+    }
+}
+
 pub fn content_strict(input: ParserInput) -> Result<Content<Vec<Operation>>, error::ParseError> {
     let (rest, content) = _content
         .parse(input)
@@ -849,6 +907,47 @@ mod tests {
 
     fn tstrip<O>(r: NomResult<O>) -> Option<O> {
         r.ok().and_then(|(i, o)| if !i.is_empty() { None } else { Some(o) })
+    }
+
+    #[test]
+    fn content_operations_match_content() {
+        let streams: [&[u8]; 6] = [
+            b"",
+            b"q 1 0 0 1 72 720 cm BT /F1 12 Tf [(A) -120 (B)] TJ ET Q",
+            b"  % leading comment\n0 0 m 10 10 l S\n% trailing comment\n",
+            b"BT /F1 12 Tf (text) Tj ET\n) unparsable trailing input is ignored",
+            b"BI /W 1 /H 1 /BPC 8 /CS /G ID X EI 0 0 m",
+            b"/P <</MCID 0>> BDC BT (marked) Tj ET EMC",
+        ];
+        for stream in streams {
+            let expected = content(test_span(stream)).expect("content decodes");
+            let operations = ContentOperations::new(test_span(stream))
+                .collect::<crate::Result<Vec<_>>>()
+                .expect("operations decode");
+            assert_eq!(
+                format!("{:?}", operations),
+                format!("{:?}", expected.operations),
+                "stream: {:?}",
+                String::from_utf8_lossy(stream)
+            );
+        }
+    }
+
+    #[test]
+    fn content_operations_fail_where_content_fails() {
+        // Without EI the inline image cannot be skipped, so the whole decode fails.
+        let stream = test_span(b"BT (before) Tj ET\nBI /W 1 /H 1 /BPC 8 /CS /G ID X\nBT (after) Tj ET");
+        assert!(content(stream).is_none());
+
+        let mut operations = ContentOperations::new(stream);
+        for operator in ["BT", "Tj", "ET"] {
+            assert_eq!(operations.next().unwrap().unwrap().operator, operator);
+        }
+        assert!(matches!(
+            operations.next(),
+            Some(Err(Error::Parse(error::ParseError::InvalidContentStream)))
+        ));
+        assert!(operations.next().is_none());
     }
 
     #[test]

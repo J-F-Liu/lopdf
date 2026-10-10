@@ -1,5 +1,6 @@
 use super::Object;
 use crate::Result;
+pub use crate::parser::ContentOperations;
 use crate::writer::Writer;
 use std::io::Write;
 
