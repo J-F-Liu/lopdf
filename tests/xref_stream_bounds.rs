@@ -169,6 +169,32 @@ fn degenerate_narrow_xref_records_are_rejected() {
     assert!(matches!(result, Err(Error::Parse(ParseError::InvalidXref))));
 }
 
+// `/Index` starts are untrusted: `start + j` overflowed near i64::MAX, and a start outside
+// the u32 range was truncated into a valid-looking object number.
+#[test]
+fn index_start_near_i64_max_does_not_overflow() {
+    let body = [1, 9, 0, 1, 9, 0];
+    let pdf = xref_stream_pdf_with_index([1, 1, 1], "9223372036854775807 2", &body);
+    let _ = Document::load_mem(&pdf);
+}
+
+#[test]
+fn index_start_outside_u32_does_not_displace_entries() {
+    // Object 1 is the xref stream itself at offset 9. The second section starts at 2^32 + 1
+    // or -1, which truncated to object 1 and u32::MAX.
+    let body = [0, 0, 0, 1, 9, 0, 1, 0, 0, 1, 0, 0];
+    for index in ["0 2 4294967297 1 3 1", "0 2 -1 1 3 1"] {
+        let pdf = xref_stream_pdf_with_index([1, 1, 1], index, &body);
+        let doc = Document::load_mem(&pdf).unwrap();
+        let ids: Vec<_> = doc.reference_table.entries.keys().copied().collect();
+        assert_eq!(ids, [1, 3], "index: {index}");
+        assert!(matches!(
+            doc.reference_table.get(1),
+            Some(lopdf::xref::XrefEntry::Normal { offset: 9, .. })
+        ));
+    }
+}
+
 #[test]
 fn realistic_compressed_xref_stream_loads_under_budget() {
     let pdf = compressed_xref_stream_pdf(300);
