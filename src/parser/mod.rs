@@ -759,9 +759,13 @@ fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
 
 fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Result<(ParserInput, Stream)> {
     let get_abbr = |key_abbr: &[u8], key: &[u8]| stream_dict.get(key_abbr).or_else(|_| stream_dict.get(key));
-    let width = get_abbr(b"W", b"Width")?.as_i64()? as usize;
-    let height = get_abbr(b"H", b"Height")?.as_i64()? as usize;
-    let bpc = get_abbr(b"BPC", b"BitsPerComponent")?.as_i64()? as usize;
+    let invalid_size = || Error::InvalidInlineImage(String::from("image size out of range"));
+    let get_size = |key_abbr: &[u8], key: &[u8]| -> crate::Result<usize> {
+        usize::try_from(get_abbr(key_abbr, key)?.as_i64()?).map_err(|_| invalid_size())
+    };
+    let width = get_size(b"W", b"Width")?;
+    let height = get_size(b"H", b"Height")?;
+    let bpc = get_size(b"BPC", b"BitsPerComponent")?;
     let im = get_abbr(b"IM", b"ImageMask").and_then(|x| x.as_bool());
     let num_colors = match im {
         // If we have an image mask then we don't have a colorspace
@@ -787,8 +791,11 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
         }
     };
 
-    let stride = (width * (num_colors * bpc)).div_ceil(8);
-    let length = height * stride;
+    let length = bpc
+        .checked_mul(num_colors)
+        .and_then(|bits_per_pixel| width.checked_mul(bits_per_pixel))
+        .and_then(|row_bits| row_bits.div_ceil(8).checked_mul(height))
+        .ok_or_else(invalid_size)?;
 
     let (input, content) = match get_abbr(b"F", b"Filter") {
         Err(_) => {
@@ -1172,6 +1179,24 @@ EI
         assert!(ops.contains(&"q"), "missing q, got: {:?}", ops);
         assert!(ops.contains(&"Tj"), "missing Tj, got: {:?}", ops);
         assert!(ops.contains(&"Q"), "missing Q, got: {:?}", ops);
+    }
+
+    #[test]
+    fn inline_image_with_invalid_dimensions_skipped() {
+        // Negative dimensions or a byte count that doesn't fit in usize must not overflow.
+        for dims in [
+            &b"/W -1 /H 1 /BPC 8"[..],
+            b"/W 4294967296 /H 4294967296 /BPC 8",
+            b"/W 1 /H 1 /BPC 9223372036854775807",
+        ] {
+            let mut input = b"q BI ".to_vec();
+            input.extend_from_slice(dims);
+            input.extend_from_slice(b" /CS /DeviceRGB ID \x00\x00\x00 EI (Hello) Tj Q");
+            let out = content(test_span(&input)).unwrap();
+            let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+            assert_eq!(ops, vec!["q", "BI", "Tj", "Q"]);
+            assert!(out.operations[1].operands.is_empty());
+        }
     }
 
     #[test]
