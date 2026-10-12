@@ -770,10 +770,11 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
     let num_colors = match im {
         // If we have an image mask then we don't have a colorspace
         Ok(true) => 1,
-        _ => {
-            let colorspace = get_abbr(b"CS", b"ColorSpace")?.as_name()?;
-            match colorspace {
-                b"DeviceGray" | b"Gray" => 1,
+        _ => match get_abbr(b"CS", b"ColorSpace")? {
+            // An Indexed colour space is an array, and each sample is an index into its table.
+            Object::Array(array) if matches!(array.first().map(Object::as_name), Some(Ok(b"Indexed" | b"I"))) => 1,
+            colorspace => match colorspace.as_name()? {
+                b"DeviceGray" | b"G" | b"Gray" => 1,
                 b"DeviceRGB" | b"RGB" => 3,
                 b"DeviceRGBA" | b"RGBA" => 4,
                 b"DeviceCMYK" | b"CMYK" => 4,
@@ -787,8 +788,8 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
                     log::warn!("Colorspace of inline image not recognized / not yet implemented");
                     return Err(Error::Unimplemented("inline image colorspaces"));
                 }
-            }
-        }
+            },
+        },
     };
 
     let length = bpc
@@ -1212,6 +1213,29 @@ EI";
             &out.0[0].as_stream().unwrap().content,
             b"00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz"
         )
+    }
+
+    #[test]
+    fn inline_image_abbreviated_color_spaces() {
+        // 2x1 images using the abbreviated colour space names allowed in inline images.
+        for (color_space, data) in [
+            (&b"/G"[..], &b"\x00\xff"[..]),
+            (b"/RGB", b"\x00\x00\x00\xff\xff\xff"),
+            (b"/CMYK", b"\x00\x00\x00\x00\xff\xff\xff\xff"),
+            (b"[/I /RGB 1 <000000FFFFFF>]", b"\x00\x01"),
+            (b"[/Indexed /DeviceRGB 1 <000000FFFFFF>]", b"\x00\x01"),
+        ] {
+            let mut input = b"q BI /W 2 /H 1 /BPC 8 /CS ".to_vec();
+            input.extend_from_slice(color_space);
+            input.extend_from_slice(b" ID ");
+            input.extend_from_slice(data);
+            input.extend_from_slice(b" EI Q");
+            let out = content(test_span(&input)).unwrap();
+            let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+            assert_eq!(ops, vec!["q", "BI", "Q"]);
+            let image = out.operations[1].operands[0].as_stream().unwrap();
+            assert_eq!(image.content, data);
+        }
     }
 
     #[test]
