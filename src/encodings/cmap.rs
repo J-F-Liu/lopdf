@@ -178,7 +178,9 @@ impl ToUnicodeCMap {
         bf_ranges_map.get_key_value(&code).map(|(range, value)| match value {
             HexString(vec) => {
                 let mut ret_vec = vec.clone();
-                *(ret_vec.last_mut().unwrap()) += (code - range.start()) as u16;
+                if let Some(last) = ret_vec.last_mut() {
+                    *last = last.wrapping_add((code - range.start()) as u16);
+                }
                 ret_vec
             }
             UTF16CodePoint { offset } => vec![u32::wrapping_add(code, *offset) as u16],
@@ -298,5 +300,30 @@ mod tests {
         assert_eq!(cmap.get(0x12, 2), Some(vec![ToUnicodeCMap::REPLACEMENT_CHAR]));
         assert_eq!(cmap.get(0x13, 2), Some(vec![ToUnicodeCMap::REPLACEMENT_CHAR]));
         assert_eq!(cmap.get(0x14, 2), Some(vec![ToUnicodeCMap::REPLACEMENT_CHAR]));
+    }
+
+    #[test]
+    fn bfrange_target_overflow_wraps_instead_of_panicking() {
+        // The last UTF-16 unit of a multi-unit bfrange target is incremented per source code,
+        // so a crafted target ending in <FFFF> overflows for the second code of the range.
+        let data = b"/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<00> <FF>
+endcodespacerange
+1 beginbfrange
+<01> <02> <D83DFFFF>
+endbfrange
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end";
+        let cmap = ToUnicodeCMap::parse(data.to_vec()).unwrap();
+
+        assert_eq!(cmap.get(0x01, 1), Some(vec![0xD83D, 0xFFFF]));
+        assert_eq!(cmap.get(0x02, 1), Some(vec![0xD83D, 0x0000]));
     }
 }
