@@ -860,7 +860,7 @@ impl Stream {
     /// variants. `limit` is `None` to decode without a size limit, or
     /// `Some(max)` to cap the decoded output at `max` bytes per filter layer.
     fn decode_filters(&self, limit: Option<usize>) -> Result<Vec<u8>> {
-        let params = self.dict.get(b"DecodeParms").and_then(Object::as_dict).ok();
+        let decode_params = self.dict.get(b"DecodeParms").ok();
         let filters = match self.filters() {
             Ok(f) => f,
             // No /Filter key means the stream is uncompressed. The raw content is
@@ -875,7 +875,12 @@ impl Stream {
         let mut output = vec![];
 
         // Filters are in decoding order.
-        for filter in filters {
+        for (index, filter) in filters.into_iter().enumerate() {
+            let params = match decode_params {
+                Some(Object::Array(params)) => params.get(index).and_then(|param| param.as_dict().ok()),
+                Some(Object::Dictionary(params)) => Some(params),
+                _ => None,
+            };
             output = match filter {
                 b"FlateDecode" => Self::decompress_zlib(input, params, limit)?,
                 b"BrotliDecode" => Self::decompress_brotli(input, limit)?,
@@ -1255,7 +1260,7 @@ impl Stream {
 
 #[cfg(test)]
 mod test {
-    use crate::{Error, error::DecompressError};
+    use crate::{Error, Object, error::DecompressError};
 
     use super::Stream;
 
@@ -1269,6 +1274,58 @@ mod test {
         let expected = "Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.";
         let output = Stream::decode_ascii85(input.as_bytes(), None).unwrap();
         assert_eq!(&output, expected.as_bytes());
+    }
+
+    #[test]
+    fn test_lzw_decode_params_array_matches_filter_position() {
+        use crate::Dictionary;
+
+        // MSB-first 9-bit LZW codes: clear=256, 1, 1, 1, EOD=257.
+        // With TIFF Predictor 2 and three columns, the decoded bytes are [1, 2, 3].
+        let codes = [256u16, 1, 1, 1, 257];
+        let mut payload = vec![0u8; 6];
+        for (i, code) in codes.iter().enumerate() {
+            for bit in 0..9 {
+                let value = ((code >> (8 - bit)) & 1) as u8;
+                payload[(i * 9 + bit) / 8] |= value << (7 - (i * 9 + bit) % 8);
+            }
+        }
+
+        let mut params = Dictionary::new();
+        params.set("Predictor", 2i64);
+        params.set("Columns", 3i64);
+        params.set("Colors", 1i64);
+        params.set("BitsPerComponent", 8i64);
+
+        let scalar = Stream::new(
+            crate::dictionary! { "Filter" => "LZWDecode", "DecodeParms" => params.clone() },
+            payload.clone(),
+        );
+        let array = Stream::new(
+            crate::dictionary! {
+                "Filter" => Object::Array(vec![Object::Name(b"LZWDecode".to_vec())]),
+                "DecodeParms" => Object::Array(vec![Object::Dictionary(params.clone())]),
+            },
+            payload.clone(),
+        );
+        let hex = payload.iter().map(|byte| format!("{byte:02x}")).collect::<String>() + ">";
+        let chain = Stream::new(
+            crate::dictionary! {
+                "Filter" => Object::Array(vec![
+                    Object::Name(b"ASCIIHexDecode".to_vec()),
+                    Object::Name(b"LZWDecode".to_vec()),
+                ]),
+                "DecodeParms" => Object::Array(vec![
+                    Object::Null,
+                    Object::Dictionary(params),
+                ]),
+            },
+            hex.into_bytes(),
+        );
+
+        for stream in [scalar, array, chain] {
+            assert_eq!(stream.decompressed_content().unwrap(), [1, 2, 3]);
+        }
     }
 
     #[test]
