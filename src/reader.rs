@@ -1269,6 +1269,7 @@ impl<'a> Reader<'a> {
         self.document.xref_start = xref_start;
 
         let (mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
+        self.merge_hybrid_xref_stream(&mut xref, trailer.remove(b"XRefStm"))?;
 
         // Read previous Xrefs of linearized or incremental updated document.
         let mut already_seen = HashSet::new();
@@ -1282,21 +1283,11 @@ impl<'a> Reader<'a> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
+            let (prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
             xref.merge(prev_xref);
+            self.merge_hybrid_xref_stream(&mut xref, prev_trailer.remove(b"XRefStm"))?;
 
-            // Read xref stream in hybrid-reference file
-            let prev_xref_stream_start = trailer.remove(b"XRefStm");
-            if let Some(prev) = prev_xref_stream_start.and_then(|offset| offset.as_i64().ok()) {
-                if prev < 0 || prev as usize > self.buffer.len() {
-                    return Err(Error::Xref(XrefError::StreamStart));
-                }
-
-                let (prev_xref, _) = self.xref_and_trailer_at(prev as usize)?;
-                xref.merge(prev_xref);
-            }
-
-            prev_xref_start = prev_trailer.get(b"Prev").cloned().ok();
+            prev_xref_start = prev_trailer.remove(b"Prev");
         }
         let xref_entry_count = xref.max_id().checked_add(1).ok_or(ParseError::InvalidXref)?;
         if xref.size != xref_entry_count {
@@ -1308,6 +1299,24 @@ impl<'a> Reader<'a> {
         }
 
         Ok((xref, trailer))
+    }
+
+    /// Merge the cross-reference stream that a section of a hybrid-reference file points to
+    /// with `/XRefStm`. Its entries come after the section's table and before older sections.
+    fn merge_hybrid_xref_stream(&self, xref: &mut Xref, xref_stream_start: Option<Object>) -> Result<()> {
+        let Some(start) = xref_stream_start.and_then(|offset| offset.as_i64().ok()) else {
+            return Ok(());
+        };
+        if start < 0 || start as usize > self.buffer.len() {
+            return Err(Error::Xref(XrefError::StreamStart));
+        }
+        match self.xref_and_trailer_at(start as usize) {
+            Ok((stream_xref, _)) => xref.merge(stream_xref),
+            // The table alone still describes a hybrid-reference file for older readers.
+            Err(e) if !self.strict => warn!("ignoring unreadable cross-reference stream at {start}: {e}"),
+            Err(e) => return Err(e),
+        }
+        Ok(())
     }
 
     /// Last-resort recovery: rebuild the cross-reference table by scanning the
@@ -1949,4 +1958,136 @@ fn object_marker_parsing_accepts_only_real_headers() {
     assert_eq!(Reader::parse_object_header(b"1 0obj"), None);
     assert_eq!(Reader::parse_object_header(b"1  obj"), None);
     assert_eq!(Reader::parse_object_header(b"x 0 obj"), None);
+}
+
+/// A hybrid-reference file: the page tree lives in an object stream that only the
+/// cross-reference stream at `/XRefStm` lists. Returns the file and the offset of its
+/// `xref` table.
+#[cfg(all(test, not(feature = "async")))]
+fn hybrid_reference_file() -> (Vec<u8>, usize) {
+    let header = "%PDF-1.5\n";
+    let obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    let pages = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+    let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> >>";
+    let offsets = format!("2 0 3 {} ", pages.len() + 1);
+    let content = format!("{offsets}{pages} {page}");
+    let obj4 = format!(
+        "4 0 obj\n<< /Type /ObjStm /N 2 /First {} /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+        offsets.len(),
+        content.len(),
+    );
+    let o1 = header.len();
+    let o4 = o1 + obj1.len();
+    let o5 = o4 + obj4.len();
+
+    // Entries for objects 2 to 5 with /W [1 2 1].
+    let [o4_hi, o4_lo] = u16::try_from(o4).unwrap().to_be_bytes();
+    let [o5_hi, o5_lo] = u16::try_from(o5).unwrap().to_be_bytes();
+    let entries = [2, 0, 4, 0, 2, 0, 4, 1, 1, o4_hi, o4_lo, 0, 1, o5_hi, o5_lo, 0];
+    let mut buffer = format!("{header}{obj1}{obj4}").into_bytes();
+    buffer.extend_from_slice(
+        format!(
+            "5 0 obj\n<< /Type /XRef /Size 6 /Index [2 4] /W [1 2 1] /Length {} >>\nstream\n",
+            entries.len()
+        )
+        .as_bytes(),
+    );
+    buffer.extend_from_slice(&entries);
+    buffer.extend_from_slice(b"\nendstream\nendobj\n");
+
+    let xref_pos = buffer.len();
+    buffer.extend_from_slice(
+        format!(
+            "xref
+0 2
+0000000000 65535 f 
+{o1:010} 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R /XRefStm {o5} >>
+startxref
+{xref_pos}
+%%EOF
+"
+        )
+        .as_bytes(),
+    );
+    (buffer, xref_pos)
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn reads_xref_stream_of_hybrid_reference_file() {
+    let (buffer, _) = hybrid_reference_file();
+
+    let loaded = Document::load_mem(&buffer).unwrap();
+    assert_eq!(loaded.get_pages().len(), 1);
+    // The offset is meaningless once the document is written again.
+    assert!(!loaded.trailer.has(b"XRefStm"));
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn reads_xref_stream_of_earlier_hybrid_reference_section() {
+    // An incremental update with a plain `xref` table on top of a hybrid-reference file.
+    let (mut buffer, prev) = hybrid_reference_file();
+    let obj1 = buffer.len();
+    buffer.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Lang (en) >>\nendobj\n");
+    let xref_pos = buffer.len();
+    buffer.extend_from_slice(
+        format!(
+            "xref
+1 1
+{obj1:010} 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R /Prev {prev} >>
+startxref
+{xref_pos}
+%%EOF
+"
+        )
+        .as_bytes(),
+    );
+
+    let loaded = Document::load_mem(&buffer).unwrap();
+    assert_eq!(loaded.get_pages().len(), 1);
+    assert!(loaded.catalog().unwrap().has(b"Lang"));
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn ignores_unreadable_hybrid_xref_stream_when_lenient() {
+    // `/XRefStm` pointing at an object that is not a cross-reference stream.
+    let header = "%PDF-1.5\n";
+    let obj1 = "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    let obj2 = "2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n";
+    let o1 = header.len();
+    let o2 = o1 + obj1.len();
+    let body = format!("{header}{obj1}{obj2}");
+    let xref_pos = body.len();
+    let doc = format!(
+        "{body}xref
+0 3
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 3/XRefStm {o2}>>
+startxref
+{xref_pos}
+%%EOF"
+    );
+
+    let loaded = Document::load_mem(doc.as_bytes()).unwrap();
+    // Read through the table rather than by reconstructing the cross-reference table.
+    assert_eq!(loaded.xref_start, xref_pos);
+    assert!(loaded.get_object((2, 0)).is_ok());
+
+    let strict = Document::load_mem_with_options(
+        doc.as_bytes(),
+        LoadOptions {
+            strict: true,
+            ..Default::default()
+        },
+    );
+    assert!(strict.is_err());
 }
