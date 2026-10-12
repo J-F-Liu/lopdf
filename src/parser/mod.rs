@@ -669,7 +669,7 @@ fn trim_spaces<'a, O>(
 // The following code create parser to parse content stream.
 
 fn content_space(input: ParserInput) -> NomResult<()> {
-    map(take_while(|c| b" \t\r\n".contains(&c)), |_| ()).parse(input)
+    map(take_while(is_whitespace), |_| ()).parse(input)
 }
 
 fn operator(input: ParserInput) -> NomResult<String> {
@@ -1483,5 +1483,14 @@ EI";
         let input = b"[[[[[1]]]]]";
         let obj = _direct_object(crate::reader::MAX_NESTING_DEPTH)(test_span(input));
         assert!(obj.is_ok());
+    }
+
+    #[test]
+    fn content_treats_nul_and_form_feed_as_white_space() {
+        // Some generators (e.g. Polaris Office) pad between operators with NUL bytes.
+        let data = b"BT\n/F1 12 Tf\n[(a)] TJ\n\0\0\0\0ET\x0Cq\0Q";
+        let content = content_strict(data).unwrap();
+        let operators: Vec<_> = content.operations.iter().map(|op| op.operator.as_str()).collect();
+        assert_eq!(operators, ["BT", "Tf", "TJ", "ET", "q", "Q"]);
     }
 }
