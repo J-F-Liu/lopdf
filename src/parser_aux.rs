@@ -629,6 +629,7 @@ pub fn decode_xref_stream_with_limit(
         for section in section_indice.as_chunks::<2>().0 {
             let start = section[0];
             let count = section[1];
+            let mut skipped = 0usize;
 
             for j in 0..count {
                 let entry_type = if !bytes1.is_empty() {
@@ -636,11 +637,12 @@ pub fn decode_xref_stream_with_limit(
                 } else {
                     1
                 };
-                match entry_type {
+                let entry = match entry_type {
                     0 => {
                         // free object
                         read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
                         read_big_endian_integer(&mut reader, bytes3.as_mut_slice())?;
+                        None
                     }
                     1 => {
                         // normal object
@@ -650,16 +652,30 @@ pub fn decode_xref_stream_with_limit(
                         } else {
                             0
                         } as u16;
-                        xref.insert((start + j) as u32, XrefEntry::Normal { offset, generation });
+                        Some(XrefEntry::Normal { offset, generation })
                     }
                     2 => {
                         // compressed object
                         let container = read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
                         let index = read_big_endian_integer(&mut reader, bytes3.as_mut_slice())? as u16;
-                        xref.insert((start + j) as u32, XrefEntry::Compressed { container, index });
+                        Some(XrefEntry::Compressed { container, index })
                     }
-                    _ => {}
+                    _ => None,
+                };
+                // `start` is untrusted, as in a cross-reference table: `start + j` can overflow,
+                // and a `start` outside the u32 range would truncate into a valid-looking number.
+                if let Some(entry) = entry {
+                    match start.checked_add(j).and_then(|id| u32::try_from(id).ok()) {
+                        Some(id) => xref.insert(id, entry),
+                        None => skipped += 1,
+                    }
                 }
+            }
+            if skipped > 0 {
+                warn!(
+                    "cross-reference stream section starting at {start} has {skipped} entr{} with an object number outside u32; skipping",
+                    if skipped == 1 { "y" } else { "ies" }
+                );
             }
         }
     }
