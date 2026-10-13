@@ -674,7 +674,11 @@ fn content_space(input: ParserInput) -> NomResult<()> {
 
 fn operator(input: ParserInput) -> NomResult<String> {
     map_res(
-        take_while1(|c: u8| c.is_ascii_alphabetic() || b"*'\"".contains(&c)),
+        // Digits may follow the first character, as in the Type 3 glyph operators d0 and d1.
+        verify(
+            take_while1(|c: u8| c.is_ascii_alphanumeric() || b"*'\"".contains(&c)),
+            |op: ParserInput| !op[0].is_ascii_digit(),
+        ),
         |op: ParserInput| str::from_utf8(op).map(Into::into),
     )
     .parse(input)
@@ -1492,5 +1496,19 @@ EI";
         let content = content_strict(data).unwrap();
         let operators: Vec<_> = content.operations.iter().map(|op| op.operator.as_str()).collect();
         assert_eq!(operators, ["BT", "Tf", "TJ", "ET", "q", "Q"]);
+    }
+
+    #[test]
+    fn content_parses_type3_glyph_operators() {
+        // Type 3 glyph descriptions start with d0 or d1, whose names end in a digit.
+        let data = b"750 0 d0\n0 0 m 10 10 l S\n500 0 0 -10 480 700 d1\n0 0 480 700 re f";
+        let content = content_strict(data).unwrap();
+        let operators: Vec<_> = content.operations.iter().map(|op| op.operator.as_str()).collect();
+        assert_eq!(operators, ["d0", "m", "l", "S", "d1", "re", "f"]);
+        assert_eq!(
+            content.operations[0].operands,
+            [Object::Integer(750), Object::Integer(0)]
+        );
+        assert_eq!(content.operations[4].operands.len(), 6);
     }
 }
