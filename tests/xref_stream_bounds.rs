@@ -246,3 +246,21 @@ fn valid_xref_stream_still_loads() {
     assert!(reloaded.get_object(catalog_id).is_ok());
     assert_eq!(reloaded.get_pages().len(), 1);
 }
+
+// Entries with an unknown type are null references, but their fields still occupy the
+// declared widths; skipping only the type byte misaligned every following entry.
+#[test]
+fn unknown_entry_type_consumes_its_fields() {
+    let body = [0, 0, 0, 1, 9, 0, 3, 1, 9, 1, 0, 0];
+    let pdf = xref_stream_pdf([1, 1, 1], 4, &body);
+    let doc = Document::load_mem(&pdf).unwrap();
+    let ids: Vec<_> = doc.reference_table.entries.keys().copied().collect();
+    assert_eq!(ids, [1, 3]);
+    assert!(matches!(
+        doc.reference_table.get(3),
+        Some(lopdf::xref::XrefEntry::Normal {
+            offset: 0,
+            generation: 0
+        })
+    ));
+}

@@ -660,7 +660,12 @@ pub fn decode_xref_stream_with_limit(
                         let index = read_big_endian_integer(&mut reader, bytes3.as_mut_slice())? as u16;
                         Some(XrefEntry::Compressed { container, index })
                     }
-                    _ => None,
+                    _ => {
+                        // unknown types are null references, but their fields still take up space
+                        read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
+                        read_big_endian_integer(&mut reader, bytes3.as_mut_slice())?;
+                        None
+                    }
                 };
                 // `start` is untrusted, as in a cross-reference table: `start + j` can overflow,
                 // and a `start` outside the u32 range would truncate into a valid-looking number.
