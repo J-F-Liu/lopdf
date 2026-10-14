@@ -166,14 +166,15 @@ fn escape_sequence(input: ParserInput) -> NomResult<Option<u8>> {
 enum InnerLiteralString<'a> {
     Direct(ParserInput<'a>),
     Escape(Option<u8>),
-    Eol(ParserInput<'a>),
+    Eol,
     Nested(Vec<u8>),
 }
 
 impl InnerLiteralString<'_> {
     fn push(&self, output: &mut Vec<u8>) {
         match self {
-            InnerLiteralString::Direct(s) | InnerLiteralString::Eol(s) => output.extend_from_slice(s),
+            InnerLiteralString::Direct(s) => output.extend_from_slice(s),
+            InnerLiteralString::Eol => output.push(b'\n'),
             InnerLiteralString::Escape(e) => output.extend(e),
             InnerLiteralString::Nested(n) => output.extend_from_slice(n),
         }
@@ -186,7 +187,7 @@ fn inner_literal_string(depth: usize) -> impl Fn(ParserInput) -> NomResult<Vec<u
             alt((
                 map(take_while1(is_direct_literal_string), InnerLiteralString::Direct),
                 map(escape_sequence, InnerLiteralString::Escape),
-                map(eol, InnerLiteralString::Eol),
+                map(eol, |_| InnerLiteralString::Eol),
                 map(nested_literal_string(depth), InnerLiteralString::Nested),
             )),
             Vec::new,
@@ -978,7 +979,9 @@ mod tests {
         let data = vec![
             ("()", ""),
             ("(text())", "text()"),
-            ("(text\r\n\\\\(nested\\t\\b\\f))", "text\r\n\\(nested\t\x08\x0C)"),
+            ("(text\r\n\\\\(nested\\t\\b\\f))", "text\n\\(nested\t\x08\x0C)"),
+            // An unescaped end-of-line marker of any kind reads as a single line feed.
+            ("(a\rb\nc\r\n\r\nd\n\re)", "a\nb\nc\n\nd\n\ne"),
             ("(text\\0\\53\\053\\0053)", "text\0++\x053"),
             ("(text line\\\n())", "text line()"),
         ];
