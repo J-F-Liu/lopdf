@@ -1,4 +1,8 @@
-use lopdf::{Document, Stream, content::Content, dictionary};
+use lopdf::{
+    Document, Stream,
+    content::{Content, Operation},
+    dictionary,
+};
 
 #[test]
 fn get_page_content_separates_streams_at_token_boundary() {
@@ -42,4 +46,38 @@ fn get_page_content_terminates_trailing_comment() {
     let operands: Vec<f32> = op.operands.iter().map(|o| o.as_float().unwrap()).collect();
 
     assert_eq!(operands, [1.0, 0.0, 0.0, 1.0, 50.0, 100.0]);
+}
+
+#[test]
+fn encode_writes_inline_images_back_in_line() {
+    let data = b"q BI /W 2 /H 1 /CS /G /BPC 8 ID \x00\xff\nEI Q";
+    let content = Content::decode(data).unwrap();
+
+    let encoded = content.encode().unwrap();
+    assert_eq!(encoded, b"q\nBI /W 2 /H 1 /CS /G /BPC 8 ID \x00\xff\nEI\nQ");
+
+    let decoded = Content::decode(&encoded).unwrap();
+    let ops: Vec<&str> = decoded.operations.iter().map(|o| o.operator.as_str()).collect();
+    assert_eq!(ops, ["q", "BI", "Q"]);
+    let image = decoded.operations[1].operands[0].as_stream().unwrap();
+    assert_eq!(image.content, b"\x00\xff");
+    assert_eq!(image.dict.get(b"CS").unwrap().as_name().unwrap(), b"G");
+}
+
+#[test]
+fn encode_writes_constructed_inline_image() {
+    let image = Stream::new(
+        dictionary! { "W" => 1, "H" => 1, "CS" => "RGB", "BPC" => 8 },
+        b"EI ".to_vec(),
+    );
+    let content = Content {
+        operations: vec![Operation::new("BI", vec![image.into()])],
+    };
+
+    let encoded = content.encode().unwrap();
+    assert_eq!(encoded, b"BI /W 1 /H 1 /CS /RGB /BPC 8 ID EI \nEI");
+
+    let decoded = Content::decode(&encoded).unwrap();
+    assert_eq!(decoded.operations.len(), 1);
+    assert_eq!(decoded.operations[0].operands[0].as_stream().unwrap().content, b"EI ");
 }
