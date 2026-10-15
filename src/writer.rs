@@ -584,7 +584,7 @@ impl Writer {
         }
     }
 
-    fn write_name(file: &mut dyn Write, name: &[u8]) -> Result<()> {
+    pub(crate) fn write_name(file: &mut dyn Write, name: &[u8]) -> Result<()> {
         file.write_all(b"/")?;
         for &byte in name {
             // white-space and delimiter chars are encoded to # sequences
