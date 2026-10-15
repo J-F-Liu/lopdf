@@ -105,9 +105,20 @@ fn real(input: ParserInput) -> NomResult<f32> {
         )),
     )
     .parse(input)?;
+    // Some producers write a minus sign inside the fraction, as in `0.00-4142502`. Like
+    // pdf.js and Poppler, ignore it rather than splitting the number in two.
+    let (i, fraction) = take_while(|c: u8| c == b'-' || c.is_ascii_digit()).parse(i)?;
 
     let float_input = &input[..input.len() - i.len()];
-    convert_result(f32::from_str(str::from_utf8(float_input).unwrap()), i, ErrorKind::Digit)
+    let value = if fraction.contains(&b'-') {
+        let (sign, rest) = float_input.split_at(1);
+        let mut digits = sign.to_vec();
+        digits.extend(rest.iter().filter(|&&c| c != b'-'));
+        f32::from_str(str::from_utf8(&digits).unwrap())
+    } else {
+        f32::from_str(str::from_utf8(float_input).unwrap())
+    };
+    convert_result(value, i, ErrorKind::Digit)
 }
 
 pub(crate) fn hex_char(input: ParserInput) -> NomResult<u8> {
@@ -970,6 +981,9 @@ mod tests {
         assert_eq!(real(test_span(b"0.12")), Some(0.12));
         assert_eq!(real(test_span(b"-.12")), Some(-0.12));
         assert_eq!(real(test_span(b"10.")), Some(10.0));
+        // A minus sign inside the fraction is ignored.
+        assert_eq!(real(test_span(b"0.00-4142502")), Some(0.004142502));
+        assert_eq!(real(test_span(b"-1.5-5")), Some(-1.55));
     }
 
     #[test]
@@ -1513,5 +1527,15 @@ EI";
             [Object::Integer(750), Object::Integer(0)]
         );
         assert_eq!(content.operations[4].operands.len(), 6);
+    }
+
+    #[test]
+    fn content_reads_minus_sign_inside_real_as_one_operand() {
+        let data = b"q\n0.99999994\n0.00-4142502\n0\n1.0000001\n106.729645\n232.27554\ncm\nQ";
+        let content = content_strict(data).unwrap();
+        let operators: Vec<_> = content.operations.iter().map(|op| op.operator.as_str()).collect();
+        assert_eq!(operators, ["q", "cm", "Q"]);
+        assert_eq!(content.operations[1].operands.len(), 6);
+        assert_eq!(content.operations[1].operands[1], Object::Real(0.004142502));
     }
 }
