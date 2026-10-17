@@ -1366,6 +1366,12 @@ impl<'a> Reader<'a> {
         let mut markers = Vec::new();
         let mut oversized_number_warned = false;
         let mut at_line_start = true;
+        // Where the dictionary of the next stream can start: past the previous
+        // `stream` keyword and the payload skipped after it.
+        let mut dictionary_start = 0;
+        // No `endstream` follows a later keyword either once one keyword has
+        // none, so searching again would rescan the rest of the buffer.
+        let mut unterminated = false;
         let mut pos = 0;
         while pos < buffer.len() {
             // Skip raw stream data: a payload may embed convincing `N G obj` lines whose
@@ -1375,18 +1381,21 @@ impl<'a> Reader<'a> {
                 && matches!(buffer.get(pos + STREAM_KEYWORD.len()), Some(b'\r' | b'\n'))
             {
                 let after_keyword = pos + STREAM_KEYWORD.len();
-                if let Some(relative) = buffer[after_keyword..]
-                    .windows(END_STREAM_KEYWORD.len())
-                    .position(|window| window == END_STREAM_KEYWORD)
-                {
-                    pos = after_keyword + relative + END_STREAM_KEYWORD.len();
-                    at_line_start = false;
-                    continue;
-                }
+                let dictionary = std::mem::replace(&mut dictionary_start, after_keyword);
+                let endstream = if unterminated {
+                    None
+                } else {
+                    find_from(buffer, after_keyword, END_STREAM_KEYWORD)
+                };
+                unterminated = endstream.is_none();
                 // Damaged stream without terminator: fall back to the /Length hint so the
                 // payload cannot hide pseudo headers, while later objects stay reachable.
-                if let Some(resume) = Self::payload_end_by_length(buffer, pos) {
-                    pos = resume;
+                let payload_end = endstream
+                    .map(|end| end + END_STREAM_KEYWORD.len())
+                    .or_else(|| Self::payload_end_by_length(buffer, dictionary, pos));
+                if let Some(end) = payload_end {
+                    pos = end;
+                    dictionary_start = end;
                     at_line_start = false;
                     continue;
                 }
@@ -1429,19 +1438,23 @@ impl<'a> Reader<'a> {
     /// integer in the dictionary preceding the `stream` keyword at
     /// `stream_pos`. The search is scoped to the current object (after the
     /// nearest preceding `obj` keyword) so a missing `/Length` cannot latch
-    /// onto a previous object's value. Returns `None` when the hint is
-    /// absent, indirect, or points outside the buffer — damaged files tend
-    /// to carry wrong `/Length` values, so it must stay a hint, never a hard
-    /// boundary.
-    fn payload_end_by_length(buffer: &[u8], stream_pos: usize) -> Option<usize> {
+    /// onto a previous object's value. Nor does it reach back before
+    /// `dictionary_start`, where the previous keyword or its payload ended:
+    /// that dictionary belongs to another stream, and stopping there keeps
+    /// the searches of all keywords to one pass over the buffer. Returns
+    /// `None` when the hint is absent, indirect, or points outside the
+    /// buffer — damaged files tend to carry wrong `/Length` values, so it
+    /// must stay a hint, never a hard boundary.
+    fn payload_end_by_length(buffer: &[u8], dictionary_start: usize, stream_pos: usize) -> Option<usize> {
         const LENGTH_KEY: &[u8] = b"/Length";
         const OBJ_KEYWORD: &[u8] = b"obj";
         const STREAM_KEYWORD_LEN: usize = b"stream".len();
 
-        let head = &buffer[..stream_pos];
-        let obj_pos = head
-            .windows(OBJ_KEYWORD.len())
-            .rposition(|window| window == OBJ_KEYWORD)?;
+        let head = buffer.get(dictionary_start..stream_pos)?;
+        let obj_pos = dictionary_start
+            + head
+                .windows(OBJ_KEYWORD.len())
+                .rposition(|window| window == OBJ_KEYWORD)?;
         let dict_region = &buffer[obj_pos + OBJ_KEYWORD.len()..stream_pos];
         // Nearest `/Length` in this object's dictionary; parsing it validates
         // that the match really is a key with an integer value.

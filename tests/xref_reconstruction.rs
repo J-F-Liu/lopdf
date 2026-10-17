@@ -335,6 +335,39 @@ fn reconstruction_does_not_use_a_previous_objects_length_hint() {
 }
 
 #[test]
+fn reconstruction_takes_a_length_hint_only_from_the_streams_own_dictionary() {
+    // A `stream` line without a header of its own follows object 4's
+    // unterminated payload. Object 4's /Length must not bound that keyword's
+    // payload as well, or the scan skips the catalog header after it.
+    let mut pdf = new_pdf();
+    let fourth_offset = pdf.len();
+    pdf.extend_from_slice(b"4 0 obj\n<< /Length 7 >>\nstream\nPAYLOAD\nendstrXXm\nstream\n");
+    let mut offsets = append_objects(&mut pdf, &page_tree_bodies());
+    offsets.push((4, fourth_offset));
+    let broken_startxref = pdf.len() + 4096;
+    append_xref_trailer(&mut pdf, &offsets, "<< /Size 5 /Root 1 0 R >>", broken_startxref);
+
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    assert!(document.get_object((1, 0)).unwrap().as_dict().unwrap().has(b"Type"));
+}
+
+#[test]
+fn reconstruction_scan_stays_linear_after_many_unterminated_streams() {
+    // No `endstream` follows any of these keywords. Searching the rest of the
+    // file for one at every keyword, and back to the last `obj` for a /Length
+    // hint, made the scan quadratic: about 2 s for these 128 KiB in release.
+    let mut pdf = new_pdf();
+    let offsets = append_objects(&mut pdf, &sample_bodies());
+    pdf.extend_from_slice(&b"stream\n".repeat(128 * 1024 / 7));
+    let broken_startxref = pdf.len() + 4096;
+    append_xref_trailer(&mut pdf, &offsets, "<< /Size 5 /Root 1 0 R >>", broken_startxref);
+
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+}
+
+#[test]
 fn reconstruction_accepts_indented_object_headers() {
     // Real generators indent object headers; blanks between the line start
     // and the digits must not hide the marker.
