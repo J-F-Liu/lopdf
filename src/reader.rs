@@ -1575,7 +1575,9 @@ impl<'a> Reader<'a> {
     /// In lenient mode, if `offset` does not point at a cross-reference table
     /// or an indirect object (cross-reference stream), scan a small window
     /// around it for the `xref` keyword and return the nearest match instead,
-    /// which `xref_and_trailer_at` checks before using it.
+    /// which `xref_and_trailer_at` checks before using it. Without one, as in
+    /// a file with cross-reference streams only, return the nearest object
+    /// header that starts a cross-reference stream.
     fn correct_xref_offset(&self, offset: usize) -> usize {
         const RECOVERY_WINDOW: usize = 64;
 
@@ -1602,7 +1604,32 @@ impl<'a> Reader<'a> {
                 corrected = Some(pos);
             }
         }
-        corrected.unwrap_or(offset)
+        corrected
+            .or_else(|| self.nearest_xref_stream(offset, window_start, window_end))
+            .unwrap_or(offset)
+    }
+
+    /// Start of the object header between `window_start` and `window_end` that
+    /// is nearest to `offset` and begins a cross-reference stream. The stream
+    /// parser itself skips white-space before a header, so an `offset` there
+    /// needs no correction.
+    fn nearest_xref_stream(&self, offset: usize, window_start: usize, window_end: usize) -> Option<usize> {
+        let rest = &self.buffer[offset..];
+        if Self::starts_indirect_object(&rest[skip_whitespace(rest, 0)..]) {
+            return None;
+        }
+        // A header starts a token: `12 0 obj` must not also match as `2 0 obj`.
+        let mut headers: Vec<usize> = (window_start..window_end)
+            .filter(|&pos| pos == 0 || !self.buffer[pos - 1].is_ascii_alphanumeric())
+            .filter(|&pos| Self::starts_indirect_object(&self.buffer[pos..]))
+            .collect();
+        headers.sort_by_key(|pos| pos.abs_diff(offset));
+        headers.into_iter().find(|&pos| {
+            matches!(
+                parser::indirect_object(self.buffer, pos, None, self, &mut HashSet::new(), None),
+                Ok((_, Object::Stream(stream))) if stream.dict.has_type(b"XRef")
+            )
+        })
     }
 
     /// Whether `input` begins with an indirect-object header (`N G obj`), the
@@ -1926,6 +1953,45 @@ startxref
         },
     );
     assert!(strict.is_err());
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn recovers_from_miswritten_startxref_offset_of_a_cross_reference_stream() {
+    // Without an `xref` keyword nearby, the header of the cross-reference stream is used,
+    // whether `startxref` stops short of it or points into it.
+    let mut document = Document::load("assets/example.pdf").unwrap();
+    document.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
+    let mut buffer = Vec::new();
+    document.save_to(&mut buffer).unwrap();
+    let xref_start = Reader::get_xref_start(&buffer).unwrap();
+    let keyword = buffer.windows(9).rposition(|window| window == b"startxref").unwrap();
+    let with_startxref = |offset: usize| {
+        let mut damaged = buffer[..keyword].to_vec();
+        damaged.extend_from_slice(format!("startxref\n{offset}\n%%EOF").as_bytes());
+        damaged
+    };
+
+    for offset in [xref_start - 2, xref_start + 3] {
+        let damaged = with_startxref(offset);
+        let loaded = Document::load_mem(&damaged).unwrap();
+        assert_eq!(loaded.xref_start, xref_start);
+        assert_eq!(loaded.get_pages().len(), 1);
+
+        let strict = Document::load_mem_with_options(
+            &damaged,
+            LoadOptions {
+                strict: true,
+                ..Default::default()
+            },
+        );
+        assert!(strict.is_err());
+    }
+
+    // The parser skips white-space before the header, so that offset is kept.
+    let loaded = Document::load_mem(&with_startxref(xref_start - 1)).unwrap();
+    assert_eq!(loaded.xref_start, xref_start - 1);
+    assert_eq!(loaded.get_pages().len(), 1);
 }
 
 #[cfg(all(test, not(feature = "async")))]
