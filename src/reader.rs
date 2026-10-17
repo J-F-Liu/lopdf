@@ -24,7 +24,7 @@ use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
-use crate::xref::{Xref, XrefEntry, XrefType};
+use crate::xref::{Xref, XrefEntry, XrefRecovery, XrefType};
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 /// Open `path` and report its size, so the caller can pre-size the buffer it
@@ -413,6 +413,9 @@ pub struct PdfMetadata {
     /// decrypted — e.g. an empty user password, or a password supplied via a
     /// `*_with_password` loader.
     pub encrypted: bool,
+    /// How the cross-reference data was repaired to read this metadata, or
+    /// `None` when it was read as written. See [`Document::xref_recovery`].
+    pub xref_recovery: Option<XrefRecovery>,
 }
 
 struct InfoMetadata {
@@ -549,6 +552,7 @@ impl<'a> Reader<'a> {
             page_count,
             version,
             encrypted,
+            xref_recovery: self.document.xref_recovery,
         })
     }
 
@@ -1253,7 +1257,7 @@ impl<'a> Reader<'a> {
 
     /// Parse the cross-reference section recorded at `offset`, first correcting
     /// the offset if it is slightly miswritten (lenient mode only).
-    fn xref_and_trailer_at(&self, offset: usize) -> Result<(Xref, Dictionary)> {
+    fn xref_and_trailer_at(&mut self, offset: usize) -> Result<(Xref, Dictionary)> {
         let offset = self.correct_xref_offset(offset);
         parser::xref_and_trailer(&self.buffer[offset..], self)
     }
@@ -1303,7 +1307,7 @@ impl<'a> Reader<'a> {
 
     /// Merge the cross-reference stream that a section of a hybrid-reference file points to
     /// with `/XRefStm`. Its entries come after the section's table and before older sections.
-    fn merge_hybrid_xref_stream(&self, xref: &mut Xref, xref_stream_start: Option<Object>) -> Result<()> {
+    fn merge_hybrid_xref_stream(&mut self, xref: &mut Xref, xref_stream_start: Option<Object>) -> Result<()> {
         let Some(start) = xref_stream_start.and_then(|offset| offset.as_i64().ok()) else {
             return Ok(());
         };
@@ -1346,6 +1350,7 @@ impl<'a> Reader<'a> {
         let (_trailer_pos, trailer) = self.find_latest_trailer(&xref)?;
         // Zero marks the offset "unknown" so `Document::new_from_prev` omits `/Prev`.
         self.document.xref_start = 0;
+        self.document.xref_recovery = Some(XrefRecovery::Reconstructed);
 
         warn!(
             "reconstructed cross-reference table with {} objects by scanning for indirect objects",
@@ -1547,7 +1552,7 @@ impl<'a> Reader<'a> {
     /// In lenient mode, if `offset` does not point at a cross-reference table
     /// or an indirect object (cross-reference stream), scan a small window
     /// around it for the `xref` keyword and use the nearest match instead.
-    fn correct_xref_offset(&self, offset: usize) -> usize {
+    fn correct_xref_offset(&mut self, offset: usize) -> usize {
         const RECOVERY_WINDOW: usize = 64;
 
         if self.strict || offset >= self.buffer.len() {
@@ -1579,6 +1584,7 @@ impl<'a> Reader<'a> {
                     "Cross-reference offset {} does not point at an xref section; using nearby offset {} instead.",
                     offset, pos
                 );
+                self.document.xref_recovery = Some(XrefRecovery::OffsetCorrected);
                 pos
             }
             None => offset,
@@ -1897,6 +1903,9 @@ startxref
     let loaded = Document::load_mem(doc.as_bytes()).unwrap();
     assert!(loaded.trailer.get(b"Root").is_ok());
     assert_eq!(loaded.xref_start, xref_pos);
+    assert_eq!(loaded.xref_recovery, Some(XrefRecovery::OffsetCorrected));
+    let metadata = Document::load_metadata_mem(doc.as_bytes()).unwrap();
+    assert_eq!(metadata.xref_recovery, Some(XrefRecovery::OffsetCorrected));
 
     let strict = Document::load_mem_with_options(
         doc.as_bytes(),
@@ -1906,6 +1915,55 @@ startxref
         },
     );
     assert!(strict.is_err());
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn reports_a_corrected_prev_offset() {
+    // An incremental update whose `/Prev` points past the `xref` keyword of the first section.
+    let header = "%PDF-1.5\n";
+    let obj1 = "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    let obj2 = "2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n";
+    let o1 = header.len();
+    let o2 = o1 + obj1.len();
+    let body = format!("{header}{obj1}{obj2}");
+    let prev = body.len();
+    let first = format!(
+        "{body}xref
+0 3
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 3>>
+startxref
+{prev}
+%%EOF
+"
+    );
+    let update = "1 0 obj<</Type/Catalog/Pages 2 0 R/Lang(en)>>endobj\n";
+    let o1_update = first.len();
+    let xref_pos = o1_update + update.len();
+    let doc = format!(
+        "{first}{update}xref
+1 1
+{o1_update:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 3/Prev {}>>
+startxref
+{xref_pos}
+%%EOF",
+        prev + 4
+    );
+
+    let loaded = Document::load_mem(doc.as_bytes()).unwrap();
+    assert!(loaded.catalog().unwrap().has(b"Lang"));
+    assert!(loaded.get_object((2, 0)).is_ok());
+    assert_eq!(loaded.xref_recovery, Some(XrefRecovery::OffsetCorrected));
+
+    // The same file with the right offset is read as written.
+    let intact = doc.replace(&format!("/Prev {}", prev + 4), &format!("/Prev {prev}"));
+    assert_eq!(Document::load_mem(intact.as_bytes()).unwrap().xref_recovery, None);
 }
 
 #[cfg(all(test, not(feature = "async")))]
