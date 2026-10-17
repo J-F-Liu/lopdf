@@ -1251,11 +1251,41 @@ impl<'a> Reader<'a> {
         parser::indirect_object(self.buffer, offset, expected_id, self, already_seen, Some(end))
     }
 
-    /// Parse the cross-reference section recorded at `offset`, first correcting
-    /// the offset if it is slightly miswritten (lenient mode only).
-    fn xref_and_trailer_at(&self, offset: usize) -> Result<(Xref, Dictionary)> {
-        let offset = self.correct_xref_offset(offset);
-        parser::xref_and_trailer(&self.buffer[offset..], self)
+    /// Parse the cross-reference section recorded at `offset`, and return it with
+    /// the offset it was read from. In lenient mode a slightly miswritten offset
+    /// is corrected first, but only when the section found there locates its own
+    /// objects: after bytes were inserted or removed before it, a nearby section
+    /// points at shifted objects, and failing lets reconstruction find them.
+    fn xref_and_trailer_at(&self, offset: usize) -> Result<(usize, Xref, Dictionary)> {
+        let corrected = self.correct_xref_offset(offset);
+        if corrected != offset
+            && let Ok((xref, trailer)) = parser::xref_and_trailer(&self.buffer[corrected..], self)
+            && self.locates_objects(&xref)
+        {
+            warn!(
+                "Cross-reference offset {} does not point at an xref section; using nearby offset {} instead.",
+                offset, corrected
+            );
+            return Ok((corrected, xref, trailer));
+        }
+        let (xref, trailer) = parser::xref_and_trailer(&self.buffer[offset..], self)?;
+        Ok((offset, xref, trailer))
+    }
+
+    /// Whether most normal entries of a cross-reference section point at the
+    /// header of their own object, as they do in a section describing this file.
+    fn locates_objects(&self, xref: &Xref) -> bool {
+        let (mut normal, mut located) = (0usize, 0usize);
+        for (&number, entry) in &xref.entries {
+            if let XrefEntry::Normal { offset, generation } = *entry {
+                normal += 1;
+                let rest = self.buffer.get(offset as usize..).unwrap_or_default();
+                if Self::parse_object_header(&rest[skip_whitespace(rest, 0)..]) == Some((number, generation)) {
+                    located += 1;
+                }
+            }
+        }
+        normal == 0 || located * 2 > normal
     }
 
     /// Resolve the cross-reference table/stream and trailer, including the
@@ -1265,10 +1295,8 @@ impl<'a> Reader<'a> {
         if xref_start > self.buffer.len() {
             return Err(Error::Xref(XrefError::Start));
         }
-        let xref_start = self.correct_xref_offset(xref_start);
+        let (xref_start, mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
         self.document.xref_start = xref_start;
-
-        let (mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
         self.merge_hybrid_xref_stream(&mut xref, trailer.remove(b"XRefStm"))?;
 
         // Read previous Xrefs of linearized or incremental updated document.
@@ -1283,7 +1311,7 @@ impl<'a> Reader<'a> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
+            let (_, prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
             xref.merge(prev_xref);
             self.merge_hybrid_xref_stream(&mut xref, prev_trailer.remove(b"XRefStm"))?;
 
@@ -1311,7 +1339,7 @@ impl<'a> Reader<'a> {
             return Err(Error::Xref(XrefError::StreamStart));
         }
         match self.xref_and_trailer_at(start as usize) {
-            Ok((stream_xref, _)) => xref.merge(stream_xref),
+            Ok((_, stream_xref, _)) => xref.merge(stream_xref),
             // The table alone still describes a hybrid-reference file for older readers.
             Err(e) if !self.strict => warn!("ignoring unreadable cross-reference stream at {start}: {e}"),
             Err(e) => return Err(e),
@@ -1546,7 +1574,8 @@ impl<'a> Reader<'a> {
     /// and common readers (Acrobat, poppler, mupdf, pdf.js) recover from them.
     /// In lenient mode, if `offset` does not point at a cross-reference table
     /// or an indirect object (cross-reference stream), scan a small window
-    /// around it for the `xref` keyword and use the nearest match instead.
+    /// around it for the `xref` keyword and return the nearest match instead,
+    /// which `xref_and_trailer_at` checks before using it.
     fn correct_xref_offset(&self, offset: usize) -> usize {
         const RECOVERY_WINDOW: usize = 64;
 
@@ -1573,16 +1602,7 @@ impl<'a> Reader<'a> {
                 corrected = Some(pos);
             }
         }
-        match corrected {
-            Some(pos) => {
-                warn!(
-                    "Cross-reference offset {} does not point at an xref section; using nearby offset {} instead.",
-                    offset, pos
-                );
-                pos
-            }
-            None => offset,
-        }
+        corrected.unwrap_or(offset)
     }
 
     /// Whether `input` begins with an indirect-object header (`N G obj`), the
@@ -1906,6 +1926,42 @@ startxref
         },
     );
     assert!(strict.is_err());
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn rebuilds_rather_than_correcting_to_a_table_of_shifted_objects() {
+    // The table and `startxref` were written for a file with 10 more bytes before the
+    // objects, as when bytes are later removed. The nearby `xref` keyword leads to a table
+    // whose offsets all miss their objects; scanning finds the objects where they are.
+    let header = "%PDF-1.5\n";
+    let obj1 = "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    let obj2 = "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n";
+    let obj3 = "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n";
+    let removed = 10;
+    let o1 = header.len() + removed;
+    let o2 = o1 + obj1.len();
+    let o3 = o2 + obj2.len();
+    let body = format!("{header}{obj1}{obj2}{obj3}");
+    let doc = format!(
+        "{body}xref
+0 4
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+{o3:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 4>>
+startxref
+{}
+%%EOF",
+        body.len() + removed
+    );
+
+    let loaded = Document::load_mem(doc.as_bytes()).unwrap();
+    assert_eq!(loaded.get_pages().len(), 1);
+    // Zero marks a table rebuilt by scanning rather than read at a corrected offset.
+    assert_eq!(loaded.xref_start, 0);
 }
 
 #[cfg(all(test, not(feature = "async")))]
