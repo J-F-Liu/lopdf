@@ -423,33 +423,27 @@ impl Writer {
     /// Group the table's entries into the contiguous runs a cross-reference
     /// table or stream is built from.
     ///
-    /// Iterate to the actual highest entry: `xref.size` is fixed before object
-    /// streams and the xref stream itself are appended, so entries past it
-    /// would never reach the output. A section starts at the first *present*
-    /// id; starting it at a missing id would shift every subsequent entry by
-    /// one. Object 0 is left out; only a table has to invent an entry for it,
-    /// and [`Self::write_xref`] is where that happens.
+    /// Walk the entries, not every number up to the highest, so that a high
+    /// object number does not make saving slow. A section starts at a
+    /// *present* id; starting it at a missing id would shift every subsequent
+    /// entry by one. Object 0 is left out; only a table has to invent an entry
+    /// for it, and [`Self::write_xref`] is where that happens.
     fn xref_sections(xref: &Xref) -> Vec<XrefSection> {
-        let mut sections = Vec::new();
-        let mut current = XrefSection::new(0);
+        let mut sections: Vec<XrefSection> = Vec::new();
 
-        for obj_id in 1..=xref.max_id() {
-            if let Some(entry) = xref.get(obj_id) {
-                if current.is_empty() {
-                    current = XrefSection::new(obj_id);
+        for (&obj_id, entry) in xref.entries.range(1..) {
+            match sections.last_mut() {
+                // No number is missing between the section and this entry. The sum cannot
+                // overflow: it is at most `obj_id`.
+                Some(section) if section.starting_id + section.entries.len() as u32 == obj_id => {
+                    section.add_entry(entry.clone());
                 }
-                current.add_entry(entry.clone());
-            } else {
-                // Skip over the gap, but close the section first if one is open.
-                if !current.is_empty() {
-                    sections.push(current);
-                    current = XrefSection::new(0);
+                _ => {
+                    let mut section = XrefSection::new(obj_id);
+                    section.add_entry(entry.clone());
+                    sections.push(section);
                 }
             }
-        }
-
-        if !current.is_empty() {
-            sections.push(current);
         }
 
         sections
@@ -495,8 +489,8 @@ impl Writer {
             // Add indexes to list
             xref_index.push(Integer(section.starting_id as i64));
             xref_index.push(Integer(section.entries.len() as i64));
-            // Add entries to stream
-            for (obj_id, entry) in (section.starting_id..).zip(section.entries) {
+            // Add entries to stream. A `starting_id..` range would overflow on reaching `u32::MAX`.
+            for (obj_id, entry) in (section.starting_id..=u32::MAX).zip(section.entries) {
                 match entry {
                     XrefEntry::Free => {
                         // Type 0
