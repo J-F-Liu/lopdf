@@ -75,7 +75,7 @@ impl Document {
             bytes_written: 0,
         };
 
-        let mut xref = Xref::new(self.max_id + 1, self.reference_table.cross_reference_type);
+        let mut xref = Xref::new(self.max_id.saturating_add(1), self.reference_table.cross_reference_type);
         writeln!(target, "%PDF-{}", self.version)?;
 
         Writer::write_binary_mark(&mut target, &self.binary_mark)?;
@@ -132,7 +132,7 @@ impl Document {
             bytes_written: 0,
         };
 
-        let mut xref = Xref::new(self.max_id + 1, self.reference_table.cross_reference_type);
+        let mut xref = Xref::new(self.max_id.saturating_add(1), self.reference_table.cross_reference_type);
         writeln!(target, "%PDF-{}", self.version)?;
         Writer::write_binary_mark(&mut target, &self.binary_mark)?;
 
@@ -186,9 +186,8 @@ impl Document {
         }
 
         // Write object streams
-        let mut stream_count = 0;
         for obj_stream in object_streams.into_iter() {
-            let stream_id = self.max_id + 1 + stream_count;
+            let (stream_id, _) = self.try_new_object_id().map_err(std::io::Error::other)?;
             let stream_obj = obj_stream.to_stream_object().map_err(std::io::Error::other)?;
 
             // Record compressed objects in xref. The index must match the order
@@ -205,11 +204,7 @@ impl Document {
 
             // Write the object stream
             Writer::write_indirect_object(&mut target, stream_id, 0, &Object::Stream(stream_obj), &mut xref)?;
-            stream_count += 1;
         }
-
-        // Update max_id to account for object streams
-        self.max_id += stream_count;
 
         let xref_start = target.bytes_written;
         self.write_xref_and_trailer(&mut target, &mut xref, xref_start)
@@ -222,9 +217,7 @@ impl Document {
     fn write_cross_reference_stream<W: Write>(
         &mut self, file: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: u32,
     ) -> Result<()> {
-        // Increment max_id to account for CRS.
-        self.max_id += 1;
-        let new_obj_id_for_crs = self.max_id;
+        let (new_obj_id_for_crs, _) = self.try_new_object_id().map_err(std::io::Error::other)?;
         xref.insert(
             new_obj_id_for_crs,
             XrefEntry::Normal {
@@ -234,7 +227,7 @@ impl Document {
         );
         self.trailer.set("Type", Name(b"XRef".to_vec()));
         // Update `max_id` in trailer
-        self.trailer.set("Size", i64::from(self.max_id + 1));
+        self.trailer.set("Size", i64::from(self.max_id) + 1);
         // `[u8, u32, u16]` per entry (the PDF default is `[1 2 1]`).
         self.trailer.set("W", Array(vec![Integer(1), Integer(4), Integer(2)]));
         // Note that `ASCIIHexDecode` does not work correctly,
@@ -266,7 +259,7 @@ impl Document {
     }
 
     fn write_trailer(&mut self, file: &mut dyn Write) -> Result<()> {
-        self.trailer.set("Size", i64::from(self.max_id + 1));
+        self.trailer.set("Size", i64::from(self.max_id) + 1);
         file.write_all(b"trailer\n")?;
         Writer::write_dictionary(file, &self.trailer)?;
         Ok(())
@@ -339,7 +332,7 @@ impl IncrementalDocument {
 
         // Write/Append new document version.
         let mut xref = Xref::new(
-            self.new_document.max_id + 1,
+            self.new_document.max_id.saturating_add(1),
             self.get_prev_documents().reference_table.cross_reference_type,
         );
 

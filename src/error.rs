@@ -103,6 +103,10 @@ pub enum Error {
     /// Found object ID does not match expected object ID.
     #[error("found object ID does not match expected object ID")]
     ObjectIdMismatch,
+    /// A new object ID was needed, but [`Document::max_id`](crate::Document::max_id) is already
+    /// `u32::MAX`.
+    #[error("object ID overflow: the next object number would exceed {}", u32::MAX)]
+    ObjectIdOverflow,
     /// Error when handling images.
     #[cfg(feature = "embed_image")]
     #[error("image error")]

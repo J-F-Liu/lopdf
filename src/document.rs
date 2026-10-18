@@ -403,12 +403,15 @@ impl Document {
         }
 
         let encrypted = state.encode()?;
+        // Take the ID before encrypting anything, so that running out of IDs leaves the
+        // document as it was.
+        let object_id = self.try_new_object_id()?;
 
         for (&id, obj) in self.objects.iter_mut() {
             encryption::encrypt_object(state, id, obj)?;
         }
 
-        let object_id = self.add_object(encrypted);
+        self.objects.insert(object_id, Object::Dictionary(encrypted));
         self.trailer.set(b"Encrypt", Object::Reference(object_id));
         self.encryption_state = None;
 
