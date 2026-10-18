@@ -486,20 +486,18 @@ fn reference(input: ParserInput) -> NomResult<Object> {
 }
 
 fn _direct_objects(depth: usize) -> impl Fn(ParserInput) -> NomResult<Object> {
-    move |input| {
-        alt((
-            null,
-            boolean,
-            reference,
-            map(real, Object::Real),
-            map(integer, Object::Integer),
-            map(name, Object::Name),
-            map(literal_string, Object::string_literal),
-            hexadecimal_string,
-            map(array(depth), Object::Array),
-            map(_dictionary(depth), Object::Dictionary),
-        ))
-        .parse(input)
+    // The first byte tells the kinds of object apart, so it selects the parsers to try.
+    // An integer also matches the start of a reference or a real, so it is tried last.
+    move |input| match input.first() {
+        Some(b'n') => null(input),
+        Some(b't' | b'f') => boolean(input),
+        Some(b'0'..=b'9') => alt((reference, map(real, Object::Real), map(integer, Object::Integer))).parse(input),
+        Some(b'+' | b'-' | b'.') => alt((map(real, Object::Real), map(integer, Object::Integer))).parse(input),
+        Some(b'/') => map(name, Object::Name).parse(input),
+        Some(b'(') => map(literal_string, Object::string_literal).parse(input),
+        Some(b'<') => alt((hexadecimal_string, map(_dictionary(depth), Object::Dictionary))).parse(input),
+        Some(b'[') => map(array(depth), Object::Array).parse(input),
+        _ => Err(nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Alt))),
     }
 }
 
@@ -1665,6 +1663,43 @@ EI";
             assert_eq!(
                 direct_object(test_span(input)),
                 expected,
+                "{:?}",
+                String::from_utf8_lossy(input)
+            );
+        }
+    }
+
+    #[test]
+    fn parse_each_kind_of_direct_object() {
+        for (input, expected) in [
+            (&b"null"[..], Object::Null),
+            (b"true", Object::Boolean(true)),
+            (b"false", Object::Boolean(false)),
+            (b"12 0 R", Object::Reference((12, 0))),
+            (b"12 0", Object::Integer(12)),
+            (b"1.5", Object::Real(1.5)),
+            (b"-.5", Object::Real(-0.5)),
+            (b"+7", Object::Integer(7)),
+            (b"/N", Object::Name(b"N".to_vec())),
+            (b"(s)", Object::string_literal("s")),
+            (b"<73>", Object::String(b"s".to_vec(), StringFormat::Hexadecimal)),
+            (b"<</N 1>>", Object::Dictionary(crate::dictionary! { "N" => 1 })),
+            (
+                b"[1 2.5 /N]",
+                Object::Array(vec![1.into(), Object::Real(2.5), "N".into()]),
+            ),
+        ] {
+            assert_eq!(
+                direct_object(test_span(input)),
+                Some(expected),
+                "{:?}",
+                String::from_utf8_lossy(input)
+            );
+        }
+        for input in [&b""[..], b"nul", b"True", b"R", b")", b">>", b"]", b"{", b"-", b"."] {
+            assert_eq!(
+                direct_object(test_span(input)),
+                None,
                 "{:?}",
                 String::from_utf8_lossy(input)
             );
