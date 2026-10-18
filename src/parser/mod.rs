@@ -16,7 +16,7 @@ use nom::combinator::{map, map_opt, map_res, opt, verify};
 use nom::error::{ErrorKind, ParseError};
 use nom::multi::{fold_many0, fold_many1, many0, many0_count};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
-use nom::{AsBytes, AsChar, IResult, Input, Parser};
+use nom::{AsChar, IResult, Input, Parser};
 
 pub(crate) mod cmap_parser;
 
@@ -128,13 +128,16 @@ fn real(input: ParserInput) -> NomResult<f32> {
     convert_result(value, i, ErrorKind::Digit)
 }
 
+/// The value of an ASCII hexadecimal digit.
+#[inline]
+fn hex_value(c: u8) -> Option<u8> {
+    (c as char).to_digit(16).map(|value| value as u8)
+}
+
 pub(crate) fn hex_char(input: ParserInput) -> NomResult<u8> {
-    map_res(
-        verify(take(2usize), |h: ParserInput| {
-            h.as_bytes().iter().copied().all(AsChar::is_hex_digit)
-        }),
-        |x: ParserInput| u8::from_str_radix(str::from_utf8(x).unwrap(), 16),
-    )
+    map_opt(take(2usize), |h: ParserInput| {
+        Some((hex_value(h[0])? << 4) | hex_value(h[1])?)
+    })
     .parse(input)
 }
 
@@ -148,20 +151,28 @@ fn oct_char(input: ParserInput) -> NomResult<u8> {
 }
 
 pub(crate) fn name(input: ParserInput) -> NomResult<Vec<u8>> {
-    preceded(
-        tag(&b"/"[..]),
-        many0(alt((
-            preceded(tag(&b"#"[..]), hex_char),
-            map_opt(take(1usize), |c: ParserInput| {
-                if c[0] != b'#' && is_regular(c[0]) {
-                    Some(c[0])
-                } else {
-                    None
+    let (mut input, _) = tag(&b"/"[..]).parse(input)?;
+    let mut bytes = Vec::new();
+    loop {
+        // Copy regular characters a run at a time, up to the next `#` or the end of the name.
+        let run = input
+            .iter()
+            .position(|&c| c == b'#' || !is_regular(c))
+            .unwrap_or(input.len());
+        bytes.extend_from_slice(&input[..run]);
+        input = &input[run..];
+        // `#` and two hexadecimal digits stand for one byte; any other `#` ends the name.
+        match input.split_first() {
+            Some((b'#', escape)) => match hex_char(escape) {
+                Ok((rest, byte)) => {
+                    bytes.push(byte);
+                    input = rest;
                 }
-            }),
-        ))),
-    )
-    .parse(input)
+                Err(_) => return Ok((input, bytes)),
+            },
+            _ => return Ok((input, bytes)),
+        }
+    }
 }
 
 fn escape_sequence(input: ParserInput) -> NomResult<Option<u8>> {
@@ -247,10 +258,7 @@ fn literal_string(input: ParserInput) -> NomResult<Vec<u8>> {
 
 #[inline]
 fn hex_digit(input: ParserInput) -> NomResult<u8> {
-    map_opt(take(1usize), |c: ParserInput| {
-        str::from_utf8(c).ok().and_then(|c| u8::from_str_radix(c, 16).ok())
-    })
-    .parse(input)
+    map_opt(take(1usize), |c: ParserInput| hex_value(c[0])).parse(input)
 }
 
 fn hexadecimal_string(input: ParserInput) -> NomResult<Object> {
@@ -1573,5 +1581,44 @@ EI";
         assert_eq!(rest(b""), b"");
         // A comment ends with an end-of-line marker, without which it is left unread.
         assert_eq!(rest(b" % unterminated"), b"% unterminated");
+    }
+
+    #[test]
+    fn parse_name_ends_at_delimiters_and_invalid_escapes() {
+        for (input, expected, rest) in [
+            (&b"/Type/Page"[..], &b"Type"[..], &b"/Page"[..]),
+            (b"/A B", b"A", b" B"),
+            (b"/A(text)", b"A", b"(text)"),
+            (b"/A#42C", b"ABC", b""),
+            (b"/#41#4a#4A", b"AJJ", b""),
+            (b"/a#20b#00", b"a b\0", b""),
+            // A `#` without two hexadecimal digits ends the name.
+            (b"/A#4", b"A", b"#4"),
+            (b"/A#4G", b"A", b"#4G"),
+            (b"/A#", b"A", b"#"),
+            (b"/A# 1", b"A", b"# 1"),
+            (b"/", b"", b""),
+            (b"/\xe5\x90\x8d ", b"\xe5\x90\x8d", b" "),
+        ] {
+            assert_eq!(
+                name(test_span(input)),
+                Ok((rest, expected.to_vec())),
+                "{:?}",
+                String::from_utf8_lossy(input)
+            );
+        }
+    }
+
+    #[test]
+    fn hexadecimal_string_accepts_only_hexadecimal_digits() {
+        let hex = |input| match tstrip(hexadecimal_string(test_span(input))) {
+            Some(Object::String(bytes, StringFormat::Hexadecimal)) => Some(bytes),
+            _ => None,
+        };
+        assert_eq!(hex(b"<09aFAf>"), Some(b"\x09\xaf\xaf".to_vec()));
+        assert_eq!(hex(b"<>"), Some(vec![]));
+        for input in [&b"<4G>"[..], b"<+1>", b"<\xc3\xa9>", b"<41"] {
+            assert_eq!(hex(input), None, "{:?}", String::from_utf8_lossy(input));
+        }
     }
 }
