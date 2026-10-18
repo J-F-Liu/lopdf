@@ -480,3 +480,43 @@ fn test_loads_catalog_from_later_generated_object_stream() {
         .expect("catalog should remain reachable from a later generated object stream");
     assert_eq!(loaded.get_pages().len(), 1);
 }
+
+/// An object stream listing `members` in order, each an integer object.
+fn object_stream_of(members: &[(u32, i64)]) -> Stream {
+    let mut offsets = String::new();
+    let mut body = String::new();
+    for (number, value) in members {
+        offsets.push_str(&format!("{number} {} ", body.len()));
+        body.push_str(&format!("{value} "));
+    }
+    let first = offsets.len();
+    Stream::new(
+        dictionary! {
+            "Type" => "ObjStm",
+            "N" => members.len() as i64,
+            "First" => first as i64,
+        },
+        (offsets + &body).into_bytes(),
+    )
+}
+
+#[test]
+fn test_object_stream_parse_reads_small_and_large_streams_alike() {
+    // With the rayon feature, a few members are read on the calling thread and
+    // many on rayon's pool. Either way every member is read, and an object
+    // listed twice keeps its later entry.
+    for count in [4, 300] {
+        let mut members: Vec<(u32, i64)> = (1..=count).map(|number| (number, i64::from(number) * 10)).collect();
+        members.push((1, -1));
+        let object_stream = ObjectStream::new(&object_stream_of(&members)).unwrap();
+
+        assert_eq!(object_stream.objects.len(), count as usize);
+        assert_eq!(object_stream.objects[&(1, 0)], Object::Integer(-1));
+        for number in 2..=count {
+            assert_eq!(
+                object_stream.objects[&(number, 0)],
+                Object::Integer(i64::from(number) * 10)
+            );
+        }
+    }
+}
