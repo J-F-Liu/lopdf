@@ -385,12 +385,17 @@ fn recover_stream_length(input: ParserInput) -> Option<(ParserInput, ParserInput
     recovered
 }
 
-fn stream<'a>(
-    input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_length: bool,
-    recovery_bound: Option<usize>,
-) -> NomResult<'a, Object> {
-    let (i, dict) = terminated(dictionary, (space, tag(&b"stream"[..]), space0, eol)).parse(input)?;
+/// The `stream` keyword and its end-of-line marker, which turn a dictionary into
+/// the dictionary of a stream.
+fn stream_keyword(input: ParserInput) -> NomResult<()> {
+    map((space, tag(&b"stream"[..]), space0, eol), |_| ()).parse(input)
+}
 
+/// A stream whose dictionary `dict` starts `input`, with its data starting at `i`.
+fn stream<'a>(
+    input: ParserInput<'a>, i: ParserInput<'a>, dict: Dictionary, reader: &Reader,
+    already_seen: &mut HashSet<ObjectId>, recover_length: bool, recovery_bound: Option<usize>,
+) -> NomResult<'a, Object> {
     if let Ok(length) = dict.get(b"Length").and_then(|value| {
         if let Ok(id) = value.as_reference() {
             reader.get_object(id, already_seen).and_then(|value| value.as_i64())
@@ -478,14 +483,27 @@ fn object<'a>(
     input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool,
     recovery_bound: Option<usize>,
 ) -> NomResult<'a, Object> {
-    terminated(
-        alt((
-            |input| stream(input, reader, already_seen, recover_stream_length, recovery_bound),
-            _direct_objects(crate::reader::MAX_NESTING_DEPTH),
-        )),
-        space,
-    )
-    .parse(input)
+    let (i, object) = if input.starts_with(b"<<") {
+        // A stream starts with its dictionary: parse the dictionary once, and let the
+        // keyword after it decide whether the object is a stream.
+        let (i, dict) = dictionary(input)?;
+        match stream_keyword(i) {
+            Ok((data, ())) => stream(
+                input,
+                data,
+                dict,
+                reader,
+                already_seen,
+                recover_stream_length,
+                recovery_bound,
+            )?,
+            Err(_) => (i, Object::Dictionary(dict)),
+        }
+    } else {
+        _direct_objects(crate::reader::MAX_NESTING_DEPTH)(input)?
+    };
+    let (i, ()) = space(i)?;
+    Ok((i, object))
 }
 
 pub fn indirect_object(

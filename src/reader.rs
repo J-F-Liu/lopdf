@@ -2083,6 +2083,31 @@ startxref
     assert_eq!(stream.content, b"BT /F1 12 Tf 20 100 Td (Hello World) Tj ET");
 }
 
+#[test]
+fn indirect_dictionary_is_a_stream_only_before_the_stream_keyword() {
+    let read = |input: &[u8]| parser::indirect_object(input, 0, None, &Reader::new(input), &mut HashSet::new(), None);
+
+    // Without the keyword and an end-of-line marker after it, the dictionary is the object.
+    for input in [
+        &b"1 0 obj <</A 1>> endobj"[..],
+        b"1 0 obj <</A 1>>\nendobj",
+        b"1 0 obj <</A 1>>stream endobj",
+        b"1 0 obj <</A 1>> /B 2",
+    ] {
+        let (id, object) = read(input).unwrap();
+        assert_eq!(id, (1, 0));
+        assert_eq!(object, Object::Dictionary(crate::dictionary! { "A" => 1 }), "{input:?}");
+    }
+
+    let (_, object) = read(b"1 0 obj <</Length 3>> stream\r\nabc\nendstream endobj").unwrap();
+    assert_eq!(object.as_stream().unwrap().content, b"abc");
+
+    // A stream whose data cannot be read fails rather than loading as its dictionary.
+    assert!(read(b"1 0 obj <</Length -1>>stream\nabc\nendstream endobj").is_err());
+    // So does an unterminated dictionary.
+    assert!(read(b"1 0 obj <</A 1 endobj").is_err());
+}
+
 #[cfg(all(test, not(feature = "async")))]
 #[test]
 fn object_marker_parsing_accepts_only_real_headers() {
