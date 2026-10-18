@@ -96,16 +96,38 @@ fn space(mut input: ParserInput) -> NomResult<()> {
     }
 }
 
-fn integer(input: ParserInput) -> NomResult<i64> {
-    let (i, _) = pair(opt(one_of("+-")), digit1).parse(input)?;
+/// The value of a run of ASCII digits, or `None` if it exceeds `u64`.
+fn digits_value(digits: &[u8]) -> Option<u64> {
+    digits.iter().try_fold(0u64, |value, &digit| {
+        value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
+    })
+}
 
-    let int_input = &input[..input.len() - i.len()];
-    convert_result(i64::from_str(str::from_utf8(int_input).unwrap()), i, ErrorKind::Digit)
+/// An optional `+` or `-` sign, and whether it was `-`.
+fn sign(input: ParserInput) -> NomResult<bool> {
+    match input.split_first() {
+        Some((b'+', rest)) => Ok((rest, false)),
+        Some((b'-', rest)) => Ok((rest, true)),
+        _ => Ok((input, false)),
+    }
+}
+
+fn integer(input: ParserInput) -> NomResult<i64> {
+    let (i, (negative, digits)) = pair(sign, digit1).parse(input)?;
+
+    let value = digits_value(digits).and_then(|magnitude| {
+        if negative {
+            0i64.checked_sub_unsigned(magnitude)
+        } else {
+            i64::try_from(magnitude).ok()
+        }
+    });
+    convert_result(value.ok_or(()), i, ErrorKind::Digit)
 }
 
 fn real(input: ParserInput) -> NomResult<f32> {
     let (i, _) = pair(
-        opt(one_of("+-")),
+        sign,
         alt((
             map((digit1, tag(&b"."[..]), digit0), |_| ()),
             map(pair(tag(&b"."[..]), digit1), |_| ()),
@@ -448,9 +470,9 @@ fn stream<'a>(
     }
 }
 
-fn unsigned_int<I: FromStr>(input: ParserInput) -> NomResult<I> {
-    map_res(digit1, |digits: ParserInput| {
-        I::from_str(str::from_utf8(digits).unwrap())
+fn unsigned_int<I: TryFrom<u64>>(input: ParserInput) -> NomResult<I> {
+    map_opt(digit1, |digits: ParserInput| {
+        digits_value(digits).and_then(|value| I::try_from(value).ok())
     })
     .parse(input)
 }
@@ -1619,6 +1641,33 @@ EI";
         assert_eq!(hex(b"<>"), Some(vec![]));
         for input in [&b"<4G>"[..], b"<+1>", b"<\xc3\xa9>", b"<41"] {
             assert_eq!(hex(input), None, "{:?}", String::from_utf8_lossy(input));
+        }
+    }
+
+    #[test]
+    fn parse_integers_and_references_at_their_limits() {
+        for (input, expected) in [
+            (&b"9223372036854775807"[..], Some(Object::Integer(i64::MAX))),
+            (b"-9223372036854775808", Some(Object::Integer(i64::MIN))),
+            (b"+0042", Some(Object::Integer(42))),
+            (b"-0", Some(Object::Integer(0))),
+            // An integer outside i64 is not an object.
+            (b"9223372036854775808", None),
+            (b"-9223372036854775809", None),
+            (b"99999999999999999999999999", None),
+            (b"4294967295 65535 R", Some(Object::Reference((u32::MAX, u16::MAX)))),
+            (b"0000000000000000000000001 0R", Some(Object::Reference((1, 0)))),
+            (b"1 %comment\n0 R", Some(Object::Reference((1, 0)))),
+            // Beyond u32 or u16, the numbers of a reference are read as integers.
+            (b"4294967296 0 R", Some(Object::Integer(4_294_967_296))),
+            (b"1 65536 R", Some(Object::Integer(1))),
+        ] {
+            assert_eq!(
+                direct_object(test_span(input)),
+                expected,
+                "{:?}",
+                String::from_utf8_lossy(input)
+            );
         }
     }
 }
