@@ -127,6 +127,38 @@ fn reconstruction_prefers_newer_revisions_of_duplicated_objects() {
 }
 
 #[test]
+fn saving_a_reconstructed_document_writes_no_stale_prev() {
+    // The newest trailer chains to the first revision's table with /Prev, an
+    // offset into the damaged file that a save must not copy into the new one.
+    let mut pdf = new_pdf();
+    let mut offsets = append_objects(&mut pdf, &sample_bodies());
+    let first_xref = pdf.len();
+    append_xref_trailer(&mut pdf, &offsets, "<< /Size 5 /Root 1 0 R >>", first_xref);
+
+    let revision_offset = pdf.len();
+    pdf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+    offsets.retain(|(number, _)| *number != 2);
+    offsets.push((2, revision_offset));
+    let broken_startxref = pdf.len() + 4096;
+    let trailer = format!("<< /Size 5 /Root 1 0 R /Prev {first_xref} >>");
+    append_xref_trailer(&mut pdf, &offsets, &trailer, broken_startxref);
+
+    let mut document = Document::load_mem(&pdf).unwrap();
+    assert!(!document.trailer.has(b"Prev"));
+    // Nor does an incremental update copy it: there is no table to chain to.
+    assert!(!Document::new_from_prev(&document).trailer.has(b"Prev"));
+
+    let mut saved = Vec::new();
+    document.save_to(&mut saved).unwrap();
+    let strict = LoadOptions {
+        strict: true,
+        ..Default::default()
+    };
+    let reloaded = Document::load_mem_with_options(&saved, strict).unwrap();
+    assert_eq!(reloaded.get_pages().len(), 1);
+}
+
+#[test]
 fn reconstruction_skips_trailers_whose_root_was_not_found() {
     // A trailing bogus trailer references absent catalog object 77.
     let mut pdf = new_pdf();

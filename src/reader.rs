@@ -1343,7 +1343,11 @@ impl<'a> Reader<'a> {
         // up to the highest, not physical copies across incremental updates.
         xref.size = xref.max_id().saturating_add(1);
 
-        let (_trailer_pos, trailer) = self.find_latest_trailer(&xref)?;
+        let (_trailer_pos, mut trailer) = self.find_latest_trailer(&xref)?;
+        // As in resolution, drop the links to other cross-reference sections: the rebuilt
+        // table replaces them, and their offsets would go out unchanged on the next save.
+        trailer.remove(b"Prev");
+        trailer.remove(b"XRefStm");
         // Zero marks the offset "unknown" so `Document::new_from_prev` omits `/Prev`.
         self.document.xref_start = 0;
 
@@ -2051,6 +2055,30 @@ startxref
     let loaded = Document::load_mem(&buffer).unwrap();
     assert_eq!(loaded.get_pages().len(), 1);
     assert!(loaded.catalog().unwrap().has(b"Lang"));
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn saving_a_reconstructed_hybrid_reference_file_writes_no_stale_xref_stm() {
+    // With `startxref` past the end, the file is rebuilt by scanning, and its trailer
+    // still names the cross-reference stream by an offset into the damaged file.
+    let (mut buffer, xref_pos) = hybrid_reference_file();
+    let tail = format!("startxref\n{xref_pos}\n%%EOF\n");
+    buffer.truncate(buffer.len() - tail.len());
+    buffer.extend_from_slice(format!("startxref\n{}\n%%EOF\n", buffer.len() + 4096).as_bytes());
+
+    let mut loaded = Document::load_mem(&buffer).unwrap();
+    assert_eq!(loaded.get_pages().len(), 1);
+    assert!(!loaded.trailer.has(b"XRefStm"));
+
+    let mut saved = Vec::new();
+    loaded.save_to(&mut saved).unwrap();
+    let strict = LoadOptions {
+        strict: true,
+        ..Default::default()
+    };
+    let reloaded = Document::load_mem_with_options(&saved, strict).unwrap();
+    assert_eq!(reloaded.get_pages().len(), 1);
 }
 
 #[cfg(all(test, not(feature = "async")))]
