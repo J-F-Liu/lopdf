@@ -1255,11 +1255,42 @@ impl<'a> Reader<'a> {
         parser::indirect_object(self.buffer, offset, expected_id, self, already_seen, Some(end))
     }
 
-    /// Parse the cross-reference section recorded at `offset`, first correcting
-    /// the offset if it is slightly miswritten (lenient mode only).
-    fn xref_and_trailer_at(&mut self, offset: usize) -> Result<(Xref, Dictionary)> {
-        let offset = self.correct_xref_offset(offset);
-        parser::xref_and_trailer(&self.buffer[offset..], self)
+    /// Parse the cross-reference section recorded at `offset`, and return it with
+    /// the offset it was read from. In lenient mode a slightly miswritten offset
+    /// is corrected first, but only when the section found there locates its own
+    /// objects: after bytes were inserted or removed before it, a nearby section
+    /// points at shifted objects, and failing lets reconstruction find them.
+    fn xref_and_trailer_at(&mut self, offset: usize) -> Result<(usize, Xref, Dictionary)> {
+        let corrected = self.correct_xref_offset(offset);
+        if corrected != offset
+            && let Ok((xref, trailer)) = parser::xref_and_trailer(&self.buffer[corrected..], self)
+            && self.locates_objects(&xref)
+        {
+            warn!(
+                "Cross-reference offset {} does not point at an xref section; using nearby offset {} instead.",
+                offset, corrected
+            );
+            self.document.xref_recovery = Some(XrefRecovery::OffsetCorrected);
+            return Ok((corrected, xref, trailer));
+        }
+        let (xref, trailer) = parser::xref_and_trailer(&self.buffer[offset..], self)?;
+        Ok((offset, xref, trailer))
+    }
+
+    /// Whether most normal entries of a cross-reference section point at the
+    /// header of their own object, as they do in a section describing this file.
+    fn locates_objects(&self, xref: &Xref) -> bool {
+        let (mut normal, mut located) = (0usize, 0usize);
+        for (&number, entry) in &xref.entries {
+            if let XrefEntry::Normal { offset, generation } = *entry {
+                normal += 1;
+                let rest = self.buffer.get(offset as usize..).unwrap_or_default();
+                if Self::parse_object_header(&rest[skip_whitespace(rest, 0)..]) == Some((number, generation)) {
+                    located += 1;
+                }
+            }
+        }
+        normal == 0 || located * 2 > normal
     }
 
     /// Resolve the cross-reference table/stream and trailer, including the
@@ -1269,10 +1300,8 @@ impl<'a> Reader<'a> {
         if xref_start > self.buffer.len() {
             return Err(Error::Xref(XrefError::Start));
         }
-        let xref_start = self.correct_xref_offset(xref_start);
+        let (xref_start, mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
         self.document.xref_start = xref_start;
-
-        let (mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
         self.merge_hybrid_xref_stream(&mut xref, trailer.remove(b"XRefStm"))?;
 
         // Read previous Xrefs of linearized or incremental updated document.
@@ -1287,7 +1316,7 @@ impl<'a> Reader<'a> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
+            let (_, prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
             xref.merge(prev_xref);
             self.merge_hybrid_xref_stream(&mut xref, prev_trailer.remove(b"XRefStm"))?;
 
@@ -1315,7 +1344,7 @@ impl<'a> Reader<'a> {
             return Err(Error::Xref(XrefError::StreamStart));
         }
         match self.xref_and_trailer_at(start as usize) {
-            Ok((stream_xref, _)) => xref.merge(stream_xref),
+            Ok((_, stream_xref, _)) => xref.merge(stream_xref),
             // The table alone still describes a hybrid-reference file for older readers.
             Err(e) if !self.strict => warn!("ignoring unreadable cross-reference stream at {start}: {e}"),
             Err(e) => return Err(e),
@@ -1347,7 +1376,11 @@ impl<'a> Reader<'a> {
         // up to the highest, not physical copies across incremental updates.
         xref.size = xref.max_id().saturating_add(1);
 
-        let (_trailer_pos, trailer) = self.find_latest_trailer(&xref)?;
+        let (_trailer_pos, mut trailer) = self.find_latest_trailer(&xref)?;
+        // As in resolution, drop the links to other cross-reference sections: the rebuilt
+        // table replaces them, and their offsets would go out unchanged on the next save.
+        trailer.remove(b"Prev");
+        trailer.remove(b"XRefStm");
         // Zero marks the offset "unknown" so `Document::new_from_prev` omits `/Prev`.
         self.document.xref_start = 0;
         self.document.xref_recovery = Some(XrefRecovery::Reconstructed);
@@ -1371,6 +1404,12 @@ impl<'a> Reader<'a> {
         let mut markers = Vec::new();
         let mut oversized_number_warned = false;
         let mut at_line_start = true;
+        // Where the dictionary of the next stream can start: past the previous
+        // `stream` keyword and the payload skipped after it.
+        let mut dictionary_start = 0;
+        // No `endstream` follows a later keyword either once one keyword has
+        // none, so searching again would rescan the rest of the buffer.
+        let mut unterminated = false;
         let mut pos = 0;
         while pos < buffer.len() {
             // Skip raw stream data: a payload may embed convincing `N G obj` lines whose
@@ -1380,18 +1419,21 @@ impl<'a> Reader<'a> {
                 && matches!(buffer.get(pos + STREAM_KEYWORD.len()), Some(b'\r' | b'\n'))
             {
                 let after_keyword = pos + STREAM_KEYWORD.len();
-                if let Some(relative) = buffer[after_keyword..]
-                    .windows(END_STREAM_KEYWORD.len())
-                    .position(|window| window == END_STREAM_KEYWORD)
-                {
-                    pos = after_keyword + relative + END_STREAM_KEYWORD.len();
-                    at_line_start = false;
-                    continue;
-                }
+                let dictionary = std::mem::replace(&mut dictionary_start, after_keyword);
+                let endstream = if unterminated {
+                    None
+                } else {
+                    find_from(buffer, after_keyword, END_STREAM_KEYWORD)
+                };
+                unterminated = endstream.is_none();
                 // Damaged stream without terminator: fall back to the /Length hint so the
                 // payload cannot hide pseudo headers, while later objects stay reachable.
-                if let Some(resume) = Self::payload_end_by_length(buffer, pos) {
-                    pos = resume;
+                let payload_end = endstream
+                    .map(|end| end + END_STREAM_KEYWORD.len())
+                    .or_else(|| Self::payload_end_by_length(buffer, dictionary, pos));
+                if let Some(end) = payload_end {
+                    pos = end;
+                    dictionary_start = end;
                     at_line_start = false;
                     continue;
                 }
@@ -1434,19 +1476,23 @@ impl<'a> Reader<'a> {
     /// integer in the dictionary preceding the `stream` keyword at
     /// `stream_pos`. The search is scoped to the current object (after the
     /// nearest preceding `obj` keyword) so a missing `/Length` cannot latch
-    /// onto a previous object's value. Returns `None` when the hint is
-    /// absent, indirect, or points outside the buffer — damaged files tend
-    /// to carry wrong `/Length` values, so it must stay a hint, never a hard
-    /// boundary.
-    fn payload_end_by_length(buffer: &[u8], stream_pos: usize) -> Option<usize> {
+    /// onto a previous object's value. Nor does it reach back before
+    /// `dictionary_start`, where the previous keyword or its payload ended:
+    /// that dictionary belongs to another stream, and stopping there keeps
+    /// the searches of all keywords to one pass over the buffer. Returns
+    /// `None` when the hint is absent, indirect, or points outside the
+    /// buffer — damaged files tend to carry wrong `/Length` values, so it
+    /// must stay a hint, never a hard boundary.
+    fn payload_end_by_length(buffer: &[u8], dictionary_start: usize, stream_pos: usize) -> Option<usize> {
         const LENGTH_KEY: &[u8] = b"/Length";
         const OBJ_KEYWORD: &[u8] = b"obj";
         const STREAM_KEYWORD_LEN: usize = b"stream".len();
 
-        let head = &buffer[..stream_pos];
-        let obj_pos = head
-            .windows(OBJ_KEYWORD.len())
-            .rposition(|window| window == OBJ_KEYWORD)?;
+        let head = buffer.get(dictionary_start..stream_pos)?;
+        let obj_pos = dictionary_start
+            + head
+                .windows(OBJ_KEYWORD.len())
+                .rposition(|window| window == OBJ_KEYWORD)?;
         let dict_region = &buffer[obj_pos + OBJ_KEYWORD.len()..stream_pos];
         // Nearest `/Length` in this object's dictionary; parsing it validates
         // that the match really is a key with an integer value.
@@ -1551,8 +1597,11 @@ impl<'a> Reader<'a> {
     /// and common readers (Acrobat, poppler, mupdf, pdf.js) recover from them.
     /// In lenient mode, if `offset` does not point at a cross-reference table
     /// or an indirect object (cross-reference stream), scan a small window
-    /// around it for the `xref` keyword and use the nearest match instead.
-    fn correct_xref_offset(&mut self, offset: usize) -> usize {
+    /// around it for the `xref` keyword and return the nearest match instead,
+    /// which `xref_and_trailer_at` checks before using it. Without one, as in
+    /// a file with cross-reference streams only, return the nearest object
+    /// header that starts a cross-reference stream.
+    fn correct_xref_offset(&self, offset: usize) -> usize {
         const RECOVERY_WINDOW: usize = 64;
 
         if self.strict || offset >= self.buffer.len() {
@@ -1578,17 +1627,32 @@ impl<'a> Reader<'a> {
                 corrected = Some(pos);
             }
         }
-        match corrected {
-            Some(pos) => {
-                warn!(
-                    "Cross-reference offset {} does not point at an xref section; using nearby offset {} instead.",
-                    offset, pos
-                );
-                self.document.xref_recovery = Some(XrefRecovery::OffsetCorrected);
-                pos
-            }
-            None => offset,
+        corrected
+            .or_else(|| self.nearest_xref_stream(offset, window_start, window_end))
+            .unwrap_or(offset)
+    }
+
+    /// Start of the object header between `window_start` and `window_end` that
+    /// is nearest to `offset` and begins a cross-reference stream. The stream
+    /// parser itself skips white-space before a header, so an `offset` there
+    /// needs no correction.
+    fn nearest_xref_stream(&self, offset: usize, window_start: usize, window_end: usize) -> Option<usize> {
+        let rest = &self.buffer[offset..];
+        if Self::starts_indirect_object(&rest[skip_whitespace(rest, 0)..]) {
+            return None;
         }
+        // A header starts a token: `12 0 obj` must not also match as `2 0 obj`.
+        let mut headers: Vec<usize> = (window_start..window_end)
+            .filter(|&pos| pos == 0 || !self.buffer[pos - 1].is_ascii_alphanumeric())
+            .filter(|&pos| Self::starts_indirect_object(&self.buffer[pos..]))
+            .collect();
+        headers.sort_by_key(|pos| pos.abs_diff(offset));
+        headers.into_iter().find(|&pos| {
+            matches!(
+                parser::indirect_object(self.buffer, pos, None, self, &mut HashSet::new(), None),
+                Ok((_, Object::Stream(stream))) if stream.dict.has_type(b"XRef")
+            )
+        })
     }
 
     /// Whether `input` begins with an indirect-object header (`N G obj`), the
@@ -1968,6 +2032,81 @@ startxref
 
 #[cfg(all(test, not(feature = "async")))]
 #[test]
+fn recovers_from_miswritten_startxref_offset_of_a_cross_reference_stream() {
+    // Without an `xref` keyword nearby, the header of the cross-reference stream is used,
+    // whether `startxref` stops short of it or points into it.
+    let mut document = Document::load("assets/example.pdf").unwrap();
+    document.reference_table.cross_reference_type = XrefType::CrossReferenceStream;
+    let mut buffer = Vec::new();
+    document.save_to(&mut buffer).unwrap();
+    let xref_start = Reader::get_xref_start(&buffer).unwrap();
+    let keyword = buffer.windows(9).rposition(|window| window == b"startxref").unwrap();
+    let with_startxref = |offset: usize| {
+        let mut damaged = buffer[..keyword].to_vec();
+        damaged.extend_from_slice(format!("startxref\n{offset}\n%%EOF").as_bytes());
+        damaged
+    };
+
+    for offset in [xref_start - 2, xref_start + 3] {
+        let damaged = with_startxref(offset);
+        let loaded = Document::load_mem(&damaged).unwrap();
+        assert_eq!(loaded.xref_start, xref_start);
+        assert_eq!(loaded.get_pages().len(), 1);
+
+        let strict = Document::load_mem_with_options(
+            &damaged,
+            LoadOptions {
+                strict: true,
+                ..Default::default()
+            },
+        );
+        assert!(strict.is_err());
+    }
+
+    // The parser skips white-space before the header, so that offset is kept.
+    let loaded = Document::load_mem(&with_startxref(xref_start - 1)).unwrap();
+    assert_eq!(loaded.xref_start, xref_start - 1);
+    assert_eq!(loaded.get_pages().len(), 1);
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn rebuilds_rather_than_correcting_to_a_table_of_shifted_objects() {
+    // The table and `startxref` were written for a file with 10 more bytes before the
+    // objects, as when bytes are later removed. The nearby `xref` keyword leads to a table
+    // whose offsets all miss their objects; scanning finds the objects where they are.
+    let header = "%PDF-1.5\n";
+    let obj1 = "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    let obj2 = "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n";
+    let obj3 = "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n";
+    let removed = 10;
+    let o1 = header.len() + removed;
+    let o2 = o1 + obj1.len();
+    let o3 = o2 + obj2.len();
+    let body = format!("{header}{obj1}{obj2}{obj3}");
+    let doc = format!(
+        "{body}xref
+0 4
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+{o3:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 4>>
+startxref
+{}
+%%EOF",
+        body.len() + removed
+    );
+
+    let loaded = Document::load_mem(doc.as_bytes()).unwrap();
+    assert_eq!(loaded.get_pages().len(), 1);
+    // Zero marks a table rebuilt by scanning rather than read at a corrected offset.
+    assert_eq!(loaded.xref_start, 0);
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
 fn stream_length_written_as_real() {
     // "/Length 42." must still resolve to the stream content rather than load as empty.
     let obj4 = "4 0 obj\n<< /Length 42. >>\nstream\nBT /F1 12 Tf 20 100 Td (Hello World) Tj ET\nendstream\nendobj\n";
@@ -2109,6 +2248,30 @@ startxref
     let loaded = Document::load_mem(&buffer).unwrap();
     assert_eq!(loaded.get_pages().len(), 1);
     assert!(loaded.catalog().unwrap().has(b"Lang"));
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn saving_a_reconstructed_hybrid_reference_file_writes_no_stale_xref_stm() {
+    // With `startxref` past the end, the file is rebuilt by scanning, and its trailer
+    // still names the cross-reference stream by an offset into the damaged file.
+    let (mut buffer, xref_pos) = hybrid_reference_file();
+    let tail = format!("startxref\n{xref_pos}\n%%EOF\n");
+    buffer.truncate(buffer.len() - tail.len());
+    buffer.extend_from_slice(format!("startxref\n{}\n%%EOF\n", buffer.len() + 4096).as_bytes());
+
+    let mut loaded = Document::load_mem(&buffer).unwrap();
+    assert_eq!(loaded.get_pages().len(), 1);
+    assert!(!loaded.trailer.has(b"XRefStm"));
+
+    let mut saved = Vec::new();
+    loaded.save_to(&mut saved).unwrap();
+    let strict = LoadOptions {
+        strict: true,
+        ..Default::default()
+    };
+    let reloaded = Document::load_mem_with_options(&saved, strict).unwrap();
+    assert_eq!(reloaded.get_pages().len(), 1);
 }
 
 #[cfg(all(test, not(feature = "async")))]

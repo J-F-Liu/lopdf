@@ -130,6 +130,38 @@ fn reconstruction_prefers_newer_revisions_of_duplicated_objects() {
 }
 
 #[test]
+fn saving_a_reconstructed_document_writes_no_stale_prev() {
+    // The newest trailer chains to the first revision's table with /Prev, an
+    // offset into the damaged file that a save must not copy into the new one.
+    let mut pdf = new_pdf();
+    let mut offsets = append_objects(&mut pdf, &sample_bodies());
+    let first_xref = pdf.len();
+    append_xref_trailer(&mut pdf, &offsets, "<< /Size 5 /Root 1 0 R >>", first_xref);
+
+    let revision_offset = pdf.len();
+    pdf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+    offsets.retain(|(number, _)| *number != 2);
+    offsets.push((2, revision_offset));
+    let broken_startxref = pdf.len() + 4096;
+    let trailer = format!("<< /Size 5 /Root 1 0 R /Prev {first_xref} >>");
+    append_xref_trailer(&mut pdf, &offsets, &trailer, broken_startxref);
+
+    let mut document = Document::load_mem(&pdf).unwrap();
+    assert!(!document.trailer.has(b"Prev"));
+    // Nor does an incremental update copy it: there is no table to chain to.
+    assert!(!Document::new_from_prev(&document).trailer.has(b"Prev"));
+
+    let mut saved = Vec::new();
+    document.save_to(&mut saved).unwrap();
+    let strict = LoadOptions {
+        strict: true,
+        ..Default::default()
+    };
+    let reloaded = Document::load_mem_with_options(&saved, strict).unwrap();
+    assert_eq!(reloaded.get_pages().len(), 1);
+}
+
+#[test]
 fn reconstruction_skips_trailers_whose_root_was_not_found() {
     // A trailing bogus trailer references absent catalog object 77.
     let mut pdf = new_pdf();
@@ -335,6 +367,39 @@ fn reconstruction_does_not_use_a_previous_objects_length_hint() {
     let document = Document::load_mem(&pdf).unwrap();
     assert_eq!(document.get_pages().len(), 1);
     assert!(document.get_object((1, 0)).unwrap().as_dict().unwrap().has(b"Type"));
+}
+
+#[test]
+fn reconstruction_takes_a_length_hint_only_from_the_streams_own_dictionary() {
+    // A `stream` line without a header of its own follows object 4's
+    // unterminated payload. Object 4's /Length must not bound that keyword's
+    // payload as well, or the scan skips the catalog header after it.
+    let mut pdf = new_pdf();
+    let fourth_offset = pdf.len();
+    pdf.extend_from_slice(b"4 0 obj\n<< /Length 7 >>\nstream\nPAYLOAD\nendstrXXm\nstream\n");
+    let mut offsets = append_objects(&mut pdf, &page_tree_bodies());
+    offsets.push((4, fourth_offset));
+    let broken_startxref = pdf.len() + 4096;
+    append_xref_trailer(&mut pdf, &offsets, "<< /Size 5 /Root 1 0 R >>", broken_startxref);
+
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    assert!(document.get_object((1, 0)).unwrap().as_dict().unwrap().has(b"Type"));
+}
+
+#[test]
+fn reconstruction_scan_stays_linear_after_many_unterminated_streams() {
+    // No `endstream` follows any of these keywords. Searching the rest of the
+    // file for one at every keyword, and back to the last `obj` for a /Length
+    // hint, made the scan quadratic: about 2 s for these 128 KiB in release.
+    let mut pdf = new_pdf();
+    let offsets = append_objects(&mut pdf, &sample_bodies());
+    pdf.extend_from_slice(&b"stream\n".repeat(128 * 1024 / 7));
+    let broken_startxref = pdf.len() + 4096;
+    append_xref_trailer(&mut pdf, &offsets, "<< /Size 5 /Root 1 0 R >>", broken_startxref);
+
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
 }
 
 #[test]
