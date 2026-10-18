@@ -80,13 +80,20 @@ fn white_space(input: ParserInput) -> NomResult<()> {
     map(take_while(is_whitespace), |_| ()).parse(input)
 }
 
-fn space(input: ParserInput) -> NomResult<()> {
-    fold_many0(
-        alt((map(take_while1(is_whitespace), |_| ()), comment)),
-        || {},
-        |_, _| (),
-    )
-    .parse(input)
+/// White space and comments, as many as there are.
+fn space(mut input: ParserInput) -> NomResult<()> {
+    loop {
+        let blanks = input.iter().take_while(|&&c| is_whitespace(c)).count();
+        if blanks > 0 {
+            input = &input[blanks..];
+        } else if input.first() == Some(&b'%')
+            && let Ok((rest, ())) = comment(input)
+        {
+            input = rest;
+        } else {
+            return Ok((input, ()));
+        }
+    }
 }
 
 fn integer(input: ParserInput) -> NomResult<i64> {
@@ -1555,5 +1562,16 @@ EI";
         assert_eq!(operators, ["q", "cm", "Q"]);
         assert_eq!(content.operations[1].operands.len(), 6);
         assert_eq!(content.operations[1].operands[1], Object::Real(0.004142502));
+    }
+
+    #[test]
+    fn space_skips_white_space_and_comments() {
+        let rest = |input| space(test_span(input)).unwrap().0;
+        assert_eq!(rest(b" \t\r\n\0\x0C/A"), b"/A");
+        assert_eq!(rest(b"% one\n%two\r\n \0% three\r/A"), b"/A");
+        assert_eq!(rest(b"/A"), b"/A");
+        assert_eq!(rest(b""), b"");
+        // A comment ends with an end-of-line marker, without which it is left unread.
+        assert_eq!(rest(b" % unterminated"), b"% unterminated");
     }
 }
