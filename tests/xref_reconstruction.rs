@@ -1,5 +1,5 @@
 use lopdf::xref::XrefRecovery;
-use lopdf::{Document, LoadOptions, Object};
+use lopdf::{Document, IncrementalDocument, LoadOptions, Object, SaveOptions, dictionary};
 
 /// Append objects, returning each one's `(number, physical offset)`.
 fn append_objects(pdf: &mut Vec<u8>, bodies: &[(u32, u16, String)]) -> Vec<(u32, usize)> {
@@ -448,5 +448,95 @@ fn incremental_update_omits_prev_without_a_real_xref_location() {
     assert_eq!(
         valid_update.trailer.get(b"Prev").unwrap().as_i64().unwrap(),
         xref_pos as i64
+    );
+}
+
+/// `example.pdf` written with a cross-reference stream, so without a `trailer`
+/// keyword, and with its catalog and page tree in object streams if asked.
+fn xref_stream_file(use_object_streams: bool) -> Vec<u8> {
+    let mut document = Document::load_mem(include_bytes!("../assets/example.pdf")).unwrap();
+    let options = SaveOptions {
+        use_object_streams,
+        use_xref_streams: true,
+        ..Default::default()
+    };
+    let mut pdf = Vec::new();
+    document.save_with_options(&mut pdf, options).unwrap();
+    assert!(!pdf.windows(7).any(|window| window == b"trailer"));
+    pdf
+}
+
+/// Point the last `startxref` past the end of the file.
+fn break_startxref(pdf: &mut Vec<u8>) {
+    let keyword = pdf.windows(9).rposition(|window| window == b"startxref").unwrap();
+    pdf.truncate(keyword);
+    let broken_startxref = pdf.len() + 4096;
+    pdf.extend_from_slice(format!("startxref\n{broken_startxref}\n%%EOF\n").as_bytes());
+}
+
+#[test]
+fn reconstruction_uses_the_dictionary_of_a_cross_reference_stream_as_trailer() {
+    let mut pdf = xref_stream_file(false);
+    break_startxref(&mut pdf);
+
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    assert!(document.trailer.get(b"Root").is_ok());
+    assert_eq!(Document::load_metadata_mem(&pdf).unwrap().page_count, 1);
+
+    let strict = LoadOptions {
+        strict: true,
+        ..Default::default()
+    };
+    assert!(Document::load_mem_with_options(&pdf, strict).is_err());
+}
+
+#[test]
+fn reconstruction_finds_compressed_objects_through_cross_reference_streams() {
+    // The catalog and page tree live in an object stream and have no header
+    // of their own: only the cross-reference stream says where they are.
+    let mut pdf = xref_stream_file(true);
+    break_startxref(&mut pdf);
+
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    assert_eq!(Document::load_metadata_mem(&pdf).unwrap().page_count, 1);
+}
+
+#[test]
+fn reconstruction_takes_the_trailer_of_the_newest_cross_reference_stream() {
+    // An incremental update adds an Info dictionary. Its cross-reference
+    // stream lists only the new objects and chains to the first one with
+    // /Prev, so the catalog is found through the older stream.
+    let base = xref_stream_file(true);
+    let mut update: IncrementalDocument = base.as_slice().try_into().unwrap();
+    let info = update
+        .new_document
+        .add_object(dictionary! { "Title" => Object::string_literal("Revised") });
+    update.new_document.trailer.set("Info", info);
+    let mut pdf = Vec::new();
+    update.save_to(&mut pdf).unwrap();
+    break_startxref(&mut pdf);
+
+    let mut document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 1);
+    assert!(!document.trailer.has(b"Prev"));
+    let metadata = Document::load_metadata_mem(&pdf).unwrap();
+    assert_eq!(metadata.title.as_deref(), Some("Revised"));
+    assert_eq!(metadata.page_count, 1);
+
+    // The trailer chain is gone, so a save writes a file that loads as is.
+    let mut saved = Vec::new();
+    document.save_to(&mut saved).unwrap();
+    let strict = LoadOptions {
+        strict: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        Document::load_mem_with_options(&saved, strict)
+            .unwrap()
+            .get_pages()
+            .len(),
+        1
     );
 }

@@ -24,7 +24,7 @@ use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
-use crate::xref::{Xref, XrefEntry, XrefRecovery, XrefType};
+use crate::xref::{Xref, XrefEntry, XrefRecovery, XrefType, decode_xref_stream_with_limit};
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 /// Open `path` and report its size, so the caller can pre-size the buffer it
@@ -372,7 +372,8 @@ pub const MAX_NESTING_DEPTH: usize = 100;
 /// Cap on reconstructed cross-reference entries, bounding memory on hostile inputs.
 const MAX_RECONSTRUCTED_OBJECTS: usize = 1_000_000;
 
-/// Cap on how many trailing `trailer` dictionaries are inspected for a `/Root`.
+/// Cap on how many trailing `trailer` dictionaries, and then cross-reference
+/// streams, are inspected for a `/Root`.
 const MAX_TRAILER_CANDIDATES: usize = 16;
 
 /// PDF metadata extracted without loading the entire document.
@@ -1368,7 +1369,7 @@ impl<'a> Reader<'a> {
         }
 
         let mut xref = Xref::new(markers.len() as u32, XrefType::CrossReferenceTable);
-        for (offset, (number, generation)) in markers {
+        for &(offset, (number, generation)) in &markers {
             // Incremental updates append, so later revisions win.
             xref.insert(number, XrefEntry::Normal { offset, generation });
         }
@@ -1376,7 +1377,11 @@ impl<'a> Reader<'a> {
         // up to the highest, not physical copies across incremental updates.
         xref.size = xref.max_id().saturating_add(1);
 
-        let (_trailer_pos, mut trailer) = self.find_latest_trailer(&xref)?;
+        let mut trailer = match self.find_latest_trailer(&xref) {
+            Some((_trailer_pos, trailer)) => trailer,
+            // Files written with cross-reference streams only have no `trailer` keyword.
+            None => self.find_latest_xref_stream(&markers, &mut xref)?,
+        };
         // As in resolution, drop the links to other cross-reference sections: the rebuilt
         // table replaces them, and their offsets would go out unchanged on the next save.
         trailer.remove(b"Prev");
@@ -1589,6 +1594,79 @@ impl<'a> Reader<'a> {
             }
         }
         None
+    }
+
+    /// Dictionary of the newest cross-reference stream whose `/Root` the rebuilt
+    /// table can resolve, for files without a `trailer` keyword. Like trailers,
+    /// the streams are found by searching backwards, here for their `/XRef`
+    /// type. Objects inside object streams have no header for the scan to
+    /// find, so the compressed entries of these streams are added for object
+    /// numbers the scan did not see, newer streams first, as resolution merges
+    /// `/Prev` sections.
+    fn find_latest_xref_stream(&self, markers: &[(u32, ObjectId)], xref: &mut Xref) -> Option<Dictionary> {
+        let mut dictionaries = Vec::new();
+        let mut compressed = BTreeMap::new();
+        let mut bound = self.buffer.len();
+        for _ in 0..MAX_TRAILER_CANDIDATES {
+            let Some(pos) = Reader::search_substring(&self.buffer[..bound], b"/XRef", 0) else {
+                break;
+            };
+            // Not `/XRefStm`, the trailer key of a hybrid-reference file.
+            if matches!(self.buffer.get(pos + b"/XRef".len()), Some(byte) if byte.is_ascii_alphanumeric()) {
+                bound = pos;
+                continue;
+            }
+            // The match lies in the object whose header comes last before it,
+            // which is read once however many matches it holds.
+            let Some(index) = markers
+                .partition_point(|&(offset, _)| (offset as usize) < pos)
+                .checked_sub(1)
+            else {
+                break;
+            };
+            let (offset, id) = markers[index];
+            bound = offset as usize;
+            let end = markers
+                .get(index + 1)
+                .map_or(self.buffer.len(), |&(next, _)| next as usize);
+            let Ok((_, Object::Stream(stream))) =
+                self.read_object_to(offset as usize, end, Some(id), &mut HashSet::new())
+            else {
+                continue;
+            };
+            if !stream.dict.has_type(b"XRef") {
+                continue;
+            }
+            let Ok((stream_xref, dictionary)) = decode_xref_stream_with_limit(stream, self.max_decompressed_size)
+            else {
+                continue;
+            };
+            for (number, entry) in stream_xref.entries {
+                if entry.is_compressed()
+                    && number <= MAX_RECONSTRUCTED_OBJECTS as u32
+                    && !xref.entries.contains_key(&number)
+                {
+                    compressed.entry(number).or_insert(entry);
+                }
+            }
+            dictionaries.push(dictionary);
+        }
+
+        let resolvable = |number| match compressed.get(&number) {
+            Some(XrefEntry::Compressed { container, .. }) => xref.entries.contains_key(container),
+            _ => xref.entries.contains_key(&number),
+        };
+        let trailer = dictionaries.into_iter().find(|dictionary| {
+            dictionary
+                .get(b"Root")
+                .and_then(Object::as_reference)
+                .is_ok_and(|root| resolvable(root.0))
+        })?;
+        for (number, entry) in compressed {
+            xref.insert(number, entry);
+        }
+        xref.cross_reference_type = XrefType::CrossReferenceStream;
+        Some(trailer)
     }
 
     /// Some generators write `startxref` (or trailer `Prev`) values that are
