@@ -1,3 +1,4 @@
+use lopdf::xref::XrefRecovery;
 use lopdf::{Document, LoadOptions, Object};
 
 /// Append objects, returning each one's `(number, physical offset)`.
@@ -59,11 +60,13 @@ fn startxref_past_eof_is_reconstructed_from_object_markers() {
     let document = Document::load_mem(&pdf).unwrap();
     assert_eq!(document.get_pages().len(), 1);
     assert!(document.trailer.get(b"Root").is_ok());
+    assert_eq!(document.xref_recovery, Some(XrefRecovery::Reconstructed));
 
     assert!(document.get_object((99, 0)).is_err());
 
     let metadata = Document::load_metadata_mem(&pdf).unwrap();
     assert_eq!(metadata.page_count, 1);
+    assert_eq!(metadata.xref_recovery, Some(XrefRecovery::Reconstructed));
 }
 
 #[test]
@@ -438,6 +441,8 @@ fn incremental_update_omits_prev_without_a_real_xref_location() {
     let xref_pos = valid.len();
     append_xref_trailer(&mut valid, &valid_offsets, "<< /Size 5 /Root 1 0 R >>", xref_pos);
     let valid_document = Document::load_mem(&valid).unwrap();
+    assert_eq!(valid_document.xref_recovery, None);
+    assert_eq!(Document::load_metadata_mem(&valid).unwrap().xref_recovery, None);
 
     let valid_update = Document::new_from_prev(&valid_document);
     assert_eq!(
