@@ -79,6 +79,20 @@ fn document_with_info(info: lopdf::Dictionary) -> (Document, lopdf::ObjectId) {
     (doc, info_id)
 }
 
+#[test]
+fn test_metadata_extraction_keeps_line_breaks() {
+    let (mut doc, _) = document_with_info(lopdf::dictionary! {
+        "Subject" => lopdf::Object::string_literal("First line\rSecond line"),
+        "Keywords" => lopdf::Object::string_literal("one\ntwo\tthree")
+    });
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer).unwrap();
+
+    let metadata = Document::load_metadata_mem(&buffer).unwrap();
+    assert_eq!(metadata.subject.as_deref(), Some("First line\rSecond line"));
+    assert_eq!(metadata.keywords.as_deref(), Some("one\ntwo\tthree"));
+}
+
 /// [`document_with_info`] carrying the title, author and subject the encrypted
 /// tests below expect, encrypted with the given passwords.
 #[cfg(not(feature = "async"))]

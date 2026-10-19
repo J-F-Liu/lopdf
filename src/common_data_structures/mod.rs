@@ -103,4 +103,22 @@ mod test {
         let expected = "тест";
         assert_eq!(&actual, expected);
     }
+
+    #[test]
+    fn decode_pdfdoc_line_breaks() {
+        // Tab, line feed and carriage return decode to themselves, so a multi-line text
+        // string such as a form field value keeps its line breaks.
+        let input = b"<</Key(Line one\\rLine two\\nTab\\there)>>";
+        let dict = crate::parser::direct_object(input).unwrap();
+        let dict = dict.as_dict().unwrap();
+        let actual = decode_text_string(dict.get(b"Key").unwrap()).unwrap();
+        assert_eq!(actual, "Line one\rLine two\nTab\there");
+
+        let text = "first\r\nsecond";
+        assert_eq!(decode_text_string(&text_string(text)).unwrap(), text);
+        assert_eq!(
+            encodings::string_to_bytes(&encodings::PDF_DOC_ENCODING, text),
+            text.as_bytes()
+        );
+    }
 }
