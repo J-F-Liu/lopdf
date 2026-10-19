@@ -1,5 +1,4 @@
-use crate::Result;
-use crate::{Dictionary, Document, Object, ObjectId};
+use crate::{Dictionary, Document, Error, Object, ObjectId, Result};
 #[cfg(feature = "font_embedding")]
 use crate::{FontData, Stream};
 
@@ -12,17 +11,38 @@ impl Document {
     }
 
     /// Create an object ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`Document::max_id`] is already `u32::MAX`. Use
+    /// [`Document::try_new_object_id`] to get an error instead.
     pub fn new_object_id(&mut self) -> ObjectId {
-        self.max_id += 1;
-        (self.max_id, 0)
+        self.try_new_object_id().unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Create an object ID, or return [`Error::ObjectIdOverflow`] if [`Document::max_id`] is
+    /// already `u32::MAX`.
+    pub fn try_new_object_id(&mut self) -> Result<ObjectId> {
+        self.max_id = self.max_id.checked_add(1).ok_or(Error::ObjectIdOverflow)?;
+        Ok((self.max_id, 0))
     }
 
     /// Add PDF object into document's object list.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`Document::max_id`] is already `u32::MAX`. Use
+    /// [`Document::try_add_object`] to get an error instead.
     pub fn add_object<T: Into<Object>>(&mut self, object: T) -> ObjectId {
-        self.max_id += 1;
-        let id = (self.max_id, 0);
+        self.try_add_object(object).unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    /// Add PDF object into document's object list, or return [`Error::ObjectIdOverflow`] if
+    /// [`Document::max_id`] is already `u32::MAX`.
+    pub fn try_add_object<T: Into<Object>>(&mut self, object: T) -> Result<ObjectId> {
+        let id = self.try_new_object_id()?;
         self.objects.insert(id, object.into());
-        id
+        Ok(id)
     }
 
     pub fn set_object<T: Into<Object>>(&mut self, id: ObjectId, object: T) {

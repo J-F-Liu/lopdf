@@ -1,4 +1,4 @@
-use super::{Dictionary, Document, Object, ObjectId};
+use super::{Dictionary, Document, Error, Object, ObjectId};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -54,10 +54,8 @@ impl Document {
         let count = parent.1.len();
         for i in parent.1 {
             let mut child = Dictionary::new();
-            *maxid += 1;
-            let id: ObjectId = (*maxid, 0);
-            *maxid += 1;
-            let info_id: ObjectId = (*maxid, 0);
+            let id: ObjectId = (next_object_number(maxid), 0);
+            let info_id: ObjectId = (next_object_number(maxid), 0);
             let bookmark = self.bookmark_table.get(i).unwrap();
 
             let info = dictionary! {
@@ -121,14 +119,17 @@ impl Document {
         (first, last, count as i64)
     }
 
+    /// # Panics
+    ///
+    /// Panics if the outline needs object IDs past `u32::MAX`, as [`Document::new_object_id`]
+    /// does.
     pub fn build_outline(&mut self) -> Option<ObjectId> {
         let mut processed: HashMap<ObjectId, Dictionary> = HashMap::new();
 
         if !self.bookmarks.is_empty() {
             let mut outline = Dictionary::new();
             let mut maxid = self.max_id;
-            maxid += 1;
-            let id: ObjectId = (maxid, 0);
+            let id: ObjectId = (next_object_number(&mut maxid), 0);
 
             let (first, last, count) = self.outline_child(&mut maxid, (id, &self.bookmarks[..]), &mut processed);
 
@@ -153,4 +154,13 @@ impl Document {
 
         None
     }
+}
+
+/// Advance `maxid` to the next object number, panicking as [`Document::new_object_id`] does
+/// rather than wrapping past `u32::MAX`.
+fn next_object_number(maxid: &mut u32) -> u32 {
+    *maxid = maxid
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("{}", Error::ObjectIdOverflow));
+    *maxid
 }
