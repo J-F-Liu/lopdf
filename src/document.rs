@@ -3,7 +3,7 @@ use super::{Bookmark, Dictionary, Object, ObjectId};
 use crate::encryption::crypt_filters::*;
 use crate::encryption::{self, EncryptionState, PasswordAlgorithm};
 use crate::xobject::PdfImage;
-use crate::xref::{Xref, XrefType};
+use crate::xref::{Xref, XrefRecovery, XrefType};
 use crate::{DecompressError, Error, ObjectStream, Result, Stream};
 use log::debug;
 use std::cmp::max;
@@ -62,6 +62,11 @@ pub struct Document {
     /// Default value is `0`.
     pub xref_start: usize,
 
+    /// How loading repaired the cross-reference data, or `None` when it was read as written.
+    /// A rebuilt table takes precedence over offsets corrected before resolution failed.
+    /// Like `xref_start`, this is only set during reading.
+    pub xref_recovery: Option<XrefRecovery>,
+
     /// The encryption state stores the parameters that were used to decrypt this document if the
     /// document has been decrypted.
     pub encryption_state: Option<EncryptionState>,
@@ -104,6 +109,7 @@ impl Document {
             bookmarks: Vec::new(),
             bookmark_table: HashMap::new(),
             xref_start: 0,
+            xref_recovery: None,
             encryption_state: None,
         }
     }
@@ -403,12 +409,15 @@ impl Document {
         }
 
         let encrypted = state.encode()?;
+        // Take the ID before encrypting anything, so that running out of IDs leaves the
+        // document as it was.
+        let object_id = self.try_new_object_id()?;
 
         for (&id, obj) in self.objects.iter_mut() {
             encryption::encrypt_object(state, id, obj)?;
         }
 
-        let object_id = self.add_object(encrypted);
+        self.objects.insert(object_id, Object::Dictionary(encrypted));
         self.trailer.set(b"Encrypt", Object::Reference(object_id));
         self.encryption_state = None;
 

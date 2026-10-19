@@ -225,6 +225,43 @@ fn xref_table_free_entry_is_its_own_section_when_object_1_is_missing() {
     }
 }
 
+/// Sections are built from the entries, so saving does not visit every number up to the
+/// highest object number. A document whose highest object number is close to `u32::MAX` used to
+/// take minutes to save in a debug build.
+#[test]
+fn xref_sections_skip_the_numbers_between_entries() {
+    let high = u32::MAX - 2;
+    for use_xref_streams in [false, true] {
+        let mut doc = Document::with_version("1.5");
+        doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+        for id in [1_u32, 2, high] {
+            doc.objects.insert(
+                (id, 0),
+                Object::Dictionary(dictionary! { "Marker" => Object::Integer(id as i64) }),
+            );
+        }
+        doc.max_id = high;
+
+        let options = SaveOptions::builder().use_xref_streams(use_xref_streams).build();
+        let mut buffer = Vec::new();
+        doc.save_with_options(&mut buffer, options).unwrap();
+
+        let reloaded = Document::load_mem(&buffer).unwrap();
+        for id in [1_u32, 2, high] {
+            let marker = reloaded
+                .get_object((id, 0))
+                .unwrap_or_else(|e| panic!("object {id} did not survive the round trip: {e}"))
+                .as_dict()
+                .unwrap()
+                .get(b"Marker")
+                .unwrap()
+                .as_i64()
+                .unwrap();
+            assert_eq!(marker, id as i64, "object {id} resolved to the wrong entry");
+        }
+    }
+}
+
 /// A document with no objects still needs the mandatory `0 1` free subsection.
 #[test]
 fn empty_document_still_writes_the_free_entry() {

@@ -23,6 +23,22 @@ pub enum XrefType {
     CrossReferenceTable,
 }
 
+/// How lenient loading repaired cross-reference data that it could not read as written.
+///
+/// Loading reports it in [`Document::xref_recovery`](crate::Document::xref_recovery) and
+/// [`PdfMetadata::xref_recovery`](crate::PdfMetadata::xref_recovery). Strict loading never
+/// repairs and fails instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum XrefRecovery {
+    /// A `startxref`, `/Prev` or `/XRefStm` offset did not point at a cross-reference
+    /// section, and a section found nearby was used instead.
+    OffsetCorrected,
+    /// The cross-reference data could not be read, and the table was rebuilt by scanning
+    /// the file for indirect objects. Objects may be missing or come from an older revision.
+    Reconstructed,
+}
+
 #[derive(Debug, Clone)]
 pub enum XrefEntry {
     Free, // TODO add generation number

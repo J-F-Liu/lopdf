@@ -24,7 +24,7 @@ use crate::error::{ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
-use crate::xref::{Xref, XrefEntry, XrefType, decode_xref_stream_with_limit};
+use crate::xref::{Xref, XrefEntry, XrefRecovery, XrefType, decode_xref_stream_with_limit};
 use crate::{Dictionary, Document, Error, IncrementalDocument, Object, ObjectId, Result};
 
 /// Open `path` and report its size, so the caller can pre-size the buffer it
@@ -414,6 +414,9 @@ pub struct PdfMetadata {
     /// decrypted — e.g. an empty user password, or a password supplied via a
     /// `*_with_password` loader.
     pub encrypted: bool,
+    /// How the cross-reference data was repaired to read this metadata, or
+    /// `None` when it was read as written. See [`Document::xref_recovery`].
+    pub xref_recovery: Option<XrefRecovery>,
 }
 
 struct InfoMetadata {
@@ -550,6 +553,7 @@ impl<'a> Reader<'a> {
             page_count,
             version,
             encrypted,
+            xref_recovery: self.document.xref_recovery,
         })
     }
 
@@ -1257,7 +1261,7 @@ impl<'a> Reader<'a> {
     /// is corrected first, but only when the section found there locates its own
     /// objects: after bytes were inserted or removed before it, a nearby section
     /// points at shifted objects, and failing lets reconstruction find them.
-    fn xref_and_trailer_at(&self, offset: usize) -> Result<(usize, Xref, Dictionary)> {
+    fn xref_and_trailer_at(&mut self, offset: usize) -> Result<(usize, Xref, Dictionary)> {
         let corrected = self.correct_xref_offset(offset);
         if corrected != offset
             && let Ok((xref, trailer)) = parser::xref_and_trailer(&self.buffer[corrected..], self)
@@ -1267,6 +1271,7 @@ impl<'a> Reader<'a> {
                 "Cross-reference offset {} does not point at an xref section; using nearby offset {} instead.",
                 offset, corrected
             );
+            self.document.xref_recovery = Some(XrefRecovery::OffsetCorrected);
             return Ok((corrected, xref, trailer));
         }
         let (xref, trailer) = parser::xref_and_trailer(&self.buffer[offset..], self)?;
@@ -1332,7 +1337,7 @@ impl<'a> Reader<'a> {
 
     /// Merge the cross-reference stream that a section of a hybrid-reference file points to
     /// with `/XRefStm`. Its entries come after the section's table and before older sections.
-    fn merge_hybrid_xref_stream(&self, xref: &mut Xref, xref_stream_start: Option<Object>) -> Result<()> {
+    fn merge_hybrid_xref_stream(&mut self, xref: &mut Xref, xref_stream_start: Option<Object>) -> Result<()> {
         let Some(start) = xref_stream_start.and_then(|offset| offset.as_i64().ok()) else {
             return Ok(());
         };
@@ -1383,6 +1388,7 @@ impl<'a> Reader<'a> {
         trailer.remove(b"XRefStm");
         // Zero marks the offset "unknown" so `Document::new_from_prev` omits `/Prev`.
         self.document.xref_start = 0;
+        self.document.xref_recovery = Some(XrefRecovery::Reconstructed);
 
         warn!(
             "reconstructed cross-reference table with {} objects by scanning for indirect objects",
@@ -2039,6 +2045,9 @@ startxref
     let loaded = Document::load_mem(doc.as_bytes()).unwrap();
     assert!(loaded.trailer.get(b"Root").is_ok());
     assert_eq!(loaded.xref_start, xref_pos);
+    assert_eq!(loaded.xref_recovery, Some(XrefRecovery::OffsetCorrected));
+    let metadata = Document::load_metadata_mem(doc.as_bytes()).unwrap();
+    assert_eq!(metadata.xref_recovery, Some(XrefRecovery::OffsetCorrected));
 
     let strict = Document::load_mem_with_options(
         doc.as_bytes(),
@@ -2048,6 +2057,55 @@ startxref
         },
     );
     assert!(strict.is_err());
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn reports_a_corrected_prev_offset() {
+    // An incremental update whose `/Prev` points past the `xref` keyword of the first section.
+    let header = "%PDF-1.5\n";
+    let obj1 = "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n";
+    let obj2 = "2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n";
+    let o1 = header.len();
+    let o2 = o1 + obj1.len();
+    let body = format!("{header}{obj1}{obj2}");
+    let prev = body.len();
+    let first = format!(
+        "{body}xref
+0 3
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 3>>
+startxref
+{prev}
+%%EOF
+"
+    );
+    let update = "1 0 obj<</Type/Catalog/Pages 2 0 R/Lang(en)>>endobj\n";
+    let o1_update = first.len();
+    let xref_pos = o1_update + update.len();
+    let doc = format!(
+        "{first}{update}xref
+1 1
+{o1_update:010} 00000 n 
+trailer
+<</Root 1 0 R/Size 3/Prev {}>>
+startxref
+{xref_pos}
+%%EOF",
+        prev + 4
+    );
+
+    let loaded = Document::load_mem(doc.as_bytes()).unwrap();
+    assert!(loaded.catalog().unwrap().has(b"Lang"));
+    assert!(loaded.get_object((2, 0)).is_ok());
+    assert_eq!(loaded.xref_recovery, Some(XrefRecovery::OffsetCorrected));
+
+    // The same file with the right offset is read as written.
+    let intact = doc.replace(&format!("/Prev {}", prev + 4), &format!("/Prev {prev}"));
+    assert_eq!(Document::load_mem(intact.as_bytes()).unwrap().xref_recovery, None);
 }
 
 #[cfg(all(test, not(feature = "async")))]
@@ -2159,6 +2217,31 @@ startxref
     let loaded = Document::load_mem(doc.as_bytes()).unwrap();
     let stream = loaded.get_object((4, 0)).unwrap().as_stream().unwrap();
     assert_eq!(stream.content, b"BT /F1 12 Tf 20 100 Td (Hello World) Tj ET");
+}
+
+#[test]
+fn indirect_dictionary_is_a_stream_only_before_the_stream_keyword() {
+    let read = |input: &[u8]| parser::indirect_object(input, 0, None, &Reader::new(input), &mut HashSet::new(), None);
+
+    // Without the keyword and an end-of-line marker after it, the dictionary is the object.
+    for input in [
+        &b"1 0 obj <</A 1>> endobj"[..],
+        b"1 0 obj <</A 1>>\nendobj",
+        b"1 0 obj <</A 1>>stream endobj",
+        b"1 0 obj <</A 1>> /B 2",
+    ] {
+        let (id, object) = read(input).unwrap();
+        assert_eq!(id, (1, 0));
+        assert_eq!(object, Object::Dictionary(crate::dictionary! { "A" => 1 }), "{input:?}");
+    }
+
+    let (_, object) = read(b"1 0 obj <</Length 3>> stream\r\nabc\nendstream endobj").unwrap();
+    assert_eq!(object.as_stream().unwrap().content, b"abc");
+
+    // A stream whose data cannot be read fails rather than loading as its dictionary.
+    assert!(read(b"1 0 obj <</Length -1>>stream\nabc\nendstream endobj").is_err());
+    // So does an unterminated dictionary.
+    assert!(read(b"1 0 obj <</A 1 endobj").is_err());
 }
 
 #[cfg(all(test, not(feature = "async")))]

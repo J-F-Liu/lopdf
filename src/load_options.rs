@@ -35,7 +35,8 @@ pub struct LoadOptions {
     /// Object filter applied during loading.
     pub filter: Option<FilterFunc>,
     /// When `true`, reject non-conforming PDFs instead of silently accepting them.
-    /// Defaults to `false` (lenient parsing).
+    /// Defaults to `false` (lenient parsing), which also repairs damaged cross-reference
+    /// data and reports it in [`Document::xref_recovery`](crate::Document::xref_recovery).
     pub strict: bool,
     /// Maximum number of bytes any single stream may decompress to during
     /// loading (object streams and cross-reference streams).
