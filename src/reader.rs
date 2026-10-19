@@ -362,7 +362,25 @@ pub struct Reader<'a> {
     /// re-decodes the whole container, which is quadratic in the number of
     /// such streams.
     object_streams: Mutex<HashMap<u32, Option<Arc<ObjectStream>>>>,
+    /// Puts the objects on the calling thread (`Some(false)`) or rayon's pool
+    /// (`Some(true)`) whatever the document's size.
+    #[cfg(all(test, feature = "rayon"))]
+    parallel: Option<bool>,
 }
+
+/// With the `rayon` feature, a document with fewer cross-reference entries
+/// than this and less input than [`MIN_PARALLEL_BYTES`] is parsed on the
+/// calling thread. Handing the parse to rayon's global pool has a fixed cost:
+/// the caller wakes a parked worker and blocks until the work comes back, and
+/// the first load in a process also spawns the pool. For a document this small
+/// that costs more than parsing it in parallel saves.
+#[cfg(feature = "rayon")]
+const MIN_PARALLEL_ENTRIES: usize = 16;
+
+/// Input from which a document is parsed on rayon's pool whatever its number
+/// of entries: copying a few large streams in parallel pays for the handoff.
+#[cfg(feature = "rayon")]
+const MIN_PARALLEL_BYTES: usize = 1 << 20;
 
 /// Maximum allowed embedding of literal strings.
 pub const MAX_BRACKET: usize = 100;
@@ -492,6 +510,8 @@ impl<'a> Reader<'a> {
             max_decompressed_size: options.max_decompressed_size,
             normal_offsets: Vec::new(),
             object_streams: Mutex::default(),
+            #[cfg(all(test, feature = "rayon"))]
+            parallel: None,
         }
     }
 
@@ -955,28 +975,28 @@ impl<'a> Reader<'a> {
             }
         };
 
+        let entries = &self.document.reference_table.entries;
         #[cfg(feature = "rayon")]
-        {
-            self.document.objects = self
-                .document
-                .reference_table
-                .entries
+        let objects: Result<BTreeMap<_, _>> = if self.load_in_parallel() {
+            entries
                 .par_iter()
                 .map(entries_filter_map)
                 .filter_map(Result::transpose)
-                .collect::<Result<BTreeMap<_, _>>>()?;
-        }
-        #[cfg(not(feature = "rayon"))]
-        {
-            self.document.objects = self
-                .document
-                .reference_table
-                .entries
+                .collect()
+        } else {
+            entries
                 .iter()
                 .map(entries_filter_map)
                 .filter_map(Result::transpose)
-                .collect::<Result<BTreeMap<_, _>>>()?;
-        }
+                .collect()
+        };
+        #[cfg(not(feature = "rayon"))]
+        let objects: Result<BTreeMap<_, _>> = entries
+            .iter()
+            .map(entries_filter_map)
+            .filter_map(Result::transpose)
+            .collect();
+        self.document.objects = objects?;
 
         // Only add entries, but never replace entries
         for (id, entry) in object_streams.into_inner().unwrap() {
@@ -988,6 +1008,17 @@ impl<'a> Reader<'a> {
         }
 
         Ok(())
+    }
+
+    /// Whether [`Self::load_objects_raw`] parses on rayon's pool; see
+    /// [`MIN_PARALLEL_ENTRIES`].
+    #[cfg(feature = "rayon")]
+    fn load_in_parallel(&self) -> bool {
+        #[cfg(test)]
+        if let Some(parallel) = self.parallel {
+            return parallel;
+        }
+        self.document.reference_table.entries.len() >= MIN_PARALLEL_ENTRIES || self.buffer.len() >= MIN_PARALLEL_BYTES
     }
 
     fn read_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
@@ -2414,4 +2445,91 @@ startxref
         },
     );
     assert!(strict.is_err());
+}
+
+/// Load `buffer` with its objects parsed on the calling thread and again on
+/// rayon's pool, whatever the number of cross-reference entries.
+#[cfg(all(test, feature = "rayon"))]
+fn load_on_both_paths(buffer: &[u8], strict: bool) -> [Result<Document>; 2] {
+    [false, true].map(|parallel| {
+        let options = LoadOptions {
+            strict,
+            ..Default::default()
+        };
+        Reader {
+            parallel: Some(parallel),
+            ..Reader::with_options(buffer, options)
+        }
+        .read(None)
+    })
+}
+
+#[cfg(all(test, feature = "rayon"))]
+fn assert_same_document(sequential: &Document, parallel: &Document) {
+    assert_eq!(sequential.version, parallel.version);
+    assert_eq!(sequential.max_id, parallel.max_id);
+    assert_eq!(sequential.trailer, parallel.trailer);
+    assert_eq!(sequential.objects, parallel.objects);
+}
+
+/// A saved document of `pages` pages, each drawing its own content stream.
+#[cfg(all(test, feature = "rayon"))]
+fn saved_document(pages: usize, options: crate::SaveOptions) -> Vec<u8> {
+    let texts: Vec<String> = (0..pages).map(|page| format!("Page {page}")).collect();
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let mut buffer = Vec::new();
+    crate::creator::tests::create_document_with_texts(&texts)
+        .save_with_options(&mut buffer, options)
+        .unwrap();
+    buffer
+}
+
+#[cfg(all(test, feature = "rayon"))]
+#[test]
+fn sequential_and_parallel_loads_read_the_same_document() {
+    // 2 pages load as 10 objects and 300 pages as 606, on either side of
+    // MIN_PARALLEL_ENTRIES. With object streams, one stream holds 7 or 305 of
+    // them, on either side of MIN_PARALLEL_OBJECTS.
+    let object_streams = crate::SaveOptions::builder()
+        .use_object_streams(true)
+        .use_xref_streams(true)
+        .max_objects_per_stream(1000)
+        .build();
+    for pages in [2, 300] {
+        for options in [crate::SaveOptions::default(), object_streams.clone()] {
+            let buffer = saved_document(pages, options);
+            let [sequential, parallel] = load_on_both_paths(&buffer, true);
+            let (sequential, parallel) = (sequential.unwrap(), parallel.unwrap());
+            assert_eq!(sequential.get_pages().len(), pages);
+            assert_same_document(&sequential, &parallel);
+        }
+    }
+}
+
+#[cfg(all(test, feature = "rayon"))]
+#[test]
+fn sequential_and_parallel_loads_treat_a_malformed_object_alike() {
+    for pages in [2, 300] {
+        let mut buffer = saved_document(pages, crate::SaveOptions::default());
+        let intact = Document::load_mem(&buffer).unwrap();
+        let page = intact.page_iter().next().unwrap();
+        let Some(XrefEntry::Normal { offset, .. }) = intact.reference_table.get(page.0) else {
+            panic!("page {page:?} has no offset");
+        };
+        // The object header no longer starts with a number.
+        buffer[*offset as usize] = b'x';
+
+        let [sequential, parallel] = load_on_both_paths(&buffer, true);
+        let sequential = sequential.map(|_| ()).unwrap_err();
+        assert_eq!(
+            format!("{sequential:?}"),
+            format!("{:?}", parallel.map(|_| ()).unwrap_err())
+        );
+
+        let [sequential, parallel] = load_on_both_paths(&buffer, false);
+        let (sequential, parallel) = (sequential.unwrap(), parallel.unwrap());
+        assert!(!sequential.objects.contains_key(&page));
+        assert_eq!(sequential.objects.len(), intact.objects.len() - 1);
+        assert_same_document(&sequential, &parallel);
+    }
 }

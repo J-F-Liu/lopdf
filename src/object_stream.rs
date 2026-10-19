@@ -8,6 +8,14 @@ use log::warn;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
+/// With the `rayon` feature, an object stream with fewer members is parsed on
+/// the calling thread unless that thread is one of rayon's workers. Outside
+/// the pool, handing a small stream to it costs more than it saves, as for a
+/// small document in `Reader`. Inside, splitting is cheap and lets idle
+/// workers share a stream that the rest of a parallel load waits for.
+#[cfg(feature = "rayon")]
+const MIN_PARALLEL_OBJECTS: usize = 32;
+
 #[derive(Debug)]
 pub struct ObjectStream {
     pub objects: BTreeMap<ObjectId, Object>,
@@ -108,7 +116,11 @@ impl ObjectStream {
             Some(((id, 0), object))
         };
         #[cfg(feature = "rayon")]
-        let objects = numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect();
+        let objects = if len / 2 >= MIN_PARALLEL_OBJECTS || rayon::current_thread_index().is_some() {
+            numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect()
+        } else {
+            numbers[..len].chunks(2).filter_map(chunks_filter_map).collect()
+        };
         #[cfg(not(feature = "rayon"))]
         let objects = numbers[..len].chunks(2).filter_map(chunks_filter_map).collect();
 
