@@ -38,7 +38,7 @@ pub fn decode_text_string(obj: &Object) -> Result<String> {
         .map_err(|_| Error::TextStringDecode)
     } else if s.starts_with(b"\xEF\xBB\xBF") {
         // Detected UTF-8 BOM
-        String::from_utf8(s.to_vec()).map_err(|_| Error::TextStringDecode)
+        String::from_utf8(s[3..].to_vec()).map_err(|_| Error::TextStringDecode)
     } else {
         // If neither BOM is detected, PDFDocEncoding is used
         let mut out = String::new();
@@ -120,5 +120,21 @@ mod test {
             encodings::string_to_bytes(&encodings::PDF_DOC_ENCODING, text),
             text.as_bytes()
         );
+    }
+
+    #[test]
+    fn decode_utf8_with_bom() {
+        // PDF 2.0 text strings may be UTF-8 encoded, starting with the EF BB BF byte order
+        // mark, which is not part of the text.
+        let input = b"<</Key<EFBBBFD182D0B5D181D182>>>";
+        let dict = crate::parser::direct_object(input).unwrap();
+        let dict = dict.as_dict().unwrap();
+        let actual = decode_text_string(dict.get(b"Key").unwrap()).unwrap();
+        // Russian for "test"
+        assert_eq!(actual, "тест");
+
+        let text = "text‰";
+        let string = Object::String(encodings::encode_utf8(text), StringFormat::Literal);
+        assert_eq!(decode_text_string(&string).unwrap(), text);
     }
 }
