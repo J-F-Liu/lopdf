@@ -724,24 +724,13 @@ enum Direction {
 }
 
 /// Applies the document's crypt filter to every string and stream in `obj`,
-/// recursing through arrays and dictionaries to reach the ones nested inside.
-///
-/// Encryption and decryption are the same walk over the object with the
-/// filter run forwards or backwards, so they share this traversal; the spec
-/// rules about which objects are exempt are identical in both directions
-/// (ISO 32000-1, 7.6). A direction that ever needs a different exemption
-/// belongs in its own wrapper rather than in a test of `direction` here.
+/// recursing into arrays and dictionaries to reach the ones nested inside.
+/// The exemptions are the same in both directions (ISO 32000-1, 7.6).
 fn transform_object(
     state: &EncryptionState, obj_id: ObjectId, obj: &mut Object, direction: Direction,
 ) -> Result<(), DecryptionError> {
-    // The cross-reference stream shall not be encrypted and strings appearing in the
-    // cross-reference stream dictionary shall not be encrypted.
-    let is_xref_stream = obj
-        .as_stream()
-        .map(|stream| stream.dict.has_type(b"XRef"))
-        .unwrap_or(false);
-
-    if is_xref_stream {
+    // A cross-reference stream and the strings in its dictionary are exempt.
+    if obj.as_stream().is_ok_and(|stream| stream.dict.has_type(b"XRef")) {
         return Ok(());
     }
 
@@ -771,65 +760,96 @@ fn transform_object(
                 .unwrap_or(Arc::new(IdentityCryptFilter))
         });
 
-    // Retrieve the payload and the crypt filter to use to transform it.
-    let (mut crypt_filter, payload) = match obj {
-        // Every string and stream is covered, so recurse into arrays and dictionaries
-        // to reach the ones nested inside.
-        Object::Array(objects) => {
-            for obj in objects {
-                transform_object(state, obj_id, obj, direction)?;
-            }
-
-            return Ok(());
-        }
-        Object::Dictionary(objects) => {
-            for (_, obj) in objects.iter_mut() {
-                transform_object(state, obj_id, obj, direction)?;
-            }
-
-            return Ok(());
-        }
-        // Encryption applies to all strings and streams in the document's PDF file. We return the
-        // crypt filter and the content here.
-        Object::String(content, _) => (state.get_string_filter(), &*content),
-        Object::Stream(stream) => (state.get_stream_filter(), &stream.content),
-        // Encryption is not applied to other object types such as integers and boolean values.
-        _ => {
-            return Ok(());
-        }
-    };
-
-    // If the stream object specifies its own crypt filter, override the default one with the one
-    // from this stream object.
-    if let Some(filter) = override_crypt_filter {
-        crypt_filter = filter;
-    }
-
-    // Compute the key from the original file encryption key and the object identifier to use for
-    // the corresponding object.
-    let key = crypt_filter.compute_key(&state.file_encryption_key, obj_id)?;
-
-    let transformed = match direction {
-        Direction::Encrypt => crypt_filter.encrypt(&key, payload)?,
-        Direction::Decrypt => crypt_filter.decrypt(&key, payload)?,
-    };
-
-    // Store the result in the object.
     match obj {
-        Object::Stream(stream) => stream.set_content(transformed),
-        Object::String(content, _) => *content = transformed,
-        _ => (),
+        Object::Array(objects) => transform_all(state, obj_id, objects.iter_mut(), direction),
+        Object::Dictionary(dict) => transform_dictionary(state, obj_id, dict, direction),
+        // The dictionary's strings use the string filter, its content the stream filter (#603).
+        Object::Stream(stream) => {
+            let dict_result = transform_dictionary(state, obj_id, &mut stream.dict, direction);
+            let filter = override_crypt_filter.unwrap_or_else(|| state.get_stream_filter());
+            let content = transform_bytes(state, obj_id, &*filter, &stream.content, direction);
+
+            content.map(|content| stream.set_content(content)).and(dict_result)
+        }
+        Object::String(content, _) => {
+            let transformed = transform_bytes(state, obj_id, &*state.get_string_filter(), content, direction)?;
+
+            *content = transformed;
+
+            Ok(())
+        }
+        // Encryption is not applied to other object types such as integers and boolean values.
+        _ => Ok(()),
+    }
+}
+
+/// Transforms each object, remembering the first error instead of abandoning the rest.
+fn transform_all<'a>(
+    state: &EncryptionState, obj_id: ObjectId, objects: impl Iterator<Item = &'a mut Object>, direction: Direction,
+) -> Result<(), DecryptionError> {
+    let mut first_error = None;
+
+    for object in objects {
+        if let Err(error) = transform_object(state, obj_id, object, direction) {
+            first_error.get_or_insert(error);
+        }
     }
 
-    Ok(())
+    first_error.map_or(Ok(()), Err)
+}
+
+/// Transforms a dictionary's entries, leaving the `/Contents` of a signature
+/// dictionary in clear (ISO 32000-1, 7.6.2, issue #608).
+fn transform_dictionary(
+    state: &EncryptionState, obj_id: ObjectId, dict: &mut Dictionary, direction: Direction,
+) -> Result<(), DecryptionError> {
+    let is_signature = is_signature_dictionary(dict);
+    let entries = dict.iter_mut().filter_map(|(key, object)| {
+        if is_signature && key == b"Contents" {
+            None
+        } else {
+            Some(object)
+        }
+    });
+
+    transform_all(state, obj_id, entries, direction)
+}
+
+/// Whether `dict` is a signature or timestamp dictionary, whose `/Contents` is not
+/// encrypted. `/Type` is optional; without it, both `/ByteRange` and `/Contents` are required.
+fn is_signature_dictionary(dict: &Dictionary) -> bool {
+    dict.has_type(b"Sig") || dict.has_type(b"DocTimeStamp") || (dict.has(b"ByteRange") && dict.has(b"Contents"))
+}
+
+/// Applies `filter` to `data` with the key derived for `obj_id`.
+fn transform_bytes(
+    state: &EncryptionState, obj_id: ObjectId, filter: &dyn CryptFilter, data: &[u8], direction: Direction,
+) -> Result<Vec<u8>, DecryptionError> {
+    let key = filter.compute_key(&state.file_encryption_key, obj_id)?;
+
+    match direction {
+        Direction::Encrypt => filter.encrypt(&key, data),
+        Direction::Decrypt => filter.decrypt(&key, data),
+    }
 }
 
 /// Encrypts `obj`.
+///
+/// Every string and stream is encrypted, including the strings in a stream dictionary, except
+/// the `/Contents` of a signature dictionary (ISO 32000-1, 7.6.2). That exemption only covers a
+/// string written in the dictionary itself: a `/Contents` held in an indirect object cannot be
+/// recognised here and is encrypted like any other object.
+///
+/// An object that cannot be fully encrypted is still encrypted as far as possible; the first
+/// error is returned.
 pub fn encrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Object) -> Result<(), DecryptionError> {
     transform_object(state, obj_id, obj, Direction::Encrypt)
 }
 
-/// Decrypts `obj`.
+/// Decrypts `obj`, with the same coverage and exemptions as [`encrypt_object`].
+///
+/// An object that cannot be fully decrypted is still decrypted as far as possible; the first
+/// error is returned.
 pub fn decrypt_object(state: &EncryptionState, obj_id: ObjectId, obj: &mut Object) -> Result<(), DecryptionError> {
     transform_object(state, obj_id, obj, Direction::Decrypt)
 }

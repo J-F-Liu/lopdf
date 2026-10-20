@@ -425,6 +425,9 @@ impl Document {
     }
 
     /// Replaces all encrypted Strings and Streams with their decrypted contents
+    ///
+    /// An object that cannot be decrypted does not stop the rest of the document from being
+    /// decrypted; the first error is returned once the whole document has been visited.
     pub fn decrypt(&mut self, password: &str) -> Result<()> {
         if !self.is_encrypted() {
             return Err(Error::NotEncrypted);
@@ -435,8 +438,7 @@ impl Document {
         self.decrypt_raw(&password)
     }
 
-    /// Replaces all encrypted Strings and Streams with their decrypted contents with the password
-    /// provided directly as bytes without sanitization
+    /// Same as [`Document::decrypt`], with the password passed as bytes without sanitization.
     pub fn decrypt_raw<P>(&mut self, password: P) -> Result<()>
     where
         P: AsRef<[u8]>,
@@ -451,6 +453,7 @@ impl Document {
         let encryption_obj_id = self.trailer.get(b"Encrypt").and_then(Object::as_reference)?;
 
         let mut state = EncryptionState::decode(&*self, password)?;
+        let mut first_error = None;
 
         for (&id, obj) in self.objects.iter_mut() {
             // The encryption dictionary is not encrypted, leave it alone
@@ -458,7 +461,9 @@ impl Document {
                 continue;
             }
 
-            encryption::decrypt_object(&state, id, obj)?;
+            if let Err(error) = encryption::decrypt_object(&state, id, obj) {
+                first_error.get_or_insert(error);
+            }
         }
 
         // Add the objects from the object streams now that they have been decrypted.
@@ -497,7 +502,7 @@ impl Document {
 
         self.encryption_state = Some(state);
 
-        Ok(())
+        first_error.map_or(Ok(()), |error| Err(error.into()))
     }
 
     /// Return the PDF document catalog, which is the root of the document's object graph.

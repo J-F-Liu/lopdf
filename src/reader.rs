@@ -812,7 +812,11 @@ impl<'a> Reader<'a> {
                 }
 
                 if let Ok((id, mut obj)) = self.parse_raw_object(raw_bytes) {
-                    let _ = encryption::decrypt_object(state, *obj_id, &mut obj);
+                    // Keep the partial object, but do not drop the error silently.
+                    if let Err(error) = encryption::decrypt_object(state, *obj_id, &mut obj) {
+                        log::warn!("object {obj_id:?} could not be fully decrypted: {error}");
+                    }
+
                     self.document.objects.insert(id, obj);
                 }
             }
