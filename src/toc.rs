@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use super::{Document, Error, Object, ObjectId, Outline, Result};
+use super::{Document, Error, Object, ObjectId, Outline, Result, decode_text_string};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
@@ -105,9 +105,7 @@ impl Document {
         let page_id_to_page_numbers = self.setup_page_id_to_num();
         for (title, page_id, level) in outline_page_ids {
             if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
-                let s = if title.len() < 2 {
-                    String::from_utf8_lossy(&title).to_string()
-                } else if title[0] == 0xfe && title[1] == 0xff {
+                let s = if title.starts_with(b"\xFE\xFF") {
                     if title.len() & 1 != 0 {
                         toc.errors
                             .push(format!("Title encoded UTF16_BE {title:?} has invalid length!"));
@@ -119,7 +117,7 @@ impl Document {
                         .map(|x| ((x[0] as u16) << 8) | x[1] as u16)
                         .collect();
                     String::from_utf16_lossy(&t16)
-                } else if title[0] == 0xff && title[1] == 0xfe {
+                } else if title.starts_with(b"\xFF\xFE") {
                     if title.len() & 1 != 0 {
                         toc.errors
                             .push(format!("Title encoded UTF16_LE {title:?} has invalid length!"));
@@ -131,8 +129,21 @@ impl Document {
                         .map(|x| ((x[1] as u16) << 8) | x[0] as u16)
                         .collect();
                     String::from_utf16_lossy(&t16)
+                } else if !title.starts_with(b"\xEF\xBB\xBF")
+                    && let Ok(s) = std::str::from_utf8(&title)
+                {
+                    // Without a byte order mark the title should be PDFDocEncoded, but many
+                    // producers write UTF-8 anyway, so valid UTF-8 is kept as is.
+                    s.to_owned()
                 } else {
-                    String::from_utf8_lossy(&title).to_string()
+                    // UTF-8 after its byte order mark, otherwise PDFDocEncoding
+                    match decode_text_string(&Object::string_literal(title.as_slice())) {
+                        Ok(s) => s,
+                        Err(_) => {
+                            toc.errors.push(format!("Title encoded UTF-8 {title:?} is invalid!"));
+                            continue;
+                        }
+                    }
                 };
                 toc.toc.push(TocType {
                     level,
@@ -148,7 +159,7 @@ impl Document {
 #[cfg(not(feature = "async"))]
 #[cfg(test)]
 mod tests {
-    use crate::{Document, TocType};
+    use crate::{Document, Object, TocType};
 
     #[test]
     fn parse_toc() {
@@ -218,5 +229,50 @@ mod tests {
         let doc = Document::load("assets/test.pdf").unwrap();
         let toc = doc.get_toc().unwrap();
         assert_eq!(toc.toc, expected);
+    }
+
+    #[test]
+    fn decode_titles_as_text_strings() {
+        // Titles are text strings: PDFDocEncoding unless they start with a byte order mark.
+        // UTF-8 without one isn't valid, but it is common, so it is kept as is.
+        let titles: [(&[u8], &str); 6] = [
+            (b"(Caf\\351)", "Café"),
+            (b"(Peaches \\205 Plums)", "Peaches – Plums"),
+            (b"(Caf\\303\\251)", "Café"),
+            (b"<EFBBBF436166C3A9>", "Café"),
+            (b"<FEFF00430061006600E9>", "Café"),
+            (b"<FFFE430061006600E900>", "Café"),
+        ];
+
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        let outlines_id = doc.new_object_id();
+        let mut next = None;
+        for (title, _) in titles.iter().rev() {
+            let mut item = dictionary! {
+                "Title" => crate::parser::direct_object(title).unwrap(),
+                "Parent" => outlines_id,
+                "Dest" => vec![page_id.into(), "Fit".into()],
+            };
+            if let Some(next) = next {
+                item.set("Next", next);
+            }
+            next = Some(doc.add_object(item));
+        }
+        let outlines = dictionary! { "Type" => "Outlines", "First" => next.unwrap() };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id =
+            doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id, "Outlines" => outlines_id });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| entry.title.as_str()).collect();
+        let expected: Vec<_> = titles.iter().map(|(_, title)| *title).collect();
+        assert_eq!(actual, expected);
+        assert!(toc.errors.is_empty());
     }
 }
