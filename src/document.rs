@@ -856,10 +856,31 @@ impl Document {
         Ok(annotations)
     }
 
+    /// The `/Resources` dictionary of a page tree node or, when it has none, the one it
+    /// inherits from the nearest ancestor that has one (ISO 32000-1, 7.7.3.4).
+    fn inherited_resources<'a>(&'a self, mut node: &'a Dictionary) -> Result<Option<&'a Dictionary>> {
+        let mut seen = HashSet::new();
+        loop {
+            if node.has(b"Resources") {
+                return self.get_dict_in_dict(node, b"Resources").map(Some);
+            }
+            let Ok(parent_id) = node.get(b"Parent").and_then(Object::as_reference) else {
+                return Ok(None);
+            };
+            if !seen.insert(parent_id) {
+                return Err(Error::ReferenceCycle(parent_id));
+            }
+            node = self.get_dictionary(parent_id)?;
+        }
+    }
+
     pub fn get_page_images(&'_ self, page_id: ObjectId) -> Result<Vec<PdfImage<'_>>> {
         let mut images = vec![];
         if let Ok(page) = self.get_dictionary(page_id) {
-            let resources = self.get_dict_in_dict(page, b"Resources")?;
+            let Some(resources) = self.inherited_resources(page)? else {
+                // No resources, so no images.
+                return Ok(Vec::default());
+            };
             let xobject = match self.get_dict_in_dict(resources, b"XObject") {
                 Ok(xobject) => xobject,
                 Err(err) => match err {
