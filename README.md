@@ -405,7 +405,7 @@ fn main() -> std::io::Result<()> {
 
     // Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
     if let Some(n) = document.build_outline() {
-        if let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_object.0) {
+        if let Ok(dict) = document.catalog_mut() {
             dict.set("Outlines", Object::Reference(n));
         }
     }

@@ -64,6 +64,12 @@ fn main() {
         (3u32, generate_fake_document()),
     ];
 
+    if let Some(mut document) = merge_documents(documents) {
+        document.save("merged.pdf").unwrap();
+    }
+}
+
+pub fn merge_documents(documents: Vec<(u32, Document)>) -> Option<Document> {
     // We use this to keep track of the last Parent per layer depth.
     let mut layer_parent: [Option<u32>; 4] = [None; 4];
 
@@ -208,7 +214,7 @@ fn main() {
     if pages_object.is_none() {
         println!("Pages root not found.");
 
-        return;
+        return None;
     }
 
     // Iter over all "Page" and collect with the parent "Pages" created before
@@ -225,7 +231,7 @@ fn main() {
     if catalog_object.is_none() {
         println!("Catalog root not found.");
 
-        return;
+        return None;
     }
 
     let (catalog_id, catalog_object) = catalog_object.unwrap();
@@ -262,23 +268,76 @@ fn main() {
     // Update the max internal ID as wasn't updated before due to direct objects insertion
     document.max_id = document.objects.len() as u32;
 
-    // Reorder all new Document objects
-    document.renumber_objects();
-
-    //Set any Bookmarks to the First child if they are not set to a page
-    document.adjust_zero_pages();
-
-    //Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
-    if let Some(outline_id) = document.build_outline()
-        && let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_id)
-    {
-        dict.set("Outlines", Object::Reference(outline_id));
-    }
+    finalize_outline(&mut document);
 
     // Usually a no-op unless there are many streams; disabling it speeds things up.
     // document.compress();
 
-    // Save the merged PDF
-    // Store file in current working directory.
-    document.save("merged.pdf").unwrap();
+    Some(document)
+}
+
+fn finalize_outline(document: &mut Document) {
+    // Reorder all new Document objects.
+    document.renumber_objects();
+    // Point any unset bookmarks at their first child.
+    document.adjust_zero_pages();
+    if let Some(outline_id) = document.build_outline()
+        && let Ok(dict) = document.catalog_mut()
+    {
+        dict.set("Outlines", Object::Reference(outline_id));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_outline_survives_renumbering(starting_id: u32) {
+        let mut document = generate_fake_document();
+        document.renumber_objects_with(starting_id);
+        let old_catalog_id = document.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let page_id = document.get_pages()[&1];
+        document.add_bookmark(Bookmark::new("First page".to_string(), [0.0; 3], 0, page_id), None);
+
+        finalize_outline(&mut document);
+
+        let new_catalog_id = document.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        if starting_id != 1 {
+            assert_ne!(old_catalog_id, new_catalog_id);
+        }
+        let outline_id = document
+            .catalog()
+            .unwrap()
+            .get(b"Outlines")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let outline = document.get_dictionary(outline_id).unwrap();
+        let first = outline.get(b"First").unwrap().as_reference().unwrap();
+        let bookmark = document.get_dictionary(first).unwrap();
+        let action = document
+            .get_dictionary(bookmark.get(b"A").unwrap().as_reference().unwrap())
+            .unwrap();
+        let destination = action.get(b"D").unwrap().as_array().unwrap()[0].as_reference().unwrap();
+        assert_eq!(destination, document.get_pages()[&1]);
+
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        let reopened = Document::load_mem(&bytes).unwrap();
+        let toc = reopened.get_toc().unwrap();
+        assert!(toc.errors.is_empty());
+        assert_eq!(toc.toc.len(), 1);
+        assert_eq!(toc.toc[0].title, "First page");
+        assert_eq!(toc.toc[0].page, 1);
+    }
+
+    #[test]
+    fn outline_survives_changed_catalog_id() {
+        assert_outline_survives_renumbering(50);
+    }
+
+    #[test]
+    fn outline_survives_unchanged_catalog_id() {
+        assert_outline_survives_renumbering(1);
+    }
 }
