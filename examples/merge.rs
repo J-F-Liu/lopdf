@@ -4,10 +4,10 @@
 #[macro_use]
 extern crate lopdf;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use lopdf::content::{Content, Operation};
-use lopdf::{Bookmark, Document, Object, ObjectId, Stream};
+use lopdf::{Bookmark, Dictionary, Document, Error, Object, ObjectId, Stream};
 
 pub fn generate_fake_document() -> Document {
     let mut doc = Document::with_version("1.5");
@@ -52,6 +52,43 @@ pub fn generate_fake_document() -> Document {
     doc.trailer.set("Root", catalog_id);
 
     doc
+}
+
+fn inherited_page_attribute(doc: &Document, page_id: ObjectId, key: &[u8]) -> lopdf::Result<Option<Object>> {
+    let mut current = page_id;
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current) {
+            return Err(Error::ReferenceCycle(current));
+        }
+        let node = doc.get_dictionary(current)?;
+        if let Ok(value) = node.get(key) {
+            match doc.dereference(value) {
+                Ok((_, Object::Null)) | Err(Error::ObjectNotFound(_)) => {}
+                Ok(_) => return Ok(Some(value.clone())),
+                Err(error) => return Err(error),
+            }
+        }
+        match node.get(b"Parent") {
+            Err(_) | Ok(Object::Null) => return Ok(None),
+            Ok(parent) => current = parent.as_reference()?,
+        }
+    }
+}
+
+fn materialize_page_attributes(doc: &Document, page_id: ObjectId) -> lopdf::Result<Dictionary> {
+    let mut page = doc.get_dictionary(page_id)?.clone();
+    let media_box =
+        inherited_page_attribute(doc, page_id, b"MediaBox")?.ok_or_else(|| Error::DictKey("MediaBox".to_string()))?;
+    let crop_box = inherited_page_attribute(doc, page_id, b"CropBox")?.unwrap_or_else(|| media_box.clone());
+    let resources =
+        inherited_page_attribute(doc, page_id, b"Resources")?.unwrap_or_else(|| Object::Dictionary(Dictionary::new()));
+    let rotation = inherited_page_attribute(doc, page_id, b"Rotate")?.unwrap_or(Object::Integer(0));
+    page.set("MediaBox", media_box);
+    page.set("CropBox", crop_box);
+    page.set("Resources", resources);
+    page.set("Rotate", rotation);
+    Ok(page)
 }
 
 fn main() {
@@ -102,6 +139,11 @@ pub fn merge_documents(documents: Vec<(u32, Document)>) -> Option<Document> {
         let format = 0;
         let mut display = String::new();
 
+        // Resolve inheritance before renumbering can make a missing reference alias another object.
+        for page_id in doc.get_pages().into_values() {
+            let page = materialize_page_attributes(&doc, page_id).unwrap();
+            doc.objects.insert(page_id, Object::Dictionary(page));
+        }
         doc.renumber_objects_with(max_id);
 
         max_id = doc.max_id + 1;
@@ -243,6 +285,10 @@ pub fn merge_documents(documents: Vec<(u32, Document)>) -> Option<Document> {
 
         // The rebuilt root has no parent, even when an original node did.
         dictionary.remove(b"Parent");
+        // Each page now carries its original attributes; never combine them at the root.
+        for key in ["MediaBox", "CropBox", "Resources", "Rotate"] {
+            dictionary.remove(key.as_bytes());
+        }
 
         // Set new pages count
         dictionary.set("Count", documents_pages.len() as u32);
@@ -377,5 +423,159 @@ mod tests {
         assert!(!reopened.get_dictionary(root_pages).unwrap().has(b"Parent"));
         assert_eq!(reopened.get_pages().len(), 1);
         assert_eq!(reopened.extract_text(&[1]).unwrap().trim(), "Hello World!");
+    }
+
+    fn document_with_inherited_attributes(width: i64, rotation: i64, font_name: &str) -> Document {
+        let mut source = generate_fake_document();
+        let page_id = source.get_pages()[&1];
+        let pages_id = source.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+        let resources = source
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .remove(b"Resources")
+            .unwrap();
+        source.get_dictionary_mut(page_id).unwrap().remove(b"MediaBox");
+        let font_id = source.add_object(dictionary! {
+            "Type" => "Font", "Subtype" => "Type1", "BaseFont" => font_name,
+        });
+        let resources_id = resources.as_reference().unwrap();
+        source
+            .get_dictionary_mut(resources_id)
+            .unwrap()
+            .set("Font", dictionary! { "F1" => font_id });
+        let pages = source.get_dictionary_mut(pages_id).unwrap();
+        pages.set("MediaBox", vec![0.into(), 0.into(), width.into(), 842.into()]);
+        pages.set("CropBox", vec![0.into(), 10.into(), (width - 10).into(), 800.into()]);
+        pages.set("Rotate", rotation);
+        pages.set("Resources", resources);
+        source
+    }
+
+    #[test]
+    fn merge_preserves_inherited_page_attributes() {
+        let first = document_with_inherited_attributes(300, 90, "Courier");
+        let mut second = document_with_inherited_attributes(600, 180, "Helvetica");
+        let second_page = second.get_pages()[&1];
+        second.get_dictionary_mut(second_page).unwrap().set("Rotate", 270);
+        let mut merged = merge_documents(vec![(1, first), (1, second)]).unwrap();
+        let mut bytes = Vec::new();
+        merged.save_to(&mut bytes).unwrap();
+        let reopened = Document::load_mem(&bytes).unwrap();
+        for (number, width, rotation, font_name) in [(1, 300, 90, b"Courier".as_slice()), (2, 600, 270, b"Helvetica")] {
+            let page_id = reopened.get_pages()[&number];
+            let page = reopened.get_dictionary(page_id).unwrap();
+            assert_eq!(
+                page.get(b"MediaBox").unwrap(),
+                &Object::Array(vec![0.into(), 0.into(), width.into(), 842.into()])
+            );
+            assert_eq!(
+                page.get(b"CropBox").unwrap(),
+                &Object::Array(vec![0.into(), 10.into(), (width - 10).into(), 800.into()])
+            );
+            assert_eq!(page.get(b"Rotate").unwrap().as_i64().unwrap(), rotation);
+            let resources = page.get_deref(b"Resources", &reopened).unwrap().as_dict().unwrap();
+            let fonts = resources.get_deref(b"Font", &reopened).unwrap().as_dict().unwrap();
+            let font = fonts.get_deref(b"F1", &reopened).unwrap().as_dict().unwrap();
+            assert_eq!(font.get(b"BaseFont").unwrap().as_name().unwrap(), font_name);
+        }
+    }
+
+    #[test]
+    fn merge_preserves_source_defaults_and_inherits_past_omitted_values() {
+        for omission in 0..3 {
+            let first = document_with_inherited_attributes(300, 90, "Courier");
+            let mut second = generate_fake_document();
+            let page_id = second.get_pages()[&1];
+            let pages_id = second.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+            let null_id = second.add_object(Object::Null);
+            let value = match omission {
+                0 => Object::Null,
+                1 => Object::Reference(null_id),
+                _ => Object::Reference((9000, 0)),
+            };
+            let page = second.get_dictionary_mut(page_id).unwrap();
+            for key in ["MediaBox", "CropBox", "Rotate", "Resources"] {
+                page.set(key, value.clone());
+            }
+            let content_id = page.get(b"Contents").unwrap().as_reference().unwrap();
+            second
+                .objects
+                .insert(content_id, Stream::new(dictionary! {}, vec![]).into());
+            second
+                .get_dictionary_mut(pages_id)
+                .unwrap()
+                .set("MediaBox", vec![0.into(), 0.into(), 600.into(), 842.into()]);
+            let merged = merge_documents(vec![(1, first), (1, second)]).unwrap();
+            let page = merged.get_dictionary(merged.get_pages()[&2]).unwrap();
+            let media_box = Object::Array(vec![0.into(), 0.into(), 600.into(), 842.into()]);
+            assert_eq!(page.get_deref(b"MediaBox", &merged).unwrap(), &media_box);
+            assert_eq!(page.get_deref(b"CropBox", &merged).unwrap(), &media_box);
+            assert_eq!(page.get(b"Rotate").unwrap().as_i64().unwrap(), 0);
+            assert!(
+                page.get_deref(b"Resources", &merged)
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn merge_uses_nearest_attributes_without_merging_resource_dictionaries() {
+        let mut source = document_with_inherited_attributes(300, 90, "Courier");
+        let page_id = source.get_pages()[&1];
+        let page = source.get_dictionary_mut(page_id).unwrap();
+        let content_id = page.get(b"Contents").unwrap().as_reference().unwrap();
+        page.set("MediaBox", vec![0.into(), 0.into(), 200.into(), 400.into()]);
+        page.set("CropBox", vec![10.into(), 20.into(), 190.into(), 380.into()]);
+        page.set("Rotate", 0);
+        page.set("Resources", dictionary! {});
+        source
+            .objects
+            .insert(content_id, Stream::new(dictionary! {}, vec![]).into());
+
+        let merged = merge_documents(vec![(1, source)]).unwrap();
+        let page = merged.get_dictionary(merged.get_pages()[&1]).unwrap();
+        assert_eq!(
+            page.get(b"MediaBox").unwrap(),
+            &Object::Array(vec![0.into(), 0.into(), 200.into(), 400.into()])
+        );
+        assert_eq!(
+            page.get(b"CropBox").unwrap(),
+            &Object::Array(vec![10.into(), 20.into(), 190.into(), 380.into()])
+        );
+        assert_eq!(page.get(b"Rotate").unwrap().as_i64().unwrap(), 0);
+        assert!(
+            page.get_deref(b"Resources", &merged)
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn merge_resolves_missing_attributes_before_renumbering_can_alias_them() {
+        let first = generate_fake_document();
+        let mut second = generate_fake_document();
+        let page_id = second.get_pages()[&1];
+        let pages_id = second.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+        assert!(!second.objects.contains_key(&(7, 0)));
+        second
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("MediaBox", Object::Reference((7, 0)));
+        second
+            .get_dictionary_mut(pages_id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 600.into(), 842.into()]);
+
+        let merged = merge_documents(vec![(1, first), (1, second)]).unwrap();
+        let page = merged.get_dictionary(merged.get_pages()[&2]).unwrap();
+        assert_eq!(
+            page.get_deref(b"MediaBox", &merged).unwrap(),
+            &Object::Array(vec![0.into(), 0.into(), 600.into(), 842.into()])
+        );
     }
 }
