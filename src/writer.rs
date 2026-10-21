@@ -70,6 +70,14 @@ impl Document {
     }
 
     fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
+        // A plain save uses the document's existing xref format, including the default stream.
+        if matches!(
+            self.reference_table.cross_reference_type,
+            XrefType::CrossReferenceStream
+        ) && self.version.as_str() < "1.5"
+        {
+            self.version = "1.5".to_string();
+        }
         let mut target = CountingWrite {
             inner: target,
             bytes_written: 0,
