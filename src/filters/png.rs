@@ -86,6 +86,13 @@ pub fn decode_row(filter: FilterType, bpp: usize, previous: &[u8], current: &mut
 }
 
 pub fn decode_frame(content: &[u8], bpp: usize, bytes_per_row: usize) -> Result<Vec<u8>> {
+    if content.is_empty() {
+        return Ok(Vec::new());
+    }
+    // A complete row must be present before its metadata can size scratch buffers.
+    if bytes_per_row > content.len() - 1 {
+        return Err(Error::new(ErrorKind::UnexpectedEof, "incomplete PNG predictor row"));
+    }
     let mut previous = Vec::new();
     previous.try_reserve(bytes_per_row)?;
     previous.resize(bytes_per_row, 0_u8);
