@@ -364,6 +364,9 @@ fn main() -> std::io::Result<()> {
     if let Ok(dictionary) = pages_object.1.as_dict() {
         let mut dictionary = dictionary.clone();
 
+        // The rebuilt root has no parent, even when an original node did.
+        dictionary.remove(b"Parent");
+
         // Set new pages count
         dictionary.set("Count", documents_pages.len() as u32);
 

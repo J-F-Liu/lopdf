@@ -241,6 +241,9 @@ pub fn merge_documents(documents: Vec<(u32, Document)>) -> Option<Document> {
     if let Ok(dictionary) = page_object.as_dict() {
         let mut dictionary = dictionary.clone();
 
+        // The rebuilt root has no parent, even when an original node did.
+        dictionary.remove(b"Parent");
+
         // Set new pages count
         dictionary.set("Count", documents_pages.len() as u32);
 
@@ -339,5 +342,40 @@ mod tests {
     #[test]
     fn outline_survives_unchanged_catalog_id() {
         assert_outline_survives_renumbering(1);
+    }
+
+    #[test]
+    fn merged_page_tree_root_has_no_parent() {
+        let mut source = generate_fake_document();
+        let original_pages = source.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+        let outer_pages = source.add_object(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(original_pages)],
+            "Count" => 1,
+        });
+        source
+            .get_dictionary_mut(original_pages)
+            .unwrap()
+            .set("Parent", outer_pages);
+        source.catalog_mut().unwrap().set("Pages", outer_pages);
+        assert_eq!(source.get_pages().len(), 1);
+
+        let mut merged = merge_documents(vec![(1, source)]).unwrap();
+        let root_pages = merged.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+        assert!(!merged.get_dictionary(root_pages).unwrap().has(b"Parent"));
+
+        let mut bytes = Vec::new();
+        merged.save_to(&mut bytes).unwrap();
+        let reopened = Document::load_mem(&bytes).unwrap();
+        let root_pages = reopened
+            .catalog()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        assert!(!reopened.get_dictionary(root_pages).unwrap().has(b"Parent"));
+        assert_eq!(reopened.get_pages().len(), 1);
+        assert_eq!(reopened.extract_text(&[1]).unwrap().trim(), "Hello World!");
     }
 }
