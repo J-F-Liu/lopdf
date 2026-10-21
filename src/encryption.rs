@@ -702,15 +702,20 @@ impl EncryptionState {
     }
 
     pub fn get_stream_filter(&self) -> Arc<dyn CryptFilter> {
-        self.crypt_filters
-            .get(&self.stream_filter)
-            .cloned()
-            .unwrap_or(Arc::new(Rc4CryptFilter))
+        self.filter_named(&self.stream_filter)
     }
 
     pub fn get_string_filter(&self) -> Arc<dyn CryptFilter> {
+        self.filter_named(&self.string_filter)
+    }
+
+    fn filter_named(&self, name: &[u8]) -> Arc<dyn CryptFilter> {
+        // Identity is predefined rather than declared in /CF, and is the V4/V5 default.
+        if self.version >= 4 && (name.is_empty() || name == b"Identity") {
+            return Arc::new(IdentityCryptFilter);
+        }
         self.crypt_filters
-            .get(&self.string_filter)
+            .get(name)
             .cloned()
             .unwrap_or(Arc::new(Rc4CryptFilter))
     }
