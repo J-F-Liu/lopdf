@@ -834,8 +834,12 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
     };
     let width = get_size(b"W", b"Width")?;
     let height = get_size(b"H", b"Height")?;
-    let bpc = get_size(b"BPC", b"BitsPerComponent")?;
     let im = get_abbr(b"IM", b"ImageMask").and_then(|x| x.as_bool());
+    let bpc = match get_size(b"BPC", b"BitsPerComponent") {
+        // An image mask has one bit per sample, so BitsPerComponent is optional for it.
+        Err(Error::DictKey(_)) if matches!(im, Ok(true)) => 1,
+        bpc => bpc?,
+    };
     let num_colors = match im {
         // If we have an image mask then we don't have a colorspace
         Ok(true) => 1,
@@ -1309,6 +1313,21 @@ EI";
             assert_eq!(ops, vec!["q", "BI", "Q"]);
             let image = out.operations[1].operands[0].as_stream().unwrap();
             assert_eq!(image.content, data);
+        }
+    }
+
+    #[test]
+    fn inline_image_mask_without_bits_per_component() {
+        // A 9x2 image mask: one bit per sample, each row padded to two bytes.
+        for image_mask in [&b"/IM true"[..], b"/ImageMask true"] {
+            let mut input = b"q BI ".to_vec();
+            input.extend_from_slice(image_mask);
+            input.extend_from_slice(b" /W 9 /H 2 ID \x80\x00\xff\x80 EI Q");
+            let out = content(test_span(&input)).unwrap();
+            let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+            assert_eq!(ops, vec!["q", "BI", "Q"]);
+            let image = out.operations[1].operands[0].as_stream().unwrap();
+            assert_eq!(image.content, b"\x80\x00\xff\x80");
         }
     }
 
