@@ -947,7 +947,7 @@ impl Stream {
 
         let output = Self::decompress_lzw_loop(input, &mut decoder, limit);
         reject_over_limit(output.len(), limit)?;
-        Self::decompress_predictor(output, params)
+        Self::decompress_predictor(output, params, limit)
     }
 
     fn decompress_lzw_loop(input: &[u8], decoder: &mut weezl::decode::Decoder, limit: Option<usize>) -> Vec<u8> {
@@ -989,7 +989,7 @@ impl Stream {
             }
         }
         reject_over_limit(output.len(), limit)?;
-        Self::decompress_predictor(output, params)
+        Self::decompress_predictor(output, params, limit)
     }
 
     fn decode_ascii85(input: &[u8], limit: Option<usize>) -> Result<Vec<u8>> {
@@ -1108,7 +1108,7 @@ impl Stream {
         Ok(output)
     }
 
-    fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>) -> Result<Vec<u8>> {
+    fn decompress_predictor(mut data: Vec<u8>, params: Option<&Dictionary>, limit: Option<usize>) -> Result<Vec<u8>> {
         use crate::filters::png;
 
         let Some(params) = params else {
@@ -1137,6 +1137,9 @@ impl Stream {
             10..=15 => {
                 let bytes_per_row = (columns * colors * bits).div_ceil(8);
                 let bpp = (colors * bits).div_ceil(8);
+                if !data.is_empty() {
+                    reject_over_limit(bytes_per_row, limit)?;
+                }
                 data = png::decode_frame(data.as_slice(), bpp, bytes_per_row)?;
                 Ok(data)
             }
@@ -1394,52 +1397,52 @@ mod test {
 
         // 8-bit single component: running sum along the row, wrapping mod 256.
         assert_eq!(
-            Stream::decompress_predictor(vec![10, 5, 250, 1], Some(&params(1, 4, 8))).unwrap(),
+            Stream::decompress_predictor(vec![10, 5, 250, 1], Some(&params(1, 4, 8)), None).unwrap(),
             vec![10, 15, 9, 10]
         );
         // 8-bit, 3 colours: differencing is per component.
         assert_eq!(
-            Stream::decompress_predictor(vec![255, 0, 128, 1, 2, 3], Some(&params(3, 2, 8))).unwrap(),
+            Stream::decompress_predictor(vec![255, 0, 128, 1, 2, 3], Some(&params(3, 2, 8)), None).unwrap(),
             vec![255, 0, 128, 0, 2, 131]
         );
         // 8-bit: rows reconstruct independently.
         assert_eq!(
-            Stream::decompress_predictor(vec![1, 2, 3, 10, 20, 30], Some(&params(1, 3, 8))).unwrap(),
+            Stream::decompress_predictor(vec![1, 2, 3, 10, 20, 30], Some(&params(1, 3, 8)), None).unwrap(),
             vec![1, 3, 6, 10, 30, 60]
         );
         // 16-bit big-endian samples, sums wrap mod 2^16.
         assert_eq!(
-            Stream::decompress_predictor(vec![0xFF, 0xFF, 0x00, 0x02], Some(&params(1, 2, 16))).unwrap(),
+            Stream::decompress_predictor(vec![0xFF, 0xFF, 0x00, 0x02], Some(&params(1, 2, 16)), None).unwrap(),
             vec![0xFF, 0xFF, 0x00, 0x01]
         );
         // Sub-byte depths (1/2/4-bit) are now reconstructed instead of rejected;
         // values verified against pdf.js. 1-bit, 8 columns: running sum mod 2.
         assert_eq!(
-            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(1, 8, 1))).unwrap(),
+            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(1, 8, 1)), None).unwrap(),
             vec![0b1100_1100]
         );
         // 1-bit, 16 columns, two rows.
         assert_eq!(
-            Stream::decompress_predictor(vec![255, 170, 8, 255], Some(&params(1, 16, 1))).unwrap(),
+            Stream::decompress_predictor(vec![255, 170, 8, 255], Some(&params(1, 16, 1)), None).unwrap(),
             vec![170, 204, 15, 85]
         );
         // 2-bit and 4-bit, single component (rows have trailing padding bits).
         assert_eq!(
-            Stream::decompress_predictor(vec![85, 179], Some(&params(1, 6, 2))).unwrap(),
+            Stream::decompress_predictor(vec![85, 179], Some(&params(1, 6, 2)), None).unwrap(),
             vec![108, 147]
         );
         assert_eq!(
-            Stream::decompress_predictor(vec![25, 16], Some(&params(1, 3, 4))).unwrap(),
+            Stream::decompress_predictor(vec![25, 16], Some(&params(1, 3, 4)), None).unwrap(),
             vec![26, 176]
         );
         // 4-bit, 2 colours: differencing stays per component.
         assert_eq!(
-            Stream::decompress_predictor(vec![18, 34], Some(&params(2, 2, 4))).unwrap(),
+            Stream::decompress_predictor(vec![18, 34], Some(&params(2, 2, 4)), None).unwrap(),
             vec![18, 52]
         );
         // A depth PDF never uses (not 1/2/4/8/16) is still rejected.
         assert!(matches!(
-            Stream::decompress_predictor(vec![0, 0, 0], Some(&params(1, 4, 3))),
+            Stream::decompress_predictor(vec![0, 0, 0], Some(&params(1, 4, 3)), None),
             Err(Error::Decompress(DecompressError::Predictor(_)))
         ));
     }
@@ -1460,13 +1463,13 @@ mod test {
         // A huge /Colors used to size the sub-byte accumulator and panic with
         // "capacity overflow"; only the samples present in the row matter.
         assert_eq!(
-            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(2, i64::MAX, 1, 1))).unwrap(),
+            Stream::decompress_predictor(vec![0b1010_1010], Some(&params(2, i64::MAX, 1, 1)), None).unwrap(),
             vec![0b1010_1010]
         );
         // A row size that overflows is an error rather than a panic or a wrapped size.
         for predictor in [2, 12] {
             assert!(matches!(
-                Stream::decompress_predictor(vec![0, 1, 2, 3], Some(&params(predictor, i64::MAX, 3, 8))),
+                Stream::decompress_predictor(vec![0, 1, 2, 3], Some(&params(predictor, i64::MAX, 3, 8)), None),
                 Err(Error::Decompress(DecompressError::Predictor(_)))
             ));
         }
@@ -1490,22 +1493,23 @@ mod test {
         // 1-bit grayscale, 16 columns: 2 packed bytes/row. A 16-byte row width failed here
         // with UnexpectedEof. Filters None/Sub/Up.
         assert_eq!(
-            Stream::decompress_predictor(vec![0, 170, 204, 1, 15, 70, 2, 225, 65], Some(&params(1, 16, 1))).unwrap(),
+            Stream::decompress_predictor(vec![0, 170, 204, 1, 15, 70, 2, 225, 65], Some(&params(1, 16, 1)), None)
+                .unwrap(),
             vec![170, 204, 15, 85, 240, 150]
         );
         // 2-bit grayscale, 6 columns (Sub, Average).
         assert_eq!(
-            Stream::decompress_predictor(vec![1, 108, 36, 3, 144, 141], Some(&params(1, 6, 2))).unwrap(),
+            Stream::decompress_predictor(vec![1, 108, 36, 3, 144, 141], Some(&params(1, 6, 2)), None).unwrap(),
             vec![108, 144, 198, 56]
         );
         // 4-bit grayscale, 3 columns (Up, Paeth).
         assert_eq!(
-            Stream::decompress_predictor(vec![2, 26, 176, 4, 171, 107], Some(&params(1, 3, 4))).unwrap(),
+            Stream::decompress_predictor(vec![2, 26, 176, 4, 171, 107], Some(&params(1, 3, 4)), None).unwrap(),
             vec![26, 176, 197, 48]
         );
         // 2-bit RGB (3 colours), 4 columns: 3 bytes/row, left reference 1 byte.
         assert_eq!(
-            Stream::decompress_predictor(vec![1, 108, 48, 72, 4, 175, 202, 241], Some(&params(3, 4, 2))).unwrap(),
+            Stream::decompress_predictor(vec![1, 108, 48, 72, 4, 175, 202, 241], Some(&params(3, 4, 2)), None).unwrap(),
             vec![108, 156, 228, 27, 54, 141]
         );
     }

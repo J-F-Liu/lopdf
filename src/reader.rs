@@ -20,7 +20,7 @@ use tokio::pin;
 
 use crate::common_data_structures;
 use crate::encryption::{self, EncryptionState, PasswordAlgorithm};
-use crate::error::{ParseError, XrefError};
+use crate::error::{DecompressError, ParseError, XrefError};
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
@@ -843,7 +843,15 @@ impl<'a> Reader<'a> {
                                 }
                             }
                         }
-                        Err(_e) => {}
+                        Err(error @ Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                            return Err(error);
+                        }
+                        Err(error) => {
+                            if self.strict {
+                                return Err(error);
+                            }
+                            warn!("Object stream load error for {container_id} 0 R: {error:?}");
+                        }
                     }
                 }
             }
@@ -939,6 +947,8 @@ impl<'a> Reader<'a> {
                     if stream.dict.has_type(b"ObjStm") && !is_encrypted {
                         let obj_stream = match ObjectStream::new_with_limit(stream, self.max_decompressed_size) {
                             Ok(obj_stream) => obj_stream,
+                            // Resource limits apply even when malformed objects may be skipped.
+                            Err(e @ Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => return Err(e),
                             // Not an encryption-related loss, so it obeys the same
                             // strict-mode policy as any other load error.
                             Err(e) => {
