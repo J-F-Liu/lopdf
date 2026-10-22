@@ -186,10 +186,10 @@ if false {
 ```rust
 use lopdf::dictionary;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use lopdf::content::{Content, Operation};
-use lopdf::{Document, Object, ObjectId, Stream, Bookmark};
+use lopdf::{Document, Dictionary, Error, Object, ObjectId, Stream, Bookmark};
 
 pub fn generate_fake_document() -> Document {
     let mut doc = Document::with_version("1.5");
@@ -236,6 +236,43 @@ pub fn generate_fake_document() -> Document {
     doc
 }
 
+fn inherited_page_attribute(doc: &Document, page_id: ObjectId, key: &[u8]) -> lopdf::Result<Option<Object>> {
+    let mut current = page_id;
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current) {
+            return Err(Error::ReferenceCycle(current));
+        }
+        let node = doc.get_dictionary(current)?;
+        if let Ok(value) = node.get(key) {
+            match doc.dereference(value) {
+                Ok((_, Object::Null)) | Err(Error::ObjectNotFound(_)) => {}
+                Ok(_) => return Ok(Some(value.clone())),
+                Err(error) => return Err(error),
+            }
+        }
+        match node.get(b"Parent") {
+            Err(_) | Ok(Object::Null) => return Ok(None),
+            Ok(parent) => current = parent.as_reference()?,
+        }
+    }
+}
+
+fn materialize_page_attributes(doc: &Document, page_id: ObjectId) -> lopdf::Result<Dictionary> {
+    let mut page = doc.get_dictionary(page_id)?.clone();
+    let media_box = inherited_page_attribute(doc, page_id, b"MediaBox")?
+        .ok_or_else(|| Error::DictKey("MediaBox".to_string()))?;
+    let crop_box = inherited_page_attribute(doc, page_id, b"CropBox")?.unwrap_or_else(|| media_box.clone());
+    let resources = inherited_page_attribute(doc, page_id, b"Resources")?
+        .unwrap_or_else(|| Object::Dictionary(Dictionary::new()));
+    let rotation = inherited_page_attribute(doc, page_id, b"Rotate")?.unwrap_or(Object::Integer(0));
+    page.set("MediaBox", media_box);
+    page.set("CropBox", crop_box);
+    page.set("Resources", resources);
+    page.set("Rotate", rotation);
+    Ok(page)
+}
+
 fn main() -> std::io::Result<()> {
     // Generate a stack of Documents to merge.
     let documents = vec![
@@ -255,6 +292,11 @@ fn main() -> std::io::Result<()> {
 
     for mut doc in documents {
         let mut first = false;
+        // Resolve inheritance before renumbering can make a missing reference alias another object.
+        for page_id in doc.get_pages().into_values() {
+            let page = materialize_page_attributes(&doc, page_id).unwrap();
+            doc.objects.insert(page_id, Object::Dictionary(page));
+        }
         doc.renumber_objects_with(max_id);
 
         max_id = doc.max_id + 1;
@@ -364,6 +406,13 @@ fn main() -> std::io::Result<()> {
     if let Ok(dictionary) = pages_object.1.as_dict() {
         let mut dictionary = dictionary.clone();
 
+        // The rebuilt root has no parent, even when an original node did.
+        dictionary.remove(b"Parent");
+        // Each page now carries its original attributes; never combine them at the root.
+        for key in ["MediaBox", "CropBox", "Resources", "Rotate"] {
+            dictionary.remove(key.as_bytes());
+        }
+
         // Set new pages count
         dictionary.set("Count", documents_pages.len() as u32);
 
@@ -405,7 +454,7 @@ fn main() -> std::io::Result<()> {
 
     // Set all bookmarks to the PDF Object tree then set the Outlines to the Bookmark content map.
     if let Some(n) = document.build_outline() {
-        if let Ok(Object::Dictionary(dict)) = document.get_object_mut(catalog_object.0) {
+        if let Ok(dict) = document.catalog_mut() {
             dict.set("Outlines", Object::Reference(n));
         }
     }
