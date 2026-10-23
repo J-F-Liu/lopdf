@@ -1,6 +1,6 @@
 use crate::Result;
-use crate::{Document, Object, ObjectId};
-use std::collections::BTreeMap;
+use crate::{Dictionary, Document, Object, ObjectId};
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Write;
 
@@ -42,21 +42,23 @@ impl Document {
     /// Delete pages.
     pub fn delete_pages(&mut self, page_numbers: &[u32]) {
         let pages = self.get_pages();
-        for page_number in page_numbers {
-            if let Some(page) = pages.get(page_number).and_then(|page_id| self.delete_object(*page_id)) {
-                let mut page_tree_ref = page
-                    .as_dict()
-                    .and_then(|dict| dict.get(b"Parent"))
-                    .and_then(Object::as_reference);
-                while let Ok(page_tree_id) = page_tree_ref {
-                    if let Some(page_tree) = self.objects.get_mut(&page_tree_id).and_then(|pt| pt.as_dict_mut().ok()) {
-                        if let Ok(count) = page_tree.get(b"Count").and_then(Object::as_i64) {
-                            page_tree.set("Count", count - 1);
-                        }
-                        page_tree_ref = page_tree.get(b"Parent").and_then(Object::as_reference);
-                    } else {
-                        break;
+        let page_ids: Vec<ObjectId> = page_numbers
+            .iter()
+            .filter_map(|page_number| pages.get(page_number).copied())
+            .collect();
+        for page in self.delete_objects_in_turn(&page_ids).into_iter().flatten() {
+            let mut page_tree_ref = page
+                .as_dict()
+                .and_then(|dict| dict.get(b"Parent"))
+                .and_then(Object::as_reference);
+            while let Ok(page_tree_id) = page_tree_ref {
+                if let Some(page_tree) = self.objects.get_mut(&page_tree_id).and_then(|pt| pt.as_dict_mut().ok()) {
+                    if let Ok(count) = page_tree.get(b"Count").and_then(Object::as_i64) {
+                        page_tree.set("Count", count - 1);
                     }
+                    page_tree_ref = page_tree.get(b"Parent").and_then(Object::as_reference);
+                } else {
+                    break;
                 }
             }
         }
@@ -81,32 +83,32 @@ impl Document {
 
     /// Delete object by object ID.
     pub fn delete_object(&mut self, id: ObjectId) -> Option<Object> {
+        self.delete_objects_in_turn(&[id]).pop().flatten()
+    }
+
+    /// Delete the objects `ids` names with one traversal, returning what `delete_object` would
+    /// return for each of them in turn.
+    ///
+    /// Calling `delete_object` for each ID traverses the document once per ID. Every object that
+    /// remains reachable from the trailer afterwards ends up the same here: in an array, each call
+    /// removes the first reference to its object, so the first references to an object are
+    /// removed as many times as `ids` names it; in a dictionary, the entries that reference the
+    /// objects are removed in the order and with the swaps that the calls would make.
+    fn delete_objects_in_turn(&mut self, ids: &[ObjectId]) -> Vec<Option<Object>> {
+        // For each object: the position of its first deletion, and how many times `ids` names it.
+        let mut targets: HashMap<ObjectId, (usize, usize)> = HashMap::with_capacity(ids.len());
+        for (turn, id) in ids.iter().enumerate() {
+            targets.entry(*id).or_insert((turn, 0)).1 += 1;
+        }
         let action = |object: &mut Object| match object {
-            Object::Array(array) => {
-                if let Some(index) = array.iter().position(|item: &Object| match *item {
-                    Object::Reference(ref_id) => ref_id == id,
-                    _ => false,
-                }) {
-                    array.remove(index);
-                }
-            }
-            Object::Dictionary(dict) => {
-                let keys: Vec<Vec<u8>> = dict
-                    .iter()
-                    .filter(|&(_, item): &(&Vec<u8>, &Object)| match *item {
-                        Object::Reference(ref_id) => ref_id == id,
-                        _ => false,
-                    })
-                    .map(|(k, _)| k.clone())
-                    .collect();
-                for key in keys {
-                    dict.remove(&key);
-                }
-            }
+            Object::Array(array) => remove_first_references(array, &targets),
+            Object::Dictionary(dict) => remove_reference_entries(dict, &targets),
             _ => {}
         };
-        self.traverse_objects(action);
-        self.objects.remove(&id)
+        if !targets.is_empty() {
+            self.traverse_objects(action);
+        }
+        ids.iter().map(|id| self.objects.remove(id)).collect()
     }
 
     /// Delete zero length stream objects.
@@ -124,9 +126,7 @@ impl Document {
             }
         }
 
-        for id in &ids {
-            self.delete_object(*id);
-        }
+        self.delete_objects_in_turn(&ids);
 
         ids
     }
@@ -304,5 +304,48 @@ impl Document {
             }
         }
         Ok(())
+    }
+}
+
+/// Remove, for each object that `targets` names, the first references to it, as many as
+/// `targets` counts for it.
+fn remove_first_references(array: &mut Vec<Object>, targets: &HashMap<ObjectId, (usize, usize)>) {
+    let is_target = |item: &Object| matches!(item, Object::Reference(id) if targets.contains_key(id));
+    if !array.iter().any(is_target) {
+        return;
+    }
+    let mut removed: HashMap<ObjectId, usize> = HashMap::new();
+    array.retain(|item| {
+        if let Object::Reference(id) = item
+            && let Some(&(_, count)) = targets.get(id)
+        {
+            let times = removed.entry(*id).or_insert(0);
+            if *times < count {
+                *times += 1;
+                return false;
+            }
+        }
+        true
+    });
+}
+
+/// Remove the entries that reference an object that `targets` names. `Dictionary::remove` swaps
+/// the last entry into the removed one's place, so the entries for each object are removed in the
+/// order the object's turn finds them, and turns come in the order `targets` gives them.
+fn remove_reference_entries(dict: &mut Dictionary, targets: &HashMap<ObjectId, (usize, usize)>) {
+    let mut entries: Vec<(usize, Vec<u8>)> = dict
+        .iter()
+        .filter_map(|(key, value)| match value {
+            Object::Reference(id) => targets.get(id).map(|&(turn, _)| (turn, key.clone())),
+            _ => None,
+        })
+        .collect();
+    entries.sort_by_key(|(turn, _)| *turn);
+    for turn_entries in entries.chunk_by_mut(|a, b| a.0 == b.0) {
+        // Earlier turns may have swapped these entries out of their original order.
+        turn_entries.sort_by_cached_key(|(_, key)| dict.index_of(key));
+        for (_, key) in turn_entries.iter() {
+            dict.remove(key);
+        }
     }
 }
