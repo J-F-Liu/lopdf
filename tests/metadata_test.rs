@@ -93,6 +93,31 @@ fn test_metadata_extraction_keeps_line_breaks() {
     assert_eq!(metadata.keywords.as_deref(), Some("one\ntwo\tthree"));
 }
 
+/// `/Trapped` is a standard key, so it is not on `custom`; it is a name, unlike the other
+/// standard fields, and some producers write a string instead.
+#[test]
+fn test_metadata_extraction_reads_trapped() {
+    for (trapped, expected) in [
+        (lopdf::Object::Name(b"True".to_vec()), Some("True")),
+        (lopdf::Object::Name(b"Unknown".to_vec()), Some("Unknown")),
+        (lopdf::Object::string_literal("False"), Some("False")),
+        (lopdf::Object::Integer(1), None),
+    ] {
+        let (mut doc, _) = document_with_info(lopdf::dictionary! { "Trapped" => trapped.clone() });
+        let mut buffer = Vec::new();
+        doc.save_to(&mut buffer).unwrap();
+
+        let metadata = Document::load_metadata_mem(&buffer).unwrap();
+        assert_eq!(metadata.trapped.as_deref(), expected, "{trapped:?}");
+        assert!(!metadata.custom.contains_key(&b"Trapped"[..]));
+    }
+
+    let (mut doc, _) = document_with_info(lopdf::dictionary! {});
+    let mut buffer = Vec::new();
+    doc.save_to(&mut buffer).unwrap();
+    assert_eq!(Document::load_metadata_mem(&buffer).unwrap().trapped, None);
+}
+
 /// [`document_with_info`] carrying the title, author and subject the encrypted
 /// tests below expect, encrypted with the given passwords.
 #[cfg(not(feature = "async"))]
