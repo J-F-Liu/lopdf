@@ -144,6 +144,11 @@ pub enum DecompressError {
     /// maximum number of output bytes that were permitted.
     #[error("decompressed output exceeded the {limit}-byte limit (possible decompression bomb)")]
     MemoryLimitExceeded { limit: usize },
+    /// The stream names more filters than [`Stream::MAX_FILTERS`](crate::Stream::MAX_FILTERS).
+    /// Every filter can produce as much output as the size limit allows, so the number of
+    /// filters bounds the work of decoding one stream.
+    #[error("stream has {count} filters, more than the {limit} that are decoded")]
+    TooManyFilters { count: usize, limit: usize },
 }
 
 #[derive(Error, Debug)]
