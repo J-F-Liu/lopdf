@@ -177,8 +177,11 @@ fn reconstruction_skips_trailers_whose_root_was_not_found() {
 
 #[test]
 fn reconstruction_fails_when_no_trailer_has_a_usable_root() {
+    // Nor can a catalog stand in for the trailer: its `/Pages` names an object the file lacks.
+    let mut bodies = sample_bodies();
+    bodies[0].2 = "<< /Type /Catalog /Pages 9 0 R >>".to_string();
     let mut pdf = new_pdf();
-    append_objects(&mut pdf, &sample_bodies());
+    append_objects(&mut pdf, &bodies);
     pdf.extend_from_slice(b"trailer\n<< /Size 5 >>\n");
     let broken_startxref = pdf.len() + 4096;
     append_xref_trailer(&mut pdf, &[], "", broken_startxref);

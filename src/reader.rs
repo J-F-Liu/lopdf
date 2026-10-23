@@ -351,6 +351,9 @@ pub struct Reader<'a> {
     /// `None` (the default) applies no limit; set it to guard against
     /// decompression bombs. See [`crate::LoadOptions`].
     pub max_decompressed_size: Option<usize>,
+    /// Rebuild the cross-reference table by scanning before reading it as written. See
+    /// [`LoadOptions::force_reconstruct`].
+    pub force_reconstruct: bool,
     /// Sorted unique byte offsets of every `XrefEntry::Normal` entry in the
     /// final cross-reference table. Built once when the table is complete so
     /// object-boundary lookups can binary-search the successor offset instead
@@ -391,8 +394,11 @@ pub const MAX_NESTING_DEPTH: usize = 100;
 const MAX_RECONSTRUCTED_OBJECTS: usize = 1_000_000;
 
 /// Cap on how many trailing `trailer` dictionaries, and then cross-reference
-/// streams, are inspected for a `/Root`.
+/// streams and catalogs, are inspected for a `/Root`.
 const MAX_TRAILER_CANDIDATES: usize = 16;
+
+const UNREADABLE_PAGE_TREE: &str = "the catalog or the root of the page tree did not load; \
+     rebuilt the cross-reference table by scanning for indirect objects";
 
 /// PDF metadata extracted without loading the entire document.
 /// This is useful for quickly getting basic information about large PDFs.
@@ -508,6 +514,7 @@ impl<'a> Reader<'a> {
             password: options.password,
             strict: options.strict,
             max_decompressed_size: options.max_decompressed_size,
+            force_reconstruct: options.force_reconstruct,
             normal_offsets: Vec::new(),
             object_streams: Mutex::default(),
             #[cfg(all(test, feature = "rayon"))]
@@ -520,21 +527,29 @@ impl<'a> Reader<'a> {
     ///
     /// For encrypted PDFs, use `Document::load_metadata_with_password()` instead.
     pub fn read_metadata(mut self) -> Result<PdfMetadata> {
+        let metadata = self.read_metadata_once()?;
+        let needs_password = metadata.encrypted && self.encryption_state.is_none();
+        if !needs_password && self.should_rebuild(metadata.xref_recovery) && !self.page_tree_readable() {
+            let mut rebuilt = Reader::for_metadata(self.buffer, self.password.clone());
+            rebuilt.force_reconstruct = true;
+            if let Ok(rebuilt_metadata) = rebuilt.read_metadata_once()
+                && rebuilt_metadata.xref_recovery == Some(XrefRecovery::Reconstructed)
+                && rebuilt.page_tree_readable()
+            {
+                warn!("{UNREADABLE_PAGE_TREE}");
+                return Ok(rebuilt_metadata);
+            }
+        }
+        Ok(metadata)
+    }
+
+    fn read_metadata_once(&mut self) -> Result<PdfMetadata> {
         let offset = self.buffer.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
         self.buffer = &self.buffer[offset..];
 
         let version = parser::header(self.buffer, self.strict).ok_or(ParseError::InvalidFileHeader)?;
 
-        let (xref, trailer) = match self.resolve_xref_and_trailer() {
-            Ok(resolved) => resolved,
-            Err(err) => match self.reconstruct_xref_and_trailer() {
-                Some(reconstructed) => {
-                    warn!("cross-reference resolution failed ({err}); recovered by scanning for indirect objects");
-                    reconstructed
-                }
-                None => return Err(err),
-            },
-        };
+        let (xref, trailer) = self.load_xref_and_trailer()?;
 
         self.set_reference_table(xref);
         self.document.trailer = trailer.clone();
@@ -724,17 +739,7 @@ impl<'a> Reader<'a> {
             self.document.binary_mark = binary_mark;
         }
 
-        // Fall back to reconstruction only after all standard resolution fails.
-        let (xref, trailer) = match self.resolve_xref_and_trailer() {
-            Ok(resolved) => resolved,
-            Err(err) => match self.reconstruct_xref_and_trailer() {
-                Some(reconstructed) => {
-                    warn!("cross-reference resolution failed ({err}); recovered by scanning for indirect objects");
-                    reconstructed
-                }
-                None => return Err(err),
-            },
-        };
+        let (xref, trailer) = self.load_xref_and_trailer()?;
 
         self.document.version = version;
         self.document.max_id = xref.size - 1;
@@ -758,7 +763,88 @@ impl<'a> Reader<'a> {
             self.document.max_id = self.document.max_id.max(max_loaded_id.0);
         }
 
+        // A filter may drop the page tree on purpose, so only rebuild for an unfiltered load.
+        if filter_func.is_none()
+            && self.should_rebuild(self.document.xref_recovery)
+            && !Self::page_tree_loaded(&self.document)
+        {
+            let options = LoadOptions {
+                password: self.password.clone(),
+                max_decompressed_size: self.max_decompressed_size,
+                force_reconstruct: true,
+                ..LoadOptions::default()
+            };
+            if let Ok(rebuilt) = Reader::with_options(self.buffer, options).read(None)
+                && rebuilt.xref_recovery == Some(XrefRecovery::Reconstructed)
+                && Self::page_tree_loaded(&rebuilt)
+            {
+                warn!("{UNREADABLE_PAGE_TREE}");
+                return Ok(rebuilt);
+            }
+        }
+
         Ok(self.document)
+    }
+
+    /// Resolve the cross-reference data and trailer, or rebuild them by scanning for indirect
+    /// objects once all standard resolution fails. With `force_reconstruct`, rebuild first, and
+    /// resolve only if the scan finds no usable trailer.
+    fn load_xref_and_trailer(&mut self) -> Result<(Xref, Dictionary)> {
+        if self.force_reconstruct
+            && let Some(reconstructed) = self.reconstruct_xref_and_trailer()
+        {
+            warn!("rebuilt the cross-reference table by scanning for indirect objects, as requested");
+            return Ok(reconstructed);
+        }
+        match self.resolve_xref_and_trailer() {
+            Ok(resolved) => Ok(resolved),
+            // The scan already found nothing usable.
+            Err(err) if self.force_reconstruct => Err(err),
+            Err(err) => match self.reconstruct_xref_and_trailer() {
+                Some(reconstructed) => {
+                    warn!("cross-reference resolution failed ({err}); recovered by scanning for indirect objects");
+                    Ok(reconstructed)
+                }
+                None => Err(err),
+            },
+        }
+    }
+
+    /// Whether a load whose cross-reference data was read as described by `recovery` may be
+    /// repeated with the table rebuilt. Resolution trusts the cross-reference data it reads, and
+    /// in a file that lost or gained bytes that data can point past the objects it names, so the
+    /// catalog or the root of the page tree does not load although the objects are all there.
+    fn should_rebuild(&self, recovery: Option<XrefRecovery>) -> bool {
+        !self.strict && !self.force_reconstruct && recovery != Some(XrefRecovery::Reconstructed)
+    }
+
+    /// Whether the loaded catalog leads to the root of a page tree, a dictionary with `/Kids`,
+    /// which is what [`Document::page_iter`] walks.
+    fn page_tree_loaded(document: &Document) -> bool {
+        document
+            .catalog()
+            .and_then(|catalog| catalog.get(b"Pages"))
+            .and_then(Object::as_reference)
+            .and_then(|root| document.get_dictionary(root))
+            .and_then(|root| root.get_deref(b"Kids", document))
+            .and_then(Object::as_array)
+            .is_ok()
+    }
+
+    /// [`Self::page_tree_loaded`] for the metadata loaders, which read objects on demand.
+    fn page_tree_readable(&self) -> bool {
+        let read = |object: &Object| match object {
+            Object::Reference(id) => self.get_object(*id, &mut HashSet::new()).ok(),
+            object => Some(object.clone()),
+        };
+        let dictionary = |object: Option<Object>| match object {
+            Some(Object::Dictionary(dictionary)) => Some(dictionary),
+            _ => None,
+        };
+        let catalog = self.document.trailer.get(b"Root").ok().and_then(read);
+        let root = dictionary(catalog).and_then(|catalog| catalog.get(b"Pages").ok().and_then(read));
+        let kids = dictionary(root).and_then(|root| root.get(b"Kids").ok().and_then(read));
+        matches!(kids, Some(Object::Array(_)))
     }
 
     fn load_encrypted_document(&mut self, _filter_func: Option<FilterFunc>) -> Result<()> {
@@ -1424,8 +1510,18 @@ impl<'a> Reader<'a> {
 
         let mut trailer = match self.find_latest_trailer(&xref) {
             Some((_trailer_pos, trailer)) => trailer,
-            // Files written with cross-reference streams only have no `trailer` keyword.
-            None => self.find_latest_xref_stream(&markers, &mut xref)?,
+            // Files written with cross-reference streams only have no `trailer` keyword, and a
+            // file cut off before its last cross-reference section may have neither.
+            None => {
+                let mut over_limit = false;
+                match self.find_latest_xref_stream(&markers, &mut xref, &mut over_limit) {
+                    Some(trailer) => trailer,
+                    // A cross-reference stream that the decompression limit kept from decoding
+                    // is there; the load fails with the limit rather than go on without it.
+                    None if over_limit => return None,
+                    None => self.find_latest_catalog(&markers, &xref)?,
+                }
+            }
         };
         // As in resolution, drop the links to other cross-reference sections: the rebuilt
         // table replaces them, and their offsets would go out unchanged on the next save.
@@ -1648,7 +1744,10 @@ impl<'a> Reader<'a> {
     /// find, so the compressed entries of these streams are added for object
     /// numbers the scan did not see, newer streams first, as resolution merges
     /// `/Prev` sections.
-    fn find_latest_xref_stream(&self, markers: &[(u32, ObjectId)], xref: &mut Xref) -> Option<Dictionary> {
+    /// `over_limit` is set when a stream does not decode within the decompression limit.
+    fn find_latest_xref_stream(
+        &self, markers: &[(u32, ObjectId)], xref: &mut Xref, over_limit: &mut bool,
+    ) -> Option<Dictionary> {
         let mut dictionaries = Vec::new();
         let mut compressed = BTreeMap::new();
         let mut bound = self.buffer.len();
@@ -1682,9 +1781,13 @@ impl<'a> Reader<'a> {
             if !stream.dict.has_type(b"XRef") {
                 continue;
             }
-            let Ok((stream_xref, dictionary)) = decode_xref_stream_with_limit(stream, self.max_decompressed_size)
-            else {
-                continue;
+            let (stream_xref, dictionary) = match decode_xref_stream_with_limit(stream, self.max_decompressed_size) {
+                Ok(decoded) => decoded,
+                Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                    *over_limit = true;
+                    continue;
+                }
+                Err(_) => continue,
             };
             for (number, entry) in stream_xref.entries {
                 if entry.is_compressed()
@@ -1712,6 +1815,43 @@ impl<'a> Reader<'a> {
         }
         xref.cross_reference_type = XrefType::CrossReferenceStream;
         Some(trailer)
+    }
+
+    /// A trailer naming the newest scanned catalog as `/Root`, for a file in which no trailer
+    /// survives, as when it was cut off before its last cross-reference section. The catalog
+    /// has to be a top-level object whose `/Pages` the rebuilt table finds. The trailer has no
+    /// `/Info` or `/ID`, and without `/Encrypt` and `/ID` an encrypted file could not be
+    /// decrypted, so a file that names `/Encrypt` anywhere gets none.
+    fn find_latest_catalog(&self, markers: &[(u32, ObjectId)], xref: &Xref) -> Option<Dictionary> {
+        if Reader::search_substring(self.buffer, b"/Encrypt", 0).is_some() {
+            return None;
+        }
+        let mut bound = self.buffer.len();
+        for _ in 0..MAX_TRAILER_CANDIDATES {
+            let pos = Reader::search_substring(&self.buffer[..bound], b"/Catalog", 0)?;
+            // As for cross-reference streams, the match lies in the object whose header comes
+            // last before it.
+            let index = markers
+                .partition_point(|&(offset, _)| (offset as usize) < pos)
+                .checked_sub(1)?;
+            let (offset, id) = markers[index];
+            bound = offset as usize;
+            let end = markers
+                .get(index + 1)
+                .map_or(self.buffer.len(), |&(next, _)| next as usize);
+            if let Ok((_, Object::Dictionary(catalog))) =
+                self.read_object_to(offset as usize, end, Some(id), &mut HashSet::new())
+                && catalog.has_type(b"Catalog")
+                && catalog
+                    .get(b"Pages")
+                    .and_then(Object::as_reference)
+                    .is_ok_and(|pages| xref.entries.contains_key(&pages.0))
+            {
+                warn!("no trailer survives; using catalog {} {} as /Root", id.0, id.1);
+                return Some(dictionary! { "Root" => Object::Reference(id) });
+            }
+        }
+        None
     }
 
     /// Some generators write `startxref` (or trailer `Prev`) values that are

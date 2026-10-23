@@ -34,8 +34,11 @@ pub enum XrefRecovery {
     /// A `startxref`, `/Prev` or `/XRefStm` offset did not point at a cross-reference
     /// section, and a section found nearby was used instead.
     OffsetCorrected,
-    /// The cross-reference data could not be read, and the table was rebuilt by scanning
-    /// the file for indirect objects. Objects may be missing or come from an older revision.
+    /// The table was rebuilt by scanning the file for indirect objects: the cross-reference
+    /// data could not be read, the catalog or the root of the page tree did not load from it,
+    /// or [`LoadOptions::force_reconstruct`](crate::LoadOptions::force_reconstruct) asked for
+    /// it. Objects may be missing or come from an older revision. When no trailer survives,
+    /// the trailer names only the newest catalog found as `/Root`.
     Reconstructed,
 }
 
