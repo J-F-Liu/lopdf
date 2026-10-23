@@ -757,6 +757,11 @@ impl Stream {
         self
     }
 
+    /// The most filters a stream may name for it to be decoded. Each filter can produce as much
+    /// output as the decompression limit allows, so a stream naming many of them takes that much
+    /// work per filter. Files use one or two.
+    pub const MAX_FILTERS: usize = 16;
+
     pub fn filters(&self) -> Result<Vec<&[u8]>> {
         let filter = self.dict.get(b"Filter")?;
 
@@ -875,6 +880,13 @@ impl Stream {
                 return Ok(self.content.clone());
             }
         };
+        if filters.len() > Self::MAX_FILTERS {
+            return Err(DecompressError::TooManyFilters {
+                count: filters.len(),
+                limit: Self::MAX_FILTERS,
+            }
+            .into());
+        }
 
         let mut input = self.content.as_slice();
         let mut output = vec![];
