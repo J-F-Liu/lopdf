@@ -95,23 +95,37 @@ impl Document {
         }
 
         let xref_start = target.bytes_written;
-        self.write_xref_and_trailer(&mut target, &mut xref, xref_start)
+        Self::write_xref_and_trailer(&mut target, &mut xref, xref_start, self.trailer.clone(), self.max_id)
+    }
+
+    /// The number after `last_id`, for an object the writer generates: an object stream or the
+    /// cross-reference stream. These are numbered after [`Document::max_id`] without raising it,
+    /// so saving a document does not change it and saving it again writes the same file.
+    fn next_generated_id(last_id: &mut u32) -> Result<u32> {
+        *last_id = last_id
+            .checked_add(1)
+            .ok_or_else(|| std::io::Error::other(crate::Error::ObjectIdOverflow))?;
+        Ok(*last_id)
     }
 
     /// Write the cross-reference data in the requested form, then the
     /// `startxref` pointer that closes the file.
+    ///
+    /// `trailer` is a copy of the document's trailer that the writer completes with `/Size` and,
+    /// for a cross-reference stream, the stream's own entries, so the document's trailer stays as
+    /// it was. `last_id` is the highest object number written so far.
     fn write_xref_and_trailer<W: Write>(
-        &mut self, target: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: usize,
+        target: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: usize, trailer: Dictionary, last_id: u32,
     ) -> Result<()> {
         // Pick right cross reference stream.
         match xref.cross_reference_type {
             XrefType::CrossReferenceTable => {
                 Writer::write_xref(target, xref)?;
-                self.write_trailer(target)?;
+                Self::write_trailer(target, trailer, last_id)?;
             }
             XrefType::CrossReferenceStream => {
                 // Cross Reference Stream instead of XRef and Trailer
-                self.write_cross_reference_stream(target, xref, xref_start as u32)?;
+                Self::write_cross_reference_stream(target, xref, xref_start as u32, trailer, last_id)?;
             }
         }
         // Write `startxref` part of trailer
@@ -194,8 +208,9 @@ impl Document {
         }
 
         // Write object streams
+        let mut last_id = self.max_id;
         for obj_stream in object_streams.into_iter() {
-            let (stream_id, _) = self.try_new_object_id().map_err(std::io::Error::other)?;
+            let stream_id = Self::next_generated_id(&mut last_id)?;
             let stream_obj = obj_stream.to_stream_object().map_err(std::io::Error::other)?;
 
             // Record compressed objects in xref. The index must match the order
@@ -215,7 +230,7 @@ impl Document {
         }
 
         let xref_start = target.bytes_written;
-        self.write_xref_and_trailer(&mut target, &mut xref, xref_start)
+        Self::write_xref_and_trailer(&mut target, &mut xref, xref_start, self.trailer.clone(), last_id)
     }
 
     /// Write the Cross Reference Stream.
@@ -223,9 +238,9 @@ impl Document {
     /// Insert an `Object` to the end of the PDF (not visible when inspecting `Document`).
     /// Note: This is different from the "Cross Reference Table".
     fn write_cross_reference_stream<W: Write>(
-        &mut self, file: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: u32,
+        file: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: u32, mut trailer: Dictionary, mut last_id: u32,
     ) -> Result<()> {
-        let (new_obj_id_for_crs, _) = self.try_new_object_id().map_err(std::io::Error::other)?;
+        let new_obj_id_for_crs = Self::next_generated_id(&mut last_id)?;
         xref.insert(
             new_obj_id_for_crs,
             XrefEntry::Normal {
@@ -233,28 +248,27 @@ impl Document {
                 generation: 0,
             },
         );
-        self.trailer.set("Type", Name(b"XRef".to_vec()));
-        // Update `max_id` in trailer
-        self.trailer.set("Size", i64::from(self.max_id) + 1);
+        trailer.set("Type", Name(b"XRef".to_vec()));
+        // The cross-reference stream is the highest object number.
+        trailer.set("Size", i64::from(last_id) + 1);
         // `[u8, u32, u16]` per entry (the PDF default is `[1 2 1]`).
-        self.trailer.set("W", Array(vec![Integer(1), Integer(4), Integer(2)]));
+        trailer.set("W", Array(vec![Integer(1), Integer(4), Integer(2)]));
         // Note that `ASCIIHexDecode` does not work correctly,
         // but is still useful for debugging sometimes.
         let filter = XRefStreamFilter::None;
         let (stream, stream_length, indexes) = Writer::create_xref_steam(xref, filter)?;
-        self.trailer.set("Index", indexes);
+        trailer.set("Index", indexes);
 
         if filter == XRefStreamFilter::ASCIIHexDecode {
-            self.trailer.set("Filter", Name(b"ASCIIHexDecode".to_vec()));
+            trailer.set("Filter", Name(b"ASCIIHexDecode".to_vec()));
         } else {
-            self.trailer.remove(b"Filter");
+            trailer.remove(b"Filter");
         }
 
-        self.trailer.set("Length", stream_length as i64);
+        trailer.set("Length", stream_length as i64);
 
-        let trailer = &self.trailer;
         let cross_reference_stream = Stream(Stream {
-            dict: trailer.clone(),
+            dict: trailer,
             allows_compression: true,
             content: stream,
             start_position: None,
@@ -266,10 +280,10 @@ impl Document {
         Ok(())
     }
 
-    fn write_trailer(&mut self, file: &mut dyn Write) -> Result<()> {
-        self.trailer.set("Size", i64::from(self.max_id) + 1);
+    fn write_trailer(file: &mut dyn Write, mut trailer: Dictionary, last_id: u32) -> Result<()> {
+        trailer.set("Size", i64::from(last_id) + 1);
         file.write_all(b"trailer\n")?;
-        Writer::write_dictionary(file, &self.trailer)?;
+        Writer::write_dictionary(file, &trailer)?;
         Ok(())
     }
 }
@@ -371,32 +385,20 @@ impl IncrementalDocument {
             }
         }
 
-        // Swap in a trailer copy carrying the /Encrypt reference, so the writers that mutate
-        // Size/W/Length see it; swap back so `new_document.trailer` stays clean for later saves.
-        let saved_trailer = if let Some(state) = encryption_state.as_ref() {
+        // Write a trailer copy carrying the /Encrypt reference, so `new_document.trailer` stays
+        // clean for later saves.
+        let mut trailer = self.new_document.trailer.clone();
+        if let Some(state) = encryption_state.as_ref() {
             let encrypt_id = state
                 .encrypt_object_id()
                 .expect("encrypt_object_id presence checked by check_incremental_save_supported");
-            let mut modified = self.new_document.trailer.clone();
-            modified.set(b"Encrypt", Object::Reference(encrypt_id));
-            Some(std::mem::replace(&mut self.new_document.trailer, modified))
-        } else {
-            None
-        };
+            trailer.set(b"Encrypt", Object::Reference(encrypt_id));
+        }
 
         let xref_start = target.bytes_written;
 
         // Pick right cross reference stream.
-        let write_result = self
-            .new_document
-            .write_xref_and_trailer(&mut target, &mut xref, xref_start);
-
-        // Restore the original in-memory trailer even if writing failed.
-        if let Some(saved) = saved_trailer {
-            self.new_document.trailer = saved;
-        }
-
-        write_result
+        Document::write_xref_and_trailer(&mut target, &mut xref, xref_start, trailer, self.new_document.max_id)
     }
 }
 
