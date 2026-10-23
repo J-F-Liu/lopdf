@@ -53,6 +53,7 @@ pub use outlines::Outline;
 pub use reader::{PdfMetadata, Reader};
 pub use save_options::{SaveOptions, SaveOptionsBuilder};
 pub use toc::{Toc, TocType};
+pub use writer::Writer;
 
 pub use parser_aux::substr;
 pub use parser_aux::substring;
