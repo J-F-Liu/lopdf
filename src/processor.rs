@@ -64,13 +64,13 @@ impl Document {
 
     /// Prune all unused objects.
     pub fn prune_objects(&mut self) -> Vec<ObjectId> {
-        let mut ids = vec![];
-        let refs = self.traverse_objects(|_| {});
-        for id in self.objects.keys() {
-            if !refs.contains(id) {
-                ids.push(*id);
-            }
-        }
+        let refs = self.traverse_objects_inner(|_| {});
+        let ids: Vec<ObjectId> = self
+            .objects
+            .keys()
+            .filter(|id| !refs.seen.contains(id))
+            .copied()
+            .collect();
 
         for id in &ids {
             self.objects.remove(id);
