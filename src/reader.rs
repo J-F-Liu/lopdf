@@ -420,6 +420,10 @@ pub struct PdfMetadata {
     pub creation_date: Option<String>,
     /// Document modification date (PDF date format: D:YYYYMMDDHHmmSSOHH'mm')
     pub modification_date: Option<String>,
+    /// Whether the document has been modified to include trapping information: `True`,
+    /// `False` or `Unknown`. The value is a name in the Info dictionary; a text string,
+    /// which some producers write instead, is decoded as the other fields are.
+    pub trapped: Option<String>,
     /// Custom Info dictionary entries that are not part of the standard set above.
     ///
     /// Producers commonly use the Info dictionary to attach application-specific
@@ -452,6 +456,7 @@ struct InfoMetadata {
     producer: Option<String>,
     creation_date: Option<String>,
     modification_date: Option<String>,
+    trapped: Option<String>,
     custom: HashMap<Vec<u8>, Object>,
 }
 
@@ -466,6 +471,7 @@ impl InfoMetadata {
             producer: None,
             creation_date: None,
             modification_date: None,
+            trapped: None,
             custom: HashMap::new(),
         }
     }
@@ -583,6 +589,7 @@ impl<'a> Reader<'a> {
             producer: info_metadata.producer,
             creation_date: info_metadata.creation_date,
             modification_date: info_metadata.modification_date,
+            trapped: info_metadata.trapped,
             custom: info_metadata.custom,
             page_count,
             version,
@@ -630,6 +637,7 @@ impl<'a> Reader<'a> {
             producer: Self::extract_string_field(info_dict, b"Producer"),
             creation_date: Self::extract_string_field(info_dict, b"CreationDate"),
             modification_date: Self::extract_string_field(info_dict, b"ModDate"),
+            trapped: Self::extract_trapped_field(info_dict),
             custom,
         })
     }
@@ -641,6 +649,14 @@ impl<'a> Reader<'a> {
                 _ => None,
             },
             Err(_) => None,
+        }
+    }
+
+    /// `/Trapped` is a name, unlike the other standard fields; accept a text string too.
+    fn extract_trapped_field(dict: &Dictionary) -> Option<String> {
+        match dict.get(b"Trapped") {
+            Ok(Object::Name(name)) => String::from_utf8(name.clone()).ok(),
+            _ => Self::extract_string_field(dict, b"Trapped"),
         }
     }
 
