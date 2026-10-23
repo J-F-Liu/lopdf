@@ -136,12 +136,20 @@ impl Document {
         self.renumber_objects_with(1)
     }
 
-    fn update_bookmark_pages(&mut self, bookmarks: &[u32], replace: &BTreeMap<ObjectId, ObjectId>) {
+    fn update_bookmark_pages(
+        &mut self, bookmarks: &[u32], replace: &BTreeMap<ObjectId, ObjectId>,
+        visited: &mut std::collections::HashSet<u32>,
+    ) {
         for id in bookmarks {
             let (children, page) = match self.bookmark_table.get(id) {
                 Some(n) => (n.children.clone(), n.page),
                 None => return,
             };
+
+            // A bookmark listed in more than one place moves once, as the references do.
+            if !visited.insert(*id) {
+                continue;
+            }
 
             if let Some(new) = replace.get(&page) {
                 let bookmark = self.bookmark_table.get_mut(id).unwrap();
@@ -149,7 +157,7 @@ impl Document {
             }
 
             if !children.is_empty() {
-                self.update_bookmark_pages(&children[..], replace);
+                self.update_bookmark_pages(&children[..], replace, visited);
             }
         }
     }
@@ -163,7 +171,7 @@ impl Document {
     /// replacement's source.
     fn renumber_bookmarks_with(&mut self, replace: &BTreeMap<ObjectId, ObjectId>) {
         if !self.bookmarks.is_empty() && !replace.is_empty() {
-            self.update_bookmark_pages(&self.bookmarks.clone(), replace);
+            self.update_bookmark_pages(&self.bookmarks.clone(), replace, &mut Default::default());
         }
     }
 

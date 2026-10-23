@@ -55,3 +55,32 @@ fn renumbering_moves_each_bookmark_once() {
         assert_eq!(bookmark.page, pages[&page_number], "{title}");
     }
 }
+
+#[test]
+fn a_bookmark_listed_twice_moves_once() {
+    // Objects 1, 2, 4, and 5, so renumbering maps 4 to 3 and 5 to 4. The child bookmark is also
+    // a root, so the walk over the bookmarks meets it twice; it must move from 5 to 4 once.
+    let mut doc = Document::with_version("1.7");
+    doc.objects.insert(
+        (1, 0),
+        Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => vec![(5, 0).into()], "Count" => 1 }),
+    );
+    doc.objects.insert(
+        (2, 0),
+        Object::Dictionary(dictionary! { "Type" => "Catalog", "Pages" => (1, 0) }),
+    );
+    doc.objects.insert((4, 0), Object::Dictionary(dictionary! {}));
+    doc.objects.insert(
+        (5, 0),
+        Object::Dictionary(dictionary! { "Type" => "Page", "Parent" => (1, 0) }),
+    );
+    doc.trailer.set("Root", (2, 0));
+    doc.max_id = 5;
+    let parent = doc.add_bookmark(Bookmark::new("parent".into(), [0.0; 3], 0, (5, 0)), None);
+    let child = doc.add_bookmark(Bookmark::new("child".into(), [0.0; 3], 0, (5, 0)), Some(parent));
+    doc.bookmarks.push(child);
+    doc.renumber_objects();
+    let page = doc.get_pages()[&1];
+    assert_eq!(doc.bookmark_table[&parent].page, page);
+    assert_eq!(doc.bookmark_table[&child].page, page);
+}
