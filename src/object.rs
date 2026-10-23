@@ -356,6 +356,11 @@ impl Dictionary {
         self.0.swap_remove(key)
     }
 
+    /// The position of `key` in iteration order.
+    pub(crate) fn index_of(&self, key: &[u8]) -> Option<usize> {
+        self.0.get_index_of(key)
+    }
+
     pub fn has_type(&self, type_name: &[u8]) -> bool {
         self.get(b"Type").and_then(|s| s.as_name()).ok() == Some(type_name)
     }
