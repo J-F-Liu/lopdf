@@ -136,27 +136,34 @@ impl Document {
         self.renumber_objects_with(1)
     }
 
-    fn update_bookmark_pages(&mut self, bookmarks: &[u32], old: &ObjectId, new: &ObjectId) {
+    fn update_bookmark_pages(&mut self, bookmarks: &[u32], replace: &BTreeMap<ObjectId, ObjectId>) {
         for id in bookmarks {
             let (children, page) = match self.bookmark_table.get(id) {
                 Some(n) => (n.children.clone(), n.page),
                 None => return,
             };
 
-            if page == *old {
+            if let Some(new) = replace.get(&page) {
                 let bookmark = self.bookmark_table.get_mut(id).unwrap();
                 bookmark.page = *new;
             }
 
             if !children.is_empty() {
-                self.update_bookmark_pages(&children[..], old, new);
+                self.update_bookmark_pages(&children[..], replace);
             }
         }
     }
 
     pub fn renumber_bookmarks(&mut self, old: &ObjectId, new: &ObjectId) {
-        if !self.bookmarks.is_empty() {
-            self.update_bookmark_pages(&self.bookmarks.clone(), old, new);
+        self.renumber_bookmarks_with(&BTreeMap::from([(*old, *new)]));
+    }
+
+    /// Point every bookmark at the page that `replace` maps its page to, in one pass over the
+    /// bookmarks, so that a bookmark moves once even when one replacement's target is another
+    /// replacement's source.
+    fn renumber_bookmarks_with(&mut self, replace: &BTreeMap<ObjectId, ObjectId>) {
+        if !self.bookmarks.is_empty() && !replace.is_empty() {
+            self.update_bookmark_pages(&self.bookmarks.clone(), replace);
         }
     }
 
@@ -191,6 +198,7 @@ impl Document {
             let mut pages = page_order.clone();
             pages.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             let mut objects = BTreeMap::new();
+            let mut bookmark_pages = BTreeMap::new();
 
             for (old, new) in pages.iter().zip(page_order) {
                 if let Some(object) = self.objects.remove(&old.1) {
@@ -199,9 +207,10 @@ impl Document {
                 }
 
                 if old.1 != new.1 {
-                    self.renumber_bookmarks(&old.1, &(new.1.0, old.1.1));
+                    bookmark_pages.insert(old.1, (new.1.0, old.1.1));
                 }
             }
+            self.renumber_bookmarks_with(&bookmark_pages);
 
             for (new, object) in objects {
                 self.objects.insert(new, object);
@@ -237,11 +246,8 @@ impl Document {
             if let Some(object) = self.objects.remove(old) {
                 objects.insert(*new, object);
             }
-
-            if old != new {
-                self.renumber_bookmarks(old, new);
-            }
         }
+        self.renumber_bookmarks_with(&replace);
 
         // insert new replaced keys objects
         for (new, object) in objects {
