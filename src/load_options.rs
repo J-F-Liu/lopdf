@@ -50,6 +50,15 @@ pub struct LoadOptions {
     ///
     /// `None` (the default) applies no limit.
     pub max_decompressed_size: Option<usize>,
+    /// When `true`, rebuild the cross-reference table by scanning the file for indirect
+    /// objects instead of reading it as written, as lenient loading does when the
+    /// cross-reference data cannot be read. Use it for a file whose cross-reference data
+    /// reads but describes the wrong objects. If the scan finds no usable trailer, the
+    /// cross-reference data is read as written after all; [`Document::xref_recovery`]
+    /// tells the two apart. Strict loading never rebuilds, so `strict` ignores this.
+    ///
+    /// [`Document::xref_recovery`]: crate::Document::xref_recovery
+    pub force_reconstruct: bool,
 }
 
 impl std::fmt::Debug for LoadOptions {
@@ -59,6 +68,7 @@ impl std::fmt::Debug for LoadOptions {
             .field("filter", &self.filter.map(|_| "fn(..)"))
             .field("strict", &self.strict)
             .field("max_decompressed_size", &self.max_decompressed_size)
+            .field("force_reconstruct", &self.force_reconstruct)
             .finish()
     }
 }
