@@ -402,6 +402,12 @@ impl IncrementalDocument {
     }
 }
 
+/// Low-level PDF object serializer.
+///
+/// Exposed so that callers which write a document incrementally (reserving
+/// object ids up front and emitting the body as it is produced) can serialize
+/// individual objects with exactly the same bytes `Document::save` would
+/// produce, instead of reimplementing the format.
 pub struct Writer;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -557,6 +563,15 @@ impl Writer {
         Ok(())
     }
 
+    /// Serialize one object body (no `N G obj` / `endobj` wrapper).
+    ///
+    /// The bytes are identical to what [`Document::save`] writes for the same
+    /// object, so a caller assembling a file by hand can mix this with its own
+    /// framing and still produce a byte-compatible document.
+    ///
+    /// # Errors
+    ///
+    /// Propagates I/O errors from `file`.
     pub fn write_object(file: &mut dyn Write, object: &Object) -> Result<()> {
         match object {
             Null => file.write_all(b"null"),
