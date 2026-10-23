@@ -528,8 +528,7 @@ impl<'a> Reader<'a> {
     /// For encrypted PDFs, use `Document::load_metadata_with_password()` instead.
     pub fn read_metadata(mut self) -> Result<PdfMetadata> {
         let metadata = self.read_metadata_once()?;
-        let needs_password = metadata.encrypted && self.encryption_state.is_none();
-        if !needs_password && self.should_rebuild(metadata.xref_recovery) && !self.page_tree_readable() {
+        if self.should_rebuild(metadata.xref_recovery) && !self.page_tree_readable() {
             let mut rebuilt = Reader::for_metadata(self.buffer, self.password.clone());
             rebuilt.force_reconstruct = true;
             if let Ok(rebuilt_metadata) = rebuilt.read_metadata_once()
@@ -814,8 +813,12 @@ impl<'a> Reader<'a> {
     /// repeated with the table rebuilt. Resolution trusts the cross-reference data it reads, and
     /// in a file that lost or gained bytes that data can point past the objects it names, so the
     /// catalog or the root of the page tree does not load although the objects are all there.
+    ///
+    /// An encrypted document that waits for its password has no objects to load yet, which is
+    /// not damage.
     fn should_rebuild(&self, recovery: Option<XrefRecovery>) -> bool {
-        !self.strict && !self.force_reconstruct && recovery != Some(XrefRecovery::Reconstructed)
+        let needs_password = self.document.trailer.has(b"Encrypt") && self.encryption_state.is_none();
+        !self.strict && !self.force_reconstruct && !needs_password && recovery != Some(XrefRecovery::Reconstructed)
     }
 
     /// Whether the loaded catalog leads to the root of a page tree, a dictionary with `/Kids`,
@@ -1819,11 +1822,12 @@ impl<'a> Reader<'a> {
 
     /// A trailer naming the newest scanned catalog as `/Root`, for a file in which no trailer
     /// survives, as when it was cut off before its last cross-reference section. The catalog
-    /// has to be a top-level object whose `/Pages` the rebuilt table finds. The trailer has no
-    /// `/Info` or `/ID`, and without `/Encrypt` and `/ID` an encrypted file could not be
-    /// decrypted, so a file that names `/Encrypt` anywhere gets none.
+    /// has to be a top-level object that the rebuilt table resolves to, as it does to the
+    /// newest copy of each object, and its `/Pages` has to resolve to the root of a page tree.
+    /// The trailer has no `/Info` or `/ID`, and without `/Encrypt` and `/ID` an encrypted file
+    /// could not be decrypted, so an encrypted file gets none.
     fn find_latest_catalog(&self, markers: &[(u32, ObjectId)], xref: &Xref) -> Option<Dictionary> {
-        if Reader::search_substring(self.buffer, b"/Encrypt", 0).is_some() {
+        if self.has_encryption(markers) {
             return None;
         }
         let mut bound = self.buffer.len();
@@ -1836,22 +1840,71 @@ impl<'a> Reader<'a> {
                 .checked_sub(1)?;
             let (offset, id) = markers[index];
             bound = offset as usize;
-            let end = markers
-                .get(index + 1)
-                .map_or(self.buffer.len(), |&(next, _)| next as usize);
-            if let Ok((_, Object::Dictionary(catalog))) =
-                self.read_object_to(offset as usize, end, Some(id), &mut HashSet::new())
+            // A newer copy of the object replaced this one.
+            if !matches!(xref.get(id.0), Some(&XrefEntry::Normal { offset: newest, generation })
+                if newest == offset && generation == id.1)
+            {
+                continue;
+            }
+            if let Some(Object::Dictionary(catalog)) = self.read_scanned(markers, xref, id)
                 && catalog.has_type(b"Catalog")
-                && catalog
-                    .get(b"Pages")
-                    .and_then(Object::as_reference)
-                    .is_ok_and(|pages| xref.entries.contains_key(&pages.0))
+                && let Ok(pages) = catalog.get(b"Pages").and_then(Object::as_reference)
+                && let Some(Object::Dictionary(root)) = self.read_scanned(markers, xref, pages)
+                && matches!(root.get(b"Kids"), Ok(Object::Array(_) | Object::Reference(_)))
             {
                 warn!("no trailer survives; using catalog {} {} as /Root", id.0, id.1);
                 return Some(dictionary! { "Root" => Object::Reference(id) });
             }
         }
         None
+    }
+
+    /// The object that the rebuilt table resolves `id` to, read between its header and the
+    /// next one the scan found.
+    fn read_scanned(&self, markers: &[(u32, ObjectId)], xref: &Xref, id: ObjectId) -> Option<Object> {
+        let Some(&XrefEntry::Normal { offset, generation }) = xref.get(id.0) else {
+            return None;
+        };
+        if generation != id.1 {
+            return None;
+        }
+        let index = markers.partition_point(|&(marker, _)| marker < offset);
+        let end = markers
+            .get(index + 1)
+            .map_or(self.buffer.len(), |&(next, _)| next as usize);
+        let (_, object) = self
+            .read_object_to(offset as usize, end, Some(id), &mut HashSet::new())
+            .ok()?;
+        Some(object)
+    }
+
+    /// Whether the file names `/Encrypt` or holds an encryption dictionary. Cutting a file off
+    /// before its trailer takes `/Encrypt` away, but not the dictionary it referenced.
+    fn has_encryption(&self, markers: &[(u32, ObjectId)]) -> bool {
+        if Reader::search_substring(self.buffer, b"/Encrypt", 0).is_some() {
+            return true;
+        }
+        markers.iter().enumerate().any(|(index, &(offset, id))| {
+            let end = markers
+                .get(index + 1)
+                .map_or(self.buffer.len(), |&(next, _)| next as usize);
+            let bytes = &self.buffer[offset as usize..end];
+            // An encryption dictionary names its security handler with `/Filter`, and it is
+            // never a stream; read only the objects that could be one.
+            find_from(bytes, 0, b"/Filter").is_some()
+                && find_from(bytes, 0, b"stream").is_none()
+                && matches!(
+                    self.read_object_to(offset as usize, end, Some(id), &mut HashSet::new()),
+                    Ok((_, Object::Dictionary(dictionary))) if Self::is_encryption_dictionary(&dictionary)
+                )
+        })
+    }
+
+    /// `/O` and `/U` belong to the standard security handler, `/Recipients` to public-key ones,
+    /// and `/CF` to both from version 4.
+    fn is_encryption_dictionary(dictionary: &Dictionary) -> bool {
+        dictionary.get(b"Filter").and_then(Object::as_name).is_ok()
+            && (dictionary.has(b"O") && dictionary.has(b"U") || dictionary.has(b"Recipients") || dictionary.has(b"CF"))
     }
 
     /// Some generators write `startxref` (or trailer `Prev`) values that are

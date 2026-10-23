@@ -4,7 +4,7 @@
 //! whatever it reads, and a file cut off before any trailer is rebuilt around its catalog.
 
 use lopdf::xref::XrefRecovery;
-use lopdf::{Document, LoadOptions, Object, ObjectId};
+use lopdf::{Document, EncryptionState, EncryptionVersion, LoadOptions, Object, ObjectId, Permissions};
 
 /// Append objects, returning each one's `(number, physical offset)`.
 fn append_objects(pdf: &mut Vec<u8>, bodies: &[(u32, String)]) -> Vec<(u32, usize)> {
@@ -207,6 +207,69 @@ fn a_file_that_names_encrypt_is_not_rebuilt_around_its_catalog() {
     bodies.push((6, "<< /Filter /Standard /V 1 /R 2 /O <00> /U <00> /P -4 >>".to_string()));
     bodies.push((7, "<< /Encrypt 6 0 R >>".to_string()));
     assert!(Document::load_mem(&truncated_pdf(&bodies)).is_err());
+}
+
+/// [`intact_pdf`] encrypted with an empty user password, which loads without a password.
+fn encrypted_pdf() -> Vec<u8> {
+    let mut document = Document::load_mem(&intact_pdf()).unwrap();
+    document.trailer.set(
+        "ID",
+        Object::Array(vec![
+            Object::string_literal(b"0123456789abcdef"),
+            Object::string_literal(b"fedcba9876543210"),
+        ]),
+    );
+    let state = EncryptionState::try_from(EncryptionVersion::V2 {
+        document: &document,
+        owner_password: "owner",
+        user_password: "",
+        key_length: 128,
+        permissions: Permissions::all(),
+    })
+    .unwrap();
+    document.encrypt(&state).unwrap();
+    let mut pdf = Vec::new();
+    document.save_to(&mut pdf).unwrap();
+    pdf
+}
+
+#[test]
+fn an_encrypted_file_cut_off_before_its_trailer_is_not_rebuilt_around_its_catalog() {
+    // The cut takes `/Encrypt` away with the trailer, but the encryption dictionary stays.
+    let pdf = encrypted_pdf();
+    let document = Document::load_mem(&pdf).unwrap();
+    assert_eq!(document.get_pages().len(), 2);
+    let info = document.trailer.get(b"Info").unwrap().as_reference().unwrap();
+    let title = document.get_dictionary(info).unwrap().get(b"Title").unwrap();
+    assert_eq!(title, &Object::string_literal("Two pages"));
+
+    let truncated = &pdf[..pdf.windows(6).rposition(|window| window == b"\nxref\n").unwrap()];
+    assert!(!truncated.windows(8).any(|window| window == b"/Encrypt"));
+    assert!(Document::load_mem(truncated).is_err());
+    assert!(Document::load_metadata_mem(truncated).is_err());
+}
+
+#[test]
+fn a_catalog_that_a_newer_object_replaced_does_not_stand_in_for_the_trailer() {
+    // Object 1 was a catalog, until an update replaced it with `null` and object 6 became the
+    // catalog. The rebuilt table resolves 1 to `null`.
+    let mut bodies = bodies();
+    bodies[0].0 = 6;
+    bodies.push((1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()));
+    bodies.push((1, "null".to_string()));
+    let document = Document::load_mem(&truncated_pdf(&bodies)).unwrap();
+    assert_eq!(document.trailer.get(b"Root").unwrap(), &Object::Reference((6, 0)));
+    assert_eq!(document.get_pages().len(), 2);
+}
+
+#[test]
+fn a_catalog_whose_pages_is_not_a_page_tree_does_not_stand_in_for_the_trailer() {
+    let mut bodies = bodies();
+    // Object 5 is the Info dictionary.
+    bodies.push((6, "<< /Type /Catalog /Pages 5 0 R >>".to_string()));
+    let document = Document::load_mem(&truncated_pdf(&bodies)).unwrap();
+    assert_eq!(document.trailer.get(b"Root").unwrap(), &Object::Reference((1, 0)));
+    assert_eq!(document.get_pages().len(), 2);
 }
 
 #[test]
