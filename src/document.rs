@@ -4,7 +4,7 @@ use crate::encryption::crypt_filters::*;
 use crate::encryption::{self, EncryptionState, PasswordAlgorithm};
 use crate::xobject::PdfImage;
 use crate::xref::{Xref, XrefRecovery, XrefType};
-use crate::{DecompressError, Error, ObjectStream, Result, Stream};
+use crate::{DecompressError, Error, Linearization, ObjectStream, Result, Stream};
 use log::debug;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -70,6 +70,16 @@ pub struct Document {
     /// The encryption state stores the parameters that were used to decrypt this document if the
     /// document has been decrypted.
     pub encryption_state: Option<EncryptionState>,
+
+    /// The linearization parameter dictionary that the file opens with, or `None` when the file
+    /// is not linearized. Like `xref_start`, this is only set during reading.
+    pub linearization: Option<Linearization>,
+
+    /// How many cross-reference sections the `startxref` and `/Prev` chain of the file holds,
+    /// not counting the cross-reference streams of hybrid-reference sections, or 0 when the
+    /// table was rebuilt by scanning or the document was not read from a file. Like
+    /// `xref_start`, this is only set during reading.
+    pub xref_section_count: usize,
 }
 
 /// The object IDs that a traversal from the trailer reaches, in the order it first meets them.
@@ -126,7 +136,20 @@ impl Document {
             xref_start: 0,
             xref_recovery: None,
             encryption_state: None,
+            linearization: None,
+            xref_section_count: 0,
         }
+    }
+
+    /// The number of revisions of the file the document was read from: its original version
+    /// and one for each incremental update.
+    ///
+    /// A linearized file holds two cross-reference sections in one revision, the first-page
+    /// section and the main one. A document whose table was rebuilt by scanning, or that was
+    /// not read from a file, counts as one revision.
+    pub fn revision_count(&self) -> usize {
+        let linearized = usize::from(self.linearization.is_some() && self.xref_section_count >= 2);
+        self.xref_section_count.saturating_sub(linearized).max(1)
     }
 
     const DEREF_LIMIT: usize = 128;
