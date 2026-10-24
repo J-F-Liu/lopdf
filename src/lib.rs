@@ -12,6 +12,7 @@ pub mod xref;
 mod object;
 mod document;
 mod incremental_document;
+mod linearization;
 
 mod bookmarks;
 mod cmap_section;
@@ -47,6 +48,7 @@ pub use encodings::{Encoding, encode_utf8, encode_utf16_be};
 pub use encryption::{EncryptionState, EncryptionVersion, Permissions};
 pub use error::{DecompressError, Error, ParseError, Result};
 pub use incremental_document::IncrementalDocument;
+pub use linearization::Linearization;
 pub use load_options::{FilterFunc, LoadOptions};
 pub use object_stream::{ObjectStream, ObjectStreamBuilder, ObjectStreamConfig};
 pub use outlines::Outline;
