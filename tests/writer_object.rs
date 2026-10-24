@@ -23,10 +23,7 @@ fn writes_names_and_strings() {
     assert_eq!(write(&Object::Name(b"Type".to_vec())), b"/Type");
     // A space is escaped as #20.
     assert_eq!(write(&Object::Name(b"Two Words".to_vec())), b"/Two#20Words");
-    assert_eq!(
-        write(&Object::String(b"hi".to_vec(), StringFormat::Literal)),
-        b"(hi)"
-    );
+    assert_eq!(write(&Object::String(b"hi".to_vec(), StringFormat::Literal)), b"(hi)");
     assert_eq!(
         write(&Object::String(b"hi".to_vec(), StringFormat::Hexadecimal)),
         b"<6869>"
@@ -41,10 +38,7 @@ fn writes_dictionaries_and_arrays() {
     assert_eq!(write(&Object::Dictionary(dict)), b"<</Type/Catalog/Count 3>>");
 
     assert_eq!(
-        write(&Object::Array(vec![
-            Object::Integer(1),
-            Object::Integer(2)
-        ])),
+        write(&Object::Array(vec![Object::Integer(1), Object::Integer(2)])),
         b"[1 2]"
     );
 }
@@ -52,10 +46,7 @@ fn writes_dictionaries_and_arrays() {
 #[test]
 fn writes_streams_with_length() {
     let stream = Stream::new(Dictionary::new(), b"abc".to_vec());
-    assert_eq!(
-        write(&Object::Stream(stream)),
-        b"<</Length 3>>stream\nabc\nendstream"
-    );
+    assert_eq!(write(&Object::Stream(stream)), b"<</Length 3>>stream\nabc\nendstream");
 }
 
 #[test]
