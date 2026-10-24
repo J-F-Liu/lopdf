@@ -134,7 +134,7 @@ fn test_save_options_with_object_streams() {
         use_object_streams: true,
         use_xref_streams: false,
         linearize: false,
-        object_stream_config: Default::default(),
+        ..Default::default()
     };
 
     let mut buffer = Vec::new();
@@ -184,7 +184,7 @@ fn test_save_options_without_object_streams() {
         use_object_streams: false,
         use_xref_streams: false,
         linearize: false,
-        object_stream_config: Default::default(),
+        ..Default::default()
     };
 
     let mut buffer = Vec::new();
