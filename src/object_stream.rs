@@ -1,4 +1,5 @@
 use crate::parser;
+use crate::writer::{Style, Writer};
 use crate::{Document, Error, Object, ObjectId, Result, Stream};
 use std::collections::BTreeMap;
 use std::num::TryFromIntError;
@@ -169,12 +170,12 @@ impl ObjectStream {
     /// stream stores them sorted, and both the offset table and the body walk
     /// them in that order. The order comes from [`Self::sorted_object_ids`], so
     /// the body and the cross-reference indices cannot drift apart.
-    fn sorted_serializations(&self) -> Result<Vec<(ObjectId, Vec<u8>)>> {
+    fn sorted_serializations(&self, style: Style) -> Result<Vec<(ObjectId, Vec<u8>)>> {
         self.sorted_object_ids()
             .into_iter()
             .map(|id| {
                 let mut bytes = Vec::new();
-                crate::writer::Writer::write_object(&mut bytes, &self.objects[&id])?;
+                Writer::write_styled_object(&mut bytes, &self.objects[&id], style)?;
                 Ok((id, bytes))
             })
             .collect()
@@ -209,19 +210,19 @@ impl ObjectStream {
 
     /// Build the stream content in the format required by PDF spec
     pub fn build_stream_content(&self) -> Result<Vec<u8>> {
-        self.build_body().map(|(content, _)| content)
+        self.build_body(Style::default()).map(|(content, _)| content)
     }
 
     /// The object stream body — the offset table followed by the serialized
     /// objects — together with the `/First` offset, which is where the table
     /// ends. Both are needed to build the stream, so they are produced together
     /// rather than by serializing the members twice.
-    fn build_body(&self) -> Result<(Vec<u8>, usize)> {
+    fn build_body(&self, style: Style) -> Result<(Vec<u8>, usize)> {
         if self.objects.is_empty() {
             return Ok((Vec::new(), 0));
         }
 
-        let members = self.sorted_serializations()?;
+        let members = self.sorted_serializations(style)?;
         let table = Self::offset_table(&members);
         let first_offset = table.len();
 
@@ -238,7 +239,14 @@ impl ObjectStream {
 
     /// Convert to a Stream object ready for insertion into a PDF
     pub fn to_stream_object(&self) -> Result<Stream> {
-        let (content, first_offset) = self.build_body()?;
+        self.to_styled_stream_object(Style::default())
+    }
+
+    /// [`Self::to_stream_object`] with the members serialized in the layout that `style` asks
+    /// for, as a save with [`crate::SaveOptions::ascii`] or [`crate::SaveOptions::pretty`]
+    /// writes them.
+    pub(crate) fn to_styled_stream_object(&self, style: Style) -> Result<Stream> {
+        let (content, first_offset) = self.build_body(style)?;
 
         let dict = dictionary! {
             "Type" => "ObjStm",
