@@ -124,11 +124,10 @@ impl Document {
         &self, dest: &Object, title: &Object, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
     ) -> Result<Option<Outline>> {
         let outline = match dest {
-            Object::Array(obj_array) => Outline::Destination(Destination::new(
-                title.to_owned(),
-                obj_array[0].clone(),
-                obj_array[1].clone(),
-            )),
+            Object::Array(obj_array) => match obj_array.as_slice() {
+                [page, typ, ..] => Outline::Destination(Destination::new(title.to_owned(), page.clone(), typ.clone())),
+                _ => return Err(Error::InvalidOutline(format!("Destination array too short: {dest:?}"))),
+            },
             Object::String(key, _fmt) => {
                 if let Some(destination) = named_destinations.get_mut(key) {
                     destination.set(b"Title", title.to_owned());
