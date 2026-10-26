@@ -275,4 +275,65 @@ mod tests {
         assert_eq!(actual, expected);
         assert!(toc.errors.is_empty());
     }
+
+    #[test]
+    fn skip_malformed_destinations() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        // A dictionary without /D, arrays without a fit type and a key that isn't a string.
+        let no_d = doc.add_object(dictionary! { "Type" => "Action" });
+        let short = doc.add_object(vec![page_id.into()]);
+        let dests = dictionary! {
+            "Names" => vec![
+                Object::string_literal("good"), dictionary! { "D" => vec![page_id.into(), "Fit".into()] }.into(),
+                Object::string_literal("no-d"), dictionary! {}.into(),
+                Object::string_literal("no-d-ref"), no_d.into(),
+                Object::string_literal("short"), dictionary! { "D" => vec![page_id.into()] }.into(),
+                Object::string_literal("short-ref"), short.into(),
+                Object::string_literal("empty"), dictionary! { "D" => Vec::<Object>::new() }.into(),
+                "not-a-string".into(), dictionary! { "D" => vec![page_id.into(), "Fit".into()] }.into(),
+            ],
+        };
+
+        let outlines_id = doc.new_object_id();
+        let dest_objects: [(&str, Object); 8] = [
+            ("Good", Object::string_literal("good")),
+            ("Missing /D", Object::string_literal("no-d")),
+            ("Missing /D (reference)", Object::string_literal("no-d-ref")),
+            ("Short /D", Object::string_literal("short")),
+            ("Short array (reference)", Object::string_literal("short-ref")),
+            ("Empty /D", Object::string_literal("empty")),
+            ("Short /Dest", vec![page_id.into()].into()),
+            ("Explicit", vec![page_id.into(), "Fit".into()].into()),
+        ];
+        let mut next = None;
+        for (title, dest) in dest_objects.into_iter().rev() {
+            let mut item = dictionary! {
+                "Title" => Object::string_literal(title),
+                "Parent" => outlines_id,
+                "Dest" => dest,
+            };
+            if let Some(next) = next {
+                item.set("Next", next);
+            }
+            next = Some(doc.add_object(item));
+        }
+        let outlines = dictionary! { "Type" => "Outlines", "First" => next.unwrap() };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Outlines" => outlines_id,
+            "Names" => dictionary! { "Dests" => dests },
+        });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| entry.title.as_str()).collect();
+        assert_eq!(actual, ["Good", "Explicit"]);
+    }
 }

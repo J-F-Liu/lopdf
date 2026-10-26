@@ -50,31 +50,29 @@ impl Document {
             }
         }
         if let Ok(names) = tree.get(b"Names") {
-            let mut names = names.as_array()?.iter();
-            loop {
-                let key = names.next();
-                if key.is_none() {
-                    break;
-                }
-                let val = names.next();
-                if val.is_none() {
-                    break;
-                }
-                if let Ok(obj_ref) = val.unwrap().as_reference() {
-                    if let Ok(dict) = self.get_dictionary(obj_ref) {
-                        let val = dict.get(b"D").as_ref().unwrap().as_array()?;
-                        let dest = Destination::new(key.unwrap().clone(), val[0].clone(), val[1].clone());
-                        named_destinations.insert(key.unwrap().as_str().unwrap().to_vec(), dest);
-                    } else if let Ok(Object::Array(val)) = self.get_object(obj_ref) {
-                        let dest = Destination::new(key.unwrap().clone(), val[0].clone(), val[1].clone());
-                        named_destinations.insert(key.unwrap().as_str().unwrap().to_vec(), dest);
-                    }
-                } else if let Ok(dict) = val.unwrap().as_dict() {
-                    let val = dict.get(b"D").as_ref().unwrap().as_array()?;
-                    let dest = Destination::new(key.unwrap().clone(), val[0].clone(), val[1].clone());
-                    named_destinations.insert(key.unwrap().as_str().unwrap().to_vec(), dest);
-                } else {
-                    // TODO: Log error: Unpexpected node type
+            for [key, val] in names.as_array()?.as_chunks::<2>().0 {
+                // Skip entries that aren't a string key with a usable destination.
+                let Ok(name) = key.as_str() else {
+                    continue;
+                };
+                let val = match val {
+                    Object::Reference(id) => match self.get_object(*id) {
+                        Ok(val) => val,
+                        Err(_) => continue,
+                    },
+                    val => val,
+                };
+                let array = match val {
+                    Object::Array(array) => array,
+                    Object::Dictionary(dict) => match dict.get(b"D").and_then(Object::as_array) {
+                        Ok(array) => array,
+                        Err(_) => continue,
+                    },
+                    _ => continue,
+                };
+                if let [page, typ, ..] = array.as_slice() {
+                    let dest = Destination::new(key.clone(), page.clone(), typ.clone());
+                    named_destinations.insert(name.to_vec(), dest);
                 }
             }
         }
