@@ -463,11 +463,24 @@ pub enum XRefStreamFilter {
 }
 
 impl Writer {
-    fn need_separator(object: &Object) -> bool {
+    /// Whether a blank must precede this object when it directly follows
+    /// another token (a dictionary key, an array element, or the
+    /// `N G obj` header of an indirect object).
+    ///
+    /// Exposed for incremental writers (see [`Writer`]): framing an indirect
+    /// object as `N G obj` + object + `endobj` requires the same separator
+    /// decision `Document::save` makes internally, and reimplementing it
+    /// downstream is how the two serializers drift apart. Pair with
+    /// [`Self::need_end_separator`] for the trailing side.
+    pub fn need_separator(object: &Object) -> bool {
         matches!(*object, Null | Boolean(_) | Integer(_) | Real(_) | Reference(_))
     }
 
-    fn need_end_separator(object: &Object) -> bool {
+    /// Whether a blank must follow this object before the next token (for
+    /// example before `endobj` when framing an indirect object).
+    ///
+    /// Exposed for incremental writers; see [`Self::need_separator`].
+    pub fn need_end_separator(object: &Object) -> bool {
         matches!(
             *object,
             Null | Boolean(_) | Integer(_) | Real(_) | Name(_) | Reference(_) | Object::Stream(_)
@@ -974,4 +987,21 @@ fn save_document() {
     assert!(file_path.is_file());
     // Check if the file is above 400 bytes (should be about 610 bytes)
     assert!(file_path.metadata().unwrap().len() > 400);
+}
+
+#[test]
+fn separator_decisions_are_public_for_incremental_writers() {
+    // Token-like objects need a separating blank; self-delimiting objects
+    // (names, strings, arrays, dictionaries, streams) do not need one before
+    // them, but a name/reference/stream still needs one after it.
+    assert!(Writer::need_separator(&Null));
+    assert!(Writer::need_separator(&Integer(1)));
+    assert!(Writer::need_separator(&Reference((1, 0))));
+    assert!(!Writer::need_separator(&Name(b"Type".to_vec())));
+    assert!(!Writer::need_separator(&Array(vec![Integer(1)])));
+
+    assert!(Writer::need_end_separator(&Null));
+    assert!(Writer::need_end_separator(&Name(b"Type".to_vec())));
+    assert!(Writer::need_end_separator(&Reference((1, 0))));
+    assert!(!Writer::need_end_separator(&Array(vec![Integer(1)])));
 }
