@@ -13,21 +13,37 @@ impl Document {
     #[inline]
     pub fn save<P: AsRef<Path>>(&mut self, path: P) -> Result<File> {
         let mut file = BufWriter::new(File::create(path)?);
-        self.save_internal(&mut file)?;
+        self.save_internal(&mut file, Style::default())?;
         Ok(file.into_inner()?)
     }
 
     /// Save PDF to arbitrary target
     #[inline]
     pub fn save_to<W: Write>(&mut self, target: &mut W) -> Result<()> {
-        self.save_internal(target)
+        self.save_internal(target, Style::default())
     }
 
     /// Save PDF with custom options
     ///
     /// Object streams are skipped for an encrypted document, which is written with every
     /// object serialized individually instead. See [`Document::save_modern`].
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`std::io::ErrorKind::InvalidInput`] when [`SaveOptions::ascii`](crate::SaveOptions::ascii)
+    /// is set for an encrypted document, before anything is written.
     pub fn save_with_options<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
+        // A reader decrypts a stream's data before it applies the stream's filters, so an
+        // `/ASCIIHexDecode` filter would have to be applied before encryption, which turns
+        // the data back into binary ciphertext.
+        if options.ascii && self.is_encrypted() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "an encrypted document cannot be saved as ASCII: its streams are decrypted before their filters apply",
+            ));
+        }
+        let style = Style::new(&options);
+
         // Xref streams and object streams are independent; select the requested type here so it
         // applies to whichever path writes the body. Both arrived in PDF 1.5, so bump the version.
         if options.use_xref_streams {
@@ -39,9 +55,9 @@ impl Document {
         }
 
         if options.use_object_streams {
-            self.save_with_object_streams(target, options)
+            self.save_with_object_streams(target, options, style)
         } else {
-            self.save_internal(target)
+            self.save_internal(target, style)
         }
     }
 
@@ -69,7 +85,7 @@ impl Document {
         matches!(object.type_name(), Ok(name) if name == b"ObjStm" || name == b"XRef" || name == b"Linearized")
     }
 
-    fn save_internal<W: Write>(&mut self, target: &mut W) -> Result<()> {
+    fn save_internal<W: Write>(&mut self, target: &mut W, style: Style) -> Result<()> {
         // A plain save uses the document's existing xref format, including the default stream.
         if matches!(
             self.reference_table.cross_reference_type,
@@ -84,18 +100,33 @@ impl Document {
         };
 
         let mut xref = Xref::new(self.max_id.saturating_add(1), self.reference_table.cross_reference_type);
-        writeln!(target, "%PDF-{}", self.version)?;
-
-        Writer::write_binary_mark(&mut target, &self.binary_mark)?;
+        self.write_header(&mut target, style)?;
 
         for (&(id, generation), object) in &self.objects {
             if !Self::is_regenerated_on_save(object) {
-                Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
+                Writer::write_indirect_object(&mut target, id, generation, object, &mut xref, style)?;
             }
         }
 
         let xref_start = target.bytes_written;
-        Self::write_xref_and_trailer(&mut target, &mut xref, xref_start, self.trailer.clone(), self.max_id)
+        Self::write_xref_and_trailer(
+            &mut target,
+            &mut xref,
+            xref_start,
+            self.trailer.clone(),
+            self.max_id,
+            style,
+        )
+    }
+
+    /// Write the `%PDF-x.y` line and, unless the output is to be ASCII, the binary mark.
+    fn write_header(&self, target: &mut dyn Write, style: Style) -> Result<()> {
+        writeln!(target, "%PDF-{}", self.version)?;
+        if style.ascii {
+            Ok(())
+        } else {
+            Writer::write_binary_mark(target, &self.binary_mark)
+        }
     }
 
     /// The number after `last_id`, for an object the writer generates: an object stream or the
@@ -116,16 +147,17 @@ impl Document {
     /// it was. `last_id` is the highest object number written so far.
     fn write_xref_and_trailer<W: Write>(
         target: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: usize, trailer: Dictionary, last_id: u32,
+        style: Style,
     ) -> Result<()> {
         // Pick right cross reference stream.
         match xref.cross_reference_type {
             XrefType::CrossReferenceTable => {
                 Writer::write_xref(target, xref)?;
-                Self::write_trailer(target, trailer, last_id)?;
+                Self::write_trailer(target, trailer, last_id, style)?;
             }
             XrefType::CrossReferenceStream => {
                 // Cross Reference Stream instead of XRef and Trailer
-                Self::write_cross_reference_stream(target, xref, xref_start as u32, trailer, last_id)?;
+                Self::write_cross_reference_stream(target, xref, xref_start as u32, trailer, last_id, style)?;
             }
         }
         // Write `startxref` part of trailer
@@ -133,7 +165,9 @@ impl Document {
     }
 
     /// Save PDF with object streams enabled
-    fn save_with_object_streams<W: Write>(&mut self, target: &mut W, options: crate::SaveOptions) -> Result<()> {
+    fn save_with_object_streams<W: Write>(
+        &mut self, target: &mut W, options: crate::SaveOptions, style: Style,
+    ) -> Result<()> {
         use crate::ObjectStream;
         use std::collections::HashMap;
 
@@ -146,7 +180,7 @@ impl Document {
         // and the strings packed inside are themselves already encrypted (an object stream is the
         // unit of encryption). Write the objects out individually instead, as `save` does.
         if self.is_encrypted() {
-            return self.save_internal(target);
+            return self.save_internal(target, style);
         }
 
         let mut target = CountingWrite {
@@ -155,8 +189,7 @@ impl Document {
         };
 
         let mut xref = Xref::new(self.max_id.saturating_add(1), self.reference_table.cross_reference_type);
-        writeln!(target, "%PDF-{}", self.version)?;
-        Writer::write_binary_mark(&mut target, &self.binary_mark)?;
+        self.write_header(&mut target, style)?;
 
         // Organize objects into streams
         let mut object_streams: Vec<crate::ObjectStream> = Vec::new();
@@ -204,14 +237,16 @@ impl Document {
 
         // Write direct objects first
         for ((id, generation), object) in objects_to_write_directly {
-            Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
+            Writer::write_indirect_object(&mut target, id, generation, object, &mut xref, style)?;
         }
 
         // Write object streams
         let mut last_id = self.max_id;
         for obj_stream in object_streams.into_iter() {
             let stream_id = Self::next_generated_id(&mut last_id)?;
-            let stream_obj = obj_stream.to_stream_object().map_err(std::io::Error::other)?;
+            let stream_obj = obj_stream
+                .to_styled_stream_object(style)
+                .map_err(std::io::Error::other)?;
 
             // Record compressed objects in xref. The index must match the order
             // the stream actually stores its members in.
@@ -226,11 +261,11 @@ impl Document {
             }
 
             // Write the object stream
-            Writer::write_indirect_object(&mut target, stream_id, 0, &Object::Stream(stream_obj), &mut xref)?;
+            Writer::write_indirect_object(&mut target, stream_id, 0, &Object::Stream(stream_obj), &mut xref, style)?;
         }
 
         let xref_start = target.bytes_written;
-        Self::write_xref_and_trailer(&mut target, &mut xref, xref_start, self.trailer.clone(), last_id)
+        Self::write_xref_and_trailer(&mut target, &mut xref, xref_start, self.trailer.clone(), last_id, style)
     }
 
     /// Write the Cross Reference Stream.
@@ -239,6 +274,7 @@ impl Document {
     /// Note: This is different from the "Cross Reference Table".
     fn write_cross_reference_stream<W: Write>(
         file: &mut CountingWrite<&mut W>, xref: &mut Xref, xref_start: u32, mut trailer: Dictionary, mut last_id: u32,
+        style: Style,
     ) -> Result<()> {
         let new_obj_id_for_crs = Self::next_generated_id(&mut last_id)?;
         xref.insert(
@@ -253,9 +289,11 @@ impl Document {
         trailer.set("Size", i64::from(last_id) + 1);
         // `[u8, u32, u16]` per entry (the PDF default is `[1 2 1]`).
         trailer.set("W", Array(vec![Integer(1), Integer(4), Integer(2)]));
-        // Note that `ASCIIHexDecode` does not work correctly,
-        // but is still useful for debugging sometimes.
-        let filter = XRefStreamFilter::None;
+        let filter = if style.ascii {
+            XRefStreamFilter::ASCIIHexDecode
+        } else {
+            XRefStreamFilter::None
+        };
         let (stream, stream_length, indexes) = Writer::create_xref_steam(xref, filter)?;
         trailer.set("Index", indexes);
 
@@ -275,15 +313,15 @@ impl Document {
         });
         // Insert Cross Reference Stream as an `Object` to the end of the PDF.
         // The `Object` is not added to `Document` because it is generated every time you save.
-        Writer::write_indirect_object(file, new_obj_id_for_crs, 0, &cross_reference_stream, xref)?;
+        Writer::write_indirect_object(file, new_obj_id_for_crs, 0, &cross_reference_stream, xref, style)?;
 
         Ok(())
     }
 
-    fn write_trailer(file: &mut dyn Write, mut trailer: Dictionary, last_id: u32) -> Result<()> {
+    fn write_trailer(file: &mut dyn Write, mut trailer: Dictionary, last_id: u32, style: Style) -> Result<()> {
         trailer.set("Size", i64::from(last_id) + 1);
         file.write_all(b"trailer\n")?;
-        Writer::write_dictionary(file, &trailer)?;
+        Writer::write_dictionary(file, &trailer, style)?;
         Ok(())
     }
 }
@@ -379,9 +417,9 @@ impl IncrementalDocument {
             if let Some(state) = encryption_state.as_ref() {
                 let mut encrypted = object.clone();
                 encryption::encrypt_object(state, (id, generation), &mut encrypted).map_err(std::io::Error::other)?;
-                Writer::write_indirect_object(&mut target, id, generation, &encrypted, &mut xref)?;
+                Writer::write_indirect_object(&mut target, id, generation, &encrypted, &mut xref, Style::default())?;
             } else {
-                Writer::write_indirect_object(&mut target, id, generation, object, &mut xref)?;
+                Writer::write_indirect_object(&mut target, id, generation, object, &mut xref, Style::default())?;
             }
         }
 
@@ -398,7 +436,14 @@ impl IncrementalDocument {
         let xref_start = target.bytes_written;
 
         // Pick right cross reference stream.
-        Document::write_xref_and_trailer(&mut target, &mut xref, xref_start, trailer, self.new_document.max_id)
+        Document::write_xref_and_trailer(
+            &mut target,
+            &mut xref,
+            xref_start,
+            trailer,
+            self.new_document.max_id,
+            Style::default(),
+        )
     }
 }
 
@@ -529,21 +574,19 @@ impl Writer {
             }
         }
 
-        // The end of line character should not be counted, added later.
-        let stream_length = xref_stream.len();
-
         if filter == XRefStreamFilter::ASCIIHexDecode {
-            xref_stream = xref_stream
-                .iter()
-                .flat_map(|c| format!("{c:02X}").as_bytes().to_vec())
-                .collect::<Vec<u8>>();
+            xref_stream = Writer::ascii_hex(&xref_stream);
         }
+
+        // `/Length` counts the bytes that are stored, after any encoding, and not the end of
+        // line that is written before `endstream`.
+        let stream_length = xref_stream.len();
 
         Ok((xref_stream, stream_length, Array(xref_index)))
     }
 
     fn write_indirect_object<W: Write>(
-        file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &Object, xref: &mut Xref,
+        file: &mut CountingWrite<&mut W>, id: u32, generation: u16, object: &Object, xref: &mut Xref, style: Style,
     ) -> Result<()> {
         let offset = file.bytes_written as u32;
         xref.insert(id, XrefEntry::Normal { offset, generation });
@@ -554,7 +597,7 @@ impl Writer {
             generation,
             if Writer::need_separator(object) { " " } else { "" }
         )?;
-        Writer::write_object(file, object)?;
+        Writer::write_styled_object(file, object, style)?;
         writeln!(
             file,
             "{}\nendobj",
@@ -573,6 +616,11 @@ impl Writer {
     ///
     /// Propagates I/O errors from `file`.
     pub fn write_object(file: &mut dyn Write, object: &Object) -> Result<()> {
+        Writer::write_styled_object(file, object, Style::default())
+    }
+
+    /// Serialize one object body in the layout that `style` asks for.
+    pub(crate) fn write_styled_object(file: &mut dyn Write, object: &Object, style: Style) -> Result<()> {
         match object {
             Null => file.write_all(b"null"),
             Boolean(value) => {
@@ -588,10 +636,10 @@ impl Writer {
             }
             Real(value) => write!(file, "{value}"),
             Name(name) => Writer::write_name(file, name),
-            String(text, format) => Writer::write_string(file, text, format),
-            Array(array) => Writer::write_array(file, array),
-            Object::Dictionary(dict) => Writer::write_dictionary(file, dict),
-            Object::Stream(stream) => Writer::write_stream(file, stream),
+            String(text, format) => Writer::write_string(file, text, format, style),
+            Array(array) => Writer::write_array(file, array, style),
+            Object::Dictionary(dict) => Writer::write_dictionary(file, dict, style),
+            Object::Stream(stream) => Writer::write_stream(file, stream, style),
             Reference(id) => write!(file, "{} {} R", id.0, id.1),
         }
     }
@@ -610,11 +658,14 @@ impl Writer {
         Ok(())
     }
 
-    fn write_string(file: &mut dyn Write, text: &[u8], format: &StringFormat) -> Result<()> {
+    fn write_string(file: &mut dyn Write, text: &[u8], format: &StringFormat, style: Style) -> Result<()> {
         match *format {
             // In a literal string escape each backslash and unbalanced parenthesis, byte by
-            // byte, and escape CR/LF since an unescaped end-of-line marker reads as \n.
+            // byte, and escape CR/LF since an unescaped end-of-line marker reads as \n. ASCII
+            // output also writes every byte that is not ASCII text as an octal escape, which
+            // keeps the string literal.
             StringFormat::Literal => {
+                let octal = |byte: u8| style.ascii && !is_ascii_text(byte);
                 let mut escape_indice = Vec::new();
                 let mut parentheses = Vec::new();
                 for (index, &byte) in text.iter().enumerate() {
@@ -634,11 +685,15 @@ impl Writer {
                 escape_indice.append(&mut parentheses);
 
                 file.write_all(b"(")?;
-                if !escape_indice.is_empty() {
+                if !escape_indice.is_empty() || text.iter().any(|&byte| octal(byte)) {
                     for (index, &byte) in text.iter().enumerate() {
                         if escape_indice.contains(&index) {
                             file.write_all(b"\\")?;
                             file.write_all(&[if byte == b'\r' { b'r' } else { byte }])?;
+                        } else if octal(byte) {
+                            // Three digits, so that a digit that follows is not read as part
+                            // of the escape.
+                            write!(file, "\\{byte:03o}")?;
                         } else {
                             file.write_all(&[byte])?;
                         }
@@ -659,7 +714,32 @@ impl Writer {
         Ok(())
     }
 
-    fn write_array(file: &mut dyn Write, array: &[Object]) -> Result<()> {
+    fn write_array(file: &mut dyn Write, array: &[Object], style: Style) -> Result<()> {
+        if style.pretty {
+            // An array of numbers, names and the like, such as a `/MediaBox`, stays on one line.
+            if !array
+                .iter()
+                .any(|object| matches!(object, Array(_) | Object::Dictionary(_) | Object::Stream(_)))
+            {
+                file.write_all(b"[")?;
+                for (index, object) in array.iter().enumerate() {
+                    if index > 0 {
+                        file.write_all(b" ")?;
+                    }
+                    Writer::write_styled_object(file, object, style)?;
+                }
+                return file.write_all(b"]");
+            }
+            let inner = style.nested();
+            file.write_all(b"[\n")?;
+            for object in array {
+                inner.indent(file)?;
+                Writer::write_styled_object(file, object, inner)?;
+                file.write_all(b"\n")?;
+            }
+            style.indent(file)?;
+            return file.write_all(b"]");
+        }
         file.write_all(b"[")?;
         let mut first = true;
         for object in array {
@@ -668,31 +748,104 @@ impl Writer {
             } else if Writer::need_separator(object) {
                 file.write_all(b" ")?;
             }
-            Writer::write_object(file, object)?;
+            Writer::write_styled_object(file, object, style)?;
         }
         file.write_all(b"]")?;
         Ok(())
     }
 
-    fn write_dictionary(file: &mut dyn Write, dictionary: &Dictionary) -> Result<()> {
+    fn write_dictionary(file: &mut dyn Write, dictionary: &Dictionary, style: Style) -> Result<()> {
+        if style.pretty && !dictionary.is_empty() {
+            let inner = style.nested();
+            file.write_all(b"<<\n")?;
+            for (key, value) in dictionary {
+                inner.indent(file)?;
+                Writer::write_name(file, key)?;
+                file.write_all(b" ")?;
+                Writer::write_styled_object(file, value, inner)?;
+                file.write_all(b"\n")?;
+            }
+            style.indent(file)?;
+            return file.write_all(b">>");
+        }
         file.write_all(b"<<")?;
         for (key, value) in dictionary {
             Writer::write_name(file, key)?;
             if Writer::need_separator(value) {
                 file.write_all(b" ")?;
             }
-            Writer::write_object(file, value)?;
+            Writer::write_styled_object(file, value, style)?;
         }
         file.write_all(b">>")?;
         Ok(())
     }
 
-    fn write_stream(file: &mut dyn Write, stream: &Stream) -> Result<()> {
-        Writer::write_dictionary(file, &stream.dict)?;
-        file.write_all(b"stream\n")?;
+    fn write_stream(file: &mut dyn Write, stream: &Stream, style: Style) -> Result<()> {
+        let encoded;
+        let stream = if style.ascii && !stream.content.iter().all(|&byte| is_ascii_text(byte)) {
+            encoded = Writer::ascii_hex_stream(stream)?;
+            &encoded
+        } else {
+            stream
+        };
+        Writer::write_dictionary(file, &stream.dict, style)?;
+        file.write_all(if style.pretty { b"\nstream\n" } else { b"stream\n" })?;
         file.write_all(&stream.content)?;
         file.write_all(b"\nendstream")?;
         Ok(())
+    }
+
+    /// A copy of `stream` whose data is encoded with `/ASCIIHexDecode`, which is added in front
+    /// of its filters, so that a reader decodes it to the same data.
+    fn ascii_hex_stream(stream: &Stream) -> Result<Stream> {
+        let hex = Name(b"ASCIIHexDecode".to_vec());
+        let mut dict = stream.dict.clone();
+        let filter = match dict.get(b"Filter") {
+            Err(_) | Ok(Null) => hex,
+            Ok(Name(name)) => Array(vec![hex, Name(name.clone())]),
+            Ok(Array(filters)) => Array([hex].into_iter().chain(filters.iter().cloned()).collect()),
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "cannot add /ASCIIHexDecode to a stream whose /Filter is neither a name nor an array",
+                ));
+            }
+        };
+        // The new filter takes no parameters. The parameters of the stream's own filters move
+        // one place along, or into an array if a dictionary or a reference held them.
+        let params = match dict.get(b"DecodeParms") {
+            Ok(Array(params)) => Some(Array([Null].into_iter().chain(params.iter().cloned()).collect())),
+            Ok(params @ (Object::Dictionary(_) | Reference(_))) => Some(Array(vec![Null, params.clone()])),
+            _ => None,
+        };
+        dict.set("Filter", filter);
+        if let Some(params) = params {
+            dict.set("DecodeParms", params);
+        }
+        let content = Writer::ascii_hex(&stream.content);
+        dict.set("Length", content.len() as i64);
+        Ok(Stream {
+            dict,
+            content,
+            allows_compression: stream.allows_compression,
+            start_position: stream.start_position,
+        })
+    }
+
+    /// Encode `data` as `/ASCIIHexDecode` reads it: two hexadecimal digits per byte, 64 to a
+    /// line, and `>` at the end.
+    fn ascii_hex(data: &[u8]) -> Vec<u8> {
+        const DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+        let mut encoded = Vec::with_capacity(data.len() * 2 + data.len() / 32 + 1);
+        for (index, &byte) in data.iter().enumerate() {
+            if index > 0 && index % 32 == 0 {
+                encoded.push(b'\n');
+            }
+            encoded.push(DIGITS[usize::from(byte >> 4)]);
+            encoded.push(DIGITS[usize::from(byte & 0x0F)]);
+        }
+        encoded.push(b'>');
+        encoded
     }
 
     /// Write Binary mark as follows: %{binary_mark[4]}\n -> %Çì¢ or Hex(%25 c3 87 c3 ac)
@@ -711,6 +864,47 @@ impl Writer {
             ));
         }
 
+        Ok(())
+    }
+}
+
+/// Whether `byte` may appear in ASCII output: tab, line feed, carriage return, or a printable
+/// character.
+fn is_ascii_text(byte: u8) -> bool {
+    matches!(byte, b'\t' | b'\n' | b'\r' | b' '..=b'~')
+}
+
+/// How the writer lays out what it writes: the [`SaveOptions::ascii`](crate::SaveOptions::ascii)
+/// and [`SaveOptions::pretty`](crate::SaveOptions::pretty) options, and how deeply pretty printing
+/// indents the object being written.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Style {
+    ascii: bool,
+    pretty: bool,
+    depth: usize,
+}
+
+impl Style {
+    fn new(options: &crate::SaveOptions) -> Self {
+        Self {
+            ascii: options.ascii,
+            pretty: options.pretty,
+            depth: 0,
+        }
+    }
+
+    /// The style of an entry or element one level further in.
+    fn nested(self) -> Self {
+        Self {
+            depth: self.depth + 1,
+            ..self
+        }
+    }
+
+    fn indent(self, file: &mut dyn Write) -> Result<()> {
+        for _ in 0..self.depth {
+            file.write_all(b"  ")?;
+        }
         Ok(())
     }
 }

@@ -14,6 +14,21 @@ pub struct SaveOptions {
 
     /// Configuration for object streams
     pub object_stream_config: ObjectStreamConfig,
+
+    /// Write only 7-bit ASCII: tab, line feed, carriage return and the printable characters.
+    ///
+    /// The comment line of high bytes after the header is left out, literal strings write
+    /// other bytes as octal escapes, and a stream whose data holds any other byte, the
+    /// cross-reference stream and object streams included, is written with `/ASCIIHexDecode`
+    /// added in front of its filters. A reader decodes every stream to the same data. Saving
+    /// an encrypted document this way fails, because a reader decrypts a stream before it
+    /// applies the stream's filters, so the ciphertext would have to be written as it is.
+    pub ascii: bool,
+
+    /// Write each dictionary entry on a line of its own, indented by two spaces per level of
+    /// nesting, and each element of an array that holds a dictionary or an array likewise, so
+    /// that a saved file reads well in a text editor. Stream data is written as it is.
+    pub pretty: bool,
 }
 
 impl SaveOptions {
@@ -31,6 +46,8 @@ pub struct SaveOptionsBuilder {
     linearize: bool,
     max_objects_per_stream: usize,
     compression_level: u32,
+    ascii: bool,
+    pretty: bool,
 }
 
 impl SaveOptionsBuilder {
@@ -64,6 +81,18 @@ impl SaveOptionsBuilder {
         self
     }
 
+    /// Write only 7-bit ASCII, see [`SaveOptions::ascii`]
+    pub fn ascii(mut self, value: bool) -> Self {
+        self.ascii = value;
+        self
+    }
+
+    /// Indent dictionaries and arrays, see [`SaveOptions::pretty`]
+    pub fn pretty(mut self, value: bool) -> Self {
+        self.pretty = value;
+        self
+    }
+
     /// Build the SaveOptions
     pub fn build(self) -> SaveOptions {
         SaveOptions {
@@ -78,6 +107,8 @@ impl SaveOptionsBuilder {
                 },
                 compression_level: self.compression_level,
             },
+            ascii: self.ascii,
+            pretty: self.pretty,
         }
     }
 }
