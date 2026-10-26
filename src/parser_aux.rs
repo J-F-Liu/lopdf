@@ -642,7 +642,7 @@ pub fn decode_xref_stream_with_limit(
                         // free object
                         read_big_endian_integer(&mut reader, bytes2.as_mut_slice())?;
                         read_big_endian_integer(&mut reader, bytes3.as_mut_slice())?;
-                        None
+                        Some(XrefEntry::Free)
                     }
                     1 => {
                         // normal object

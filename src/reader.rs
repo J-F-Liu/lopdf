@@ -1472,10 +1472,10 @@ impl<'a> Reader<'a> {
                 return Err(Error::Xref(XrefError::PrevStart));
             }
 
-            let (_, prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
+            let (_, mut prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
             sections += 1;
+            self.merge_hybrid_xref_stream(&mut prev_xref, prev_trailer.remove(b"XRefStm"))?;
             xref.merge(prev_xref);
-            self.merge_hybrid_xref_stream(&mut xref, prev_trailer.remove(b"XRefStm"))?;
 
             prev_xref_start = prev_trailer.remove(b"Prev");
         }
@@ -1502,7 +1502,7 @@ impl<'a> Reader<'a> {
             return Err(Error::Xref(XrefError::StreamStart));
         }
         match self.xref_and_trailer_at(start as usize) {
-            Ok((_, stream_xref, _)) => xref.merge(stream_xref),
+            Ok((_, stream_xref, _)) => xref.merge_hybrid(stream_xref),
             // The table alone still describes a hybrid-reference file for older readers.
             Err(e) if !self.strict => warn!("ignoring unreadable cross-reference stream at {start}: {e}"),
             Err(e) => return Err(e),
@@ -2630,6 +2630,83 @@ startxref
     let loaded = Document::load_mem(&buffer).unwrap();
     assert_eq!(loaded.get_pages().len(), 1);
     assert!(loaded.catalog().unwrap().has(b"Lang"));
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn reads_xref_stream_of_hybrid_reference_file_with_free_table_entries() {
+    // Hybrid-reference files usually list the objects of their object streams as free in
+    // the table, so that readers without cross-reference stream support skip them.
+    let (buffer, xref_pos) = hybrid_reference_file();
+    let (head, table) = buffer.split_at(xref_pos);
+    let table = String::from_utf8(table.to_vec()).unwrap().replacen(
+        " n \ntrailer",
+        &format!(" n \n2 4\n{}trailer", "0000000000 00001 f \n".repeat(4)),
+        1,
+    );
+    assert!(table.contains("2 4\n"));
+    let buffer = [head, table.as_bytes()].concat();
+
+    let loaded = Document::load_mem(&buffer).unwrap();
+    assert_eq!(loaded.xref_recovery, None);
+    assert!(matches!(
+        loaded.reference_table.get(2),
+        Some(XrefEntry::Compressed { .. })
+    ));
+    assert_eq!(loaded.get_pages().len(), 1);
+}
+
+#[cfg(all(test, not(feature = "async")))]
+#[test]
+fn free_entry_of_incremental_update_deletes_object() {
+    let header = "%PDF-1.4\n";
+    let obj1 = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    let obj2 = "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    let obj3 = "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R] >>\nendobj\n";
+    let obj4 = "4 0 obj\n<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] >>\nendobj\n";
+    let o1 = header.len();
+    let o2 = o1 + obj1.len();
+    let o3 = o2 + obj2.len();
+    let o4 = o3 + obj3.len();
+    let prev = o4 + obj4.len();
+    let mut buffer = format!(
+        "{header}{obj1}{obj2}{obj3}{obj4}xref
+0 5
+0000000000 65535 f 
+{o1:010} 00000 n 
+{o2:010} 00000 n 
+{o3:010} 00000 n 
+{o4:010} 00000 n 
+trailer
+<< /Size 5 /Root 1 0 R >>
+startxref
+{prev}
+%%EOF
+"
+    );
+    // The update drops the annotation from the page and deletes object 4.
+    let new3 = buffer.len();
+    buffer.push_str("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n");
+    let xref_pos = buffer.len();
+    buffer.push_str(&format!(
+        "xref
+0 1
+0000000000 65535 f 
+3 2
+{new3:010} 00000 n 
+0000000000 00001 f 
+trailer
+<< /Size 5 /Root 1 0 R /Prev {prev} >>
+startxref
+{xref_pos}
+%%EOF
+"
+    ));
+
+    let loaded = Document::load_mem(buffer.as_bytes()).unwrap();
+    assert!(!loaded.get_object((3, 0)).unwrap().as_dict().unwrap().has(b"Annots"));
+    assert!(loaded.get_object((4, 0)).is_err());
+    assert!(!loaded.objects.contains_key(&(4, 0)));
 }
 
 #[cfg(all(test, not(feature = "async")))]

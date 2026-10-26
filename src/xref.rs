@@ -82,6 +82,18 @@ impl Xref {
         }
     }
 
+    /// Add the entries of the cross-reference stream that a hybrid-reference file's table
+    /// names with `/XRefStm`. They replace the table's free entries, which hide the objects
+    /// in object streams from readers that only understand tables.
+    pub fn merge_hybrid(&mut self, xref: Xref) {
+        for (id, entry) in xref.entries {
+            match self.entries.get(&id) {
+                Some(XrefEntry::Normal { .. } | XrefEntry::Compressed { .. }) => {}
+                _ => self.insert(id, entry),
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear()
     }
