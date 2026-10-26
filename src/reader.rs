@@ -21,6 +21,7 @@ use tokio::pin;
 use crate::common_data_structures;
 use crate::encryption::{self, EncryptionState, PasswordAlgorithm};
 use crate::error::{DecompressError, ParseError, XrefError};
+use crate::linearization::Linearization;
 use crate::load_options::{FilterFunc, LoadOptions};
 use crate::object_stream::ObjectStream;
 use crate::parser;
@@ -777,6 +778,7 @@ impl<'a> Reader<'a> {
         if let Some(&max_loaded_id) = self.document.objects.keys().next_back() {
             self.document.max_id = self.document.max_id.max(max_loaded_id.0);
         }
+        self.document.linearization = self.read_linearization();
 
         // A filter may drop the page tree on purpose, so only rebuild for an unfiltered load.
         if filter_func.is_none()
@@ -1454,9 +1456,12 @@ impl<'a> Reader<'a> {
         let (xref_start, mut xref, mut trailer) = self.xref_and_trailer_at(xref_start)?;
         self.document.xref_start = xref_start;
         self.merge_hybrid_xref_stream(&mut xref, trailer.remove(b"XRefStm"))?;
+        let mut sections = 1;
 
-        // Read previous Xrefs of linearized or incremental updated document.
+        // Read previous Xrefs of linearized or incremental updated document. A `/Prev` that leads
+        // back to the section `startxref` names ends the chain like any other cycle.
         let mut already_seen = HashSet::new();
+        already_seen.insert(xref_start as i64);
         let mut prev_xref_start = trailer.remove(b"Prev");
         while let Some(prev) = prev_xref_start.and_then(|offset| offset.as_i64().ok()) {
             if already_seen.contains(&prev) {
@@ -1468,6 +1473,7 @@ impl<'a> Reader<'a> {
             }
 
             let (_, prev_xref, mut prev_trailer) = self.xref_and_trailer_at(prev as usize)?;
+            sections += 1;
             xref.merge(prev_xref);
             self.merge_hybrid_xref_stream(&mut xref, prev_trailer.remove(b"XRefStm"))?;
 
@@ -1481,6 +1487,7 @@ impl<'a> Reader<'a> {
             );
             xref.size = xref_entry_count;
         }
+        self.document.xref_section_count = sections;
 
         Ok((xref, trailer))
     }
@@ -1549,6 +1556,7 @@ impl<'a> Reader<'a> {
         // Zero marks the offset "unknown" so `Document::new_from_prev` omits `/Prev`.
         self.document.xref_start = 0;
         self.document.xref_recovery = Some(XrefRecovery::Reconstructed);
+        self.document.xref_section_count = 0;
 
         warn!(
             "reconstructed cross-reference table with {} objects by scanning for indirect objects",
@@ -1697,6 +1705,23 @@ impl<'a> Reader<'a> {
         };
         let end = (stream_pos + STREAM_KEYWORD_LEN + eol_len).checked_add(length)?;
         (buffer.len() >= end).then_some(end)
+    }
+
+    /// Read the linearization parameter dictionary: the first indirect object of the file, when
+    /// its header starts within the first 1024 bytes (ISO 32000-2 Annex F.2.2). The object is
+    /// read where it stands, whatever the cross-reference data says, because an incremental
+    /// update may free or replace it without making the file any less linearized as written.
+    fn read_linearization(&self) -> Option<Linearization> {
+        const FIRST_OBJECT_WINDOW: usize = 1024;
+        let window = &self.buffer[..self.buffer.len().min(FIRST_OBJECT_WINDOW)];
+        let start = (0..window.len()).find(|&position| {
+            window[position].is_ascii_digit()
+                && position > 0
+                && matches!(window[position - 1], b' ' | b'\t' | b'\r' | b'\n')
+                && Self::parse_object_header(&self.buffer[position..]).is_some()
+        })?;
+        let (id, object) = self.read_object(start, None, &mut HashSet::new()).ok()?;
+        Linearization::from_dictionary(id, object.as_dict().ok()?)
     }
 
     /// Parse an `N G obj` header; the byte after `obj` must end the token.
