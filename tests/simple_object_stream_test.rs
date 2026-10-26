@@ -69,3 +69,26 @@ fn test_object_stream_parses_objects_with_leading_whitespace() {
         panic!("object 11 should be a Dictionary, got {:?}", obj11);
     }
 }
+
+/// Comments are white space. qpdf writes one before every object of an object stream in
+/// QDF files, the first of them still in the index; another one here splits a pair.
+#[test]
+fn test_object_stream_parses_objects_after_comments() {
+    let obj2 = "<< /Type /Catalog /Pages 3 0 R >>\n";
+    let obj3 = "%% Object stream: object 3, index 1\n%% Page 1\n<< /Type /Page >>\n";
+    let index = format!(
+        "2 % the catalog\r0\n3 {}\n%% Object stream: object 2, index 0\n",
+        obj2.len()
+    );
+    let dict = dictionary! {
+        "Type" => "ObjStm",
+        "N" => 2,
+        "First" => index.len() as i64,
+    };
+    let stream = Stream::new(dict, format!("{index}{obj2}{obj3}").into_bytes());
+    let obj_stream = ObjectStream::new(&stream).expect("should parse object stream");
+
+    assert_eq!(obj_stream.objects.len(), 2);
+    let page = obj_stream.objects[&(3, 0)].as_dict().unwrap();
+    assert_eq!(page.get(b"Type").unwrap().as_name().unwrap(), b"Page");
+}

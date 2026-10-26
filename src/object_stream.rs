@@ -83,8 +83,10 @@ impl ObjectStream {
         let index_block = content.get(..first_offset).ok_or(Error::InvalidOffset(first_offset))?;
 
         let numbers_str = std::str::from_utf8(index_block).map_err(|e| Error::InvalidObjectStream(e.to_string()))?;
+        // A comment is white space, and runs to the end of its line.
         let numbers: Vec<_> = numbers_str
-            .split_whitespace()
+            .split(['\r', '\n'])
+            .flat_map(|line| line.split('%').next().unwrap_or_default().split_whitespace())
             .map(|number| u32::from_str(number).ok())
             .collect();
         let len = numbers.len() / 2 * 2; // Ensure only pairs.
@@ -102,16 +104,14 @@ impl ObjectStream {
                 warn!("out-of-bounds offset in object stream");
                 return None;
             }
-            // Skip leading whitespace — some PDFs emit newlines before objects in ObjStm
-            let mut start = offset;
-            while start < content.len() && content[start].is_ascii_whitespace() {
-                start += 1;
-            }
-            if start >= content.len() {
+            // Skip white space and comments before the object, such as the newlines some PDFs
+            // emit there and the comment that qpdf writes in QDF files.
+            let (rest, ()) = parser::space(&content[offset..]).ok()?;
+            if rest.is_empty() {
                 warn!("only whitespace after offset in object stream");
                 return None;
             }
-            let object = parser::direct_object(&content[start..])?;
+            let object = parser::direct_object(rest)?;
 
             Some(((id, 0), object))
         };

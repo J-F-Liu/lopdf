@@ -81,7 +81,7 @@ fn white_space(input: ParserInput) -> NomResult<()> {
 }
 
 /// White space and comments, as many as there are.
-fn space(mut input: ParserInput) -> NomResult<()> {
+pub(crate) fn space(mut input: ParserInput) -> NomResult<()> {
     loop {
         let blanks = input.iter().take_while(|&&c| is_whitespace(c)).count();
         if blanks > 0 {
