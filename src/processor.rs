@@ -285,6 +285,13 @@ impl Document {
 
     pub fn change_page_content(&mut self, page_id: ObjectId, content: Vec<u8>) -> Result<()> {
         let contents = self.get_dictionary(page_id).and_then(|page| page.get(b"Contents"))?;
+        let contents = match contents {
+            Object::Reference(id) => match self.get_object(*id) {
+                Ok(array @ Object::Array(_)) => array,
+                _ => contents,
+            },
+            _ => contents,
+        };
         match contents {
             Object::Reference(id) => self.change_content_stream(*id, content),
             Object::Array(arr) => {
