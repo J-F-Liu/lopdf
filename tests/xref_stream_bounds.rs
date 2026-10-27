@@ -186,7 +186,13 @@ fn index_start_outside_u32_does_not_displace_entries() {
     for index in ["0 2 4294967297 1 3 1", "0 2 -1 1 3 1"] {
         let pdf = xref_stream_pdf_with_index([1, 1, 1], index, &body);
         let doc = Document::load_mem(&pdf).unwrap();
-        let ids: Vec<_> = doc.reference_table.entries.keys().copied().collect();
+        let ids: Vec<_> = doc
+            .reference_table
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.is_normal())
+            .map(|(&id, _)| id)
+            .collect();
         assert_eq!(ids, [1, 3], "index: {index}");
         assert!(matches!(
             doc.reference_table.get(1),
@@ -254,7 +260,13 @@ fn unknown_entry_type_consumes_its_fields() {
     let body = [0, 0, 0, 1, 9, 0, 3, 1, 9, 1, 0, 0];
     let pdf = xref_stream_pdf([1, 1, 1], 4, &body);
     let doc = Document::load_mem(&pdf).unwrap();
-    let ids: Vec<_> = doc.reference_table.entries.keys().copied().collect();
+    let ids: Vec<_> = doc
+        .reference_table
+        .entries
+        .iter()
+        .filter(|(_, entry)| entry.is_normal())
+        .map(|(&id, _)| id)
+        .collect();
     assert_eq!(ids, [1, 3]);
     assert!(matches!(
         doc.reference_table.get(3),
