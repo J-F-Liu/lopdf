@@ -81,3 +81,28 @@ fn encode_writes_constructed_inline_image() {
     assert_eq!(decoded.operations.len(), 1);
     assert_eq!(decoded.operations[0].operands[0].as_stream().unwrap().content, b"EI ");
 }
+
+#[test]
+fn add_page_contents_appends_to_referenced_array() {
+    let mut doc = Document::with_version("1.5");
+    let s1 = doc.add_object(Stream::new(dictionary! {}, b"1 0 0 1 50 100 cm".to_vec()));
+    let s2 = doc.add_object(Stream::new(dictionary! {}, b"0 g".to_vec()));
+    let contents_id = doc.add_object(vec![s1.into(), s2.into()]);
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Contents" => contents_id,
+    });
+
+    doc.add_page_contents(page_id, b"0 0 m".to_vec()).unwrap();
+
+    let streams = doc.get_page_contents(page_id);
+    assert_eq!(streams.len(), 3);
+    assert_eq!(&streams[..2], [s1, s2]);
+    let ops: Vec<String> = Content::decode(&doc.get_page_content(page_id))
+        .unwrap()
+        .operations
+        .into_iter()
+        .map(|o| o.operator)
+        .collect();
+    assert_eq!(ops, ["cm", "g", "m"]);
+}
