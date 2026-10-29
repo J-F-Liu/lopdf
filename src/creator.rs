@@ -98,13 +98,16 @@ impl Document {
     /// Get the page's resource dictionary.
     ///
     /// Get Object that has the key "Resources".
+    ///
+    /// A page without its own `/Resources` gets a copy of the one it inherits from the page
+    /// tree, if any, so that adding a resource does not hide the inherited ones.
     pub fn get_or_create_resources(&mut self, page_id: ObjectId) -> Result<&mut Object> {
-        let resources_id = {
+        let (resources_id, inherited) = {
             let page = self.get_object(page_id).and_then(Object::as_dict)?;
             if page.has(b"Resources") {
-                page.get(b"Resources").and_then(Object::as_reference).ok()
+                (page.get(b"Resources").and_then(Object::as_reference).ok(), None)
             } else {
-                None
+                (None, self.inherited_resources(page).ok().flatten().cloned())
             }
         };
         if let Some(res_id) = resources_id {
@@ -112,7 +115,7 @@ impl Document {
         }
         let page = self.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
         if !page.has(b"Resources") {
-            page.set(b"Resources", Dictionary::new());
+            page.set(b"Resources", inherited.unwrap_or_default());
         }
         page.get_mut(b"Resources")
     }

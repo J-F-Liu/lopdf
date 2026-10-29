@@ -902,7 +902,7 @@ impl Document {
 
     /// The `/Resources` dictionary of a page tree node or, when it has none, the one it
     /// inherits from the nearest ancestor that has one (ISO 32000-1, 7.7.3.4).
-    fn inherited_resources<'a>(&'a self, mut node: &'a Dictionary) -> Result<Option<&'a Dictionary>> {
+    pub(crate) fn inherited_resources<'a>(&'a self, mut node: &'a Dictionary) -> Result<Option<&'a Dictionary>> {
         let mut seen = HashSet::new();
         loop {
             if node.has(b"Resources") {
