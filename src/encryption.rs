@@ -661,7 +661,11 @@ impl EncryptionState {
         encrypted.set(b"V", Object::Integer(self.version));
         encrypted.set(b"R", Object::Integer(self.revision));
 
-        if let Some(key_length) = self.key_length {
+        // PDF 2.0 deprecates /Length for V 5, whose key is always 256 bits, but readers such as
+        // LibreOffice still need it: without it they decrypt to blank pages.
+        if self.version >= 5 {
+            encrypted.set(b"Length", Object::Integer(256));
+        } else if let Some(key_length) = self.key_length {
             encrypted.set(b"Length", Object::Integer(key_length as i64));
         }
 
@@ -683,6 +687,11 @@ impl EncryptionState {
 
                 filter.set(b"Type", Object::Name(b"CryptFilter".to_vec()));
                 filter.set(b"CFM", Object::Name(crypt_filter.method().to_vec()));
+
+                // The AESV3 key length in bytes, as qpdf writes it.
+                if crypt_filter.method() == b"AESV3" {
+                    filter.set(b"Length", Object::Integer(32));
+                }
 
                 filters.set(name.to_vec(), Object::Dictionary(filter));
             }
@@ -864,7 +873,7 @@ mod tests {
     use super::rc4::Rc4;
     use crate::creator::tests::create_document;
     use crate::encryption::{Aes128CryptFilter, Aes256CryptFilter, CryptFilter};
-    use crate::{EncryptionState, EncryptionVersion, Permissions};
+    use crate::{EncryptionState, EncryptionVersion, Object, Permissions};
     use rand::RngExt as _;
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -959,6 +968,60 @@ mod tests {
             assert!(document.encrypt(&state).is_ok());
             assert!(document.decrypt("user").is_ok());
         }
+    }
+
+    /// A V 5 encryption dictionary names its key lengths: /Length 256 in /Encrypt and
+    /// /Length 32 in the AESV3 crypt filter. LibreOffice shows blank pages without them.
+    #[test]
+    fn encode_v5_writes_key_lengths() {
+        let document = create_document();
+        let crypt_filters = |filter: Arc<dyn CryptFilter>| BTreeMap::from([(b"StdCF".to_vec(), filter)]);
+        let file_encryption_key = [7u8; 32];
+
+        let v5 = EncryptionState::try_from(EncryptionVersion::V5 {
+            encrypt_metadata: true,
+            crypt_filters: crypt_filters(Arc::new(Aes256CryptFilter)),
+            file_encryption_key: &file_encryption_key,
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: "user",
+            permissions: Permissions::all(),
+        })
+        .unwrap()
+        .encode()
+        .unwrap();
+        assert_eq!(v5.get(b"Length").and_then(Object::as_i64).ok(), Some(256));
+        let std_cf = v5
+            .get(b"CF")
+            .and_then(Object::as_dict)
+            .and_then(|cf| cf.get(b"StdCF"))
+            .and_then(Object::as_dict)
+            .unwrap();
+        assert_eq!(std_cf.get(b"Length").and_then(Object::as_i64).ok(), Some(32));
+
+        // V 4 keeps what it wrote before: /Length 128, and none in an AESV2 filter.
+        let v4 = EncryptionState::try_from(EncryptionVersion::V4 {
+            document: &document,
+            encrypt_metadata: true,
+            crypt_filters: crypt_filters(Arc::new(Aes128CryptFilter)),
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: "owner",
+            user_password: "user",
+            permissions: Permissions::all(),
+        })
+        .unwrap()
+        .encode()
+        .unwrap();
+        assert_eq!(v4.get(b"Length").and_then(Object::as_i64).ok(), Some(128));
+        let std_cf = v4
+            .get(b"CF")
+            .and_then(Object::as_dict)
+            .and_then(|cf| cf.get(b"StdCF"))
+            .and_then(Object::as_dict)
+            .unwrap();
+        assert!(std_cf.get(b"Length").is_err());
     }
 
     #[test]
