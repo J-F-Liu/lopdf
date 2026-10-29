@@ -647,7 +647,17 @@ impl Writer {
                 let mut buf = itoa::Buffer::new();
                 file.write_all(buf.format(*value).as_bytes())
             }
-            Real(value) => write!(file, "{value}"),
+            // `Display` writes every digit and never an exponent, which PDF syntax does not have,
+            // but it drops the point of a whole number (`0` for `0.0`), which would read back as
+            // an integer. NaN and the infinities have no PDF spelling and are left as they print.
+            Real(value) => {
+                let text = value.to_string();
+                file.write_all(text.as_bytes())?;
+                if value.is_finite() && !text.contains('.') {
+                    file.write_all(b".0")?;
+                }
+                Ok(())
+            }
             Name(name) => Writer::write_name(file, name),
             String(text, format) => Writer::write_string(file, text, format, style),
             Array(array) => Writer::write_array(file, array, style),
