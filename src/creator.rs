@@ -154,7 +154,11 @@ impl Document {
             if !resources.has(b"ExtGState") {
                 resources.set("ExtGState", Dictionary::new());
             }
-            let states = resources.get_mut(b"ExtGState").and_then(Object::as_dict_mut)?;
+            let mut states = resources.get_mut(b"ExtGState")?;
+            if let Object::Reference(states_id) = *states {
+                states = self.get_object_mut(states_id)?;
+            }
+            let states = Object::as_dict_mut(states)?;
             states.set(gs_name, Object::Reference(gs_id));
         }
         Ok(())
