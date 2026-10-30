@@ -701,13 +701,23 @@ impl Document {
     }
 
     /// Get resources used by a page.
+    ///
+    /// Returns the nearest `/Resources` when it is a dictionary written directly into the page
+    /// or one of its ancestors in the page tree (ISO 32000-1, 7.7.3.4), and the ids of every
+    /// `/Resources` the page and its ancestors refer to.
     pub fn get_page_resources(&self, page_id: ObjectId) -> Result<(Option<&Dictionary>, Vec<ObjectId>)> {
-        fn collect_resources(
-            page_node: &Dictionary, resource_ids: &mut Vec<ObjectId>, doc: &Document,
-            already_seen: &mut HashSet<ObjectId>,
+        fn collect_resources<'a>(
+            page_node: &'a Dictionary, resource_dict: &mut Option<&'a Dictionary>, resource_ids: &mut Vec<ObjectId>,
+            doc: &'a Document, already_seen: &mut HashSet<ObjectId>,
         ) -> Result<()> {
-            if let Ok(resource_id) = page_node.get(b"Resources").and_then(Object::as_reference) {
-                resource_ids.push(resource_id);
+            match page_node.get(b"Resources") {
+                Ok(Object::Reference(resource_id)) => resource_ids.push(*resource_id),
+                // Callers look at this dictionary before the referenced ones, so an ancestor's is
+                // only taken when nothing nearer has `/Resources`.
+                Ok(Object::Dictionary(dict)) if resource_dict.is_none() && resource_ids.is_empty() => {
+                    *resource_dict = Some(dict);
+                }
+                _ => {}
             }
             if let Ok(parent_id) = page_node.get(b"Parent").and_then(Object::as_reference) {
                 if already_seen.contains(&parent_id) {
@@ -718,7 +728,7 @@ impl Document {
                 }
                 already_seen.insert(parent_id);
                 let parent_dict = doc.get_dictionary(parent_id)?;
-                collect_resources(parent_dict, resource_ids, doc, already_seen)?;
+                collect_resources(parent_dict, resource_dict, resource_ids, doc, already_seen)?;
             }
             Ok(())
         }
@@ -726,8 +736,7 @@ impl Document {
         let mut resource_dict = None;
         let mut resource_ids = Vec::new();
         if let Ok(page) = self.get_dictionary(page_id) {
-            resource_dict = page.get(b"Resources").and_then(Object::as_dict).ok();
-            collect_resources(page, &mut resource_ids, self, &mut HashSet::new())?;
+            collect_resources(page, &mut resource_dict, &mut resource_ids, self, &mut HashSet::new())?;
         }
         Ok((resource_dict, resource_ids))
     }
