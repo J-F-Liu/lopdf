@@ -32,8 +32,13 @@ mod chrono_impl {
                     .from_utc_datetime(&date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()))
             };
 
+            // A date without the UT offset is GMT, like a date without a time of day.
+            let from_utc = |date: NaiveDateTime| FixedOffset::east_opt(0).unwrap().from_utc_datetime(&date);
+
             DateTime::parse_from_str(&value.0, "%Y%m%d%H%M%S%#z")
                 .or_else(|_| DateTime::parse_from_str(&value.0, "%Y%m%d%H%M%#z"))
+                .or_else(|_| NaiveDateTime::parse_from_str(&value.0, "%Y%m%d%H%M%S").map(from_utc))
+                .or_else(|_| NaiveDateTime::parse_from_str(&value.0, "%Y%m%d%H%M").map(from_utc))
                 .or_else(|_| NaiveDate::parse_from_str(&value.0, "%Y%m%d").map(from_date))
         }
     }
@@ -97,6 +102,8 @@ mod jiff_impl {
                 .or_else(|_| DateTime::strptime("%Y%m%d%H%M%SZ", &value.0).and_then(|dt| dt.in_tz("UTC")))
                 .or_else(|_| Zoned::strptime("%Y%m%d%H%M%#z", &value.0))
                 .or_else(|_| DateTime::strptime("%Y%m%d%H%MZ", &value.0).and_then(|dt| dt.in_tz("UTC")))
+                .or_else(|_| DateTime::strptime("%Y%m%d%H%M%S", &value.0).and_then(|dt| dt.in_tz("GMT")))
+                .or_else(|_| DateTime::strptime("%Y%m%d%H%M", &value.0).and_then(|dt| dt.in_tz("GMT")))
                 .or_else(|_| Date::strptime("%Y%m%d", &value.0).and_then(|dt| dt.at(0, 0, 0, 0).in_tz("GMT")))
         }
     }
@@ -146,8 +153,8 @@ mod time_impl {
         type Error = time::Error;
 
         fn try_from(value: super::DateTime) -> Result<OffsetDateTime, Self::Error> {
-            use time::Date;
             use time::format_description::parse_borrowed;
+            use time::{Date, PrimitiveDateTime};
 
             // A `Z` means the time is UT (PDF 32000-1 §7.9.4).
             let text = match value.0.strip_suffix('Z') {
@@ -158,10 +165,17 @@ mod time_impl {
                 Ok(OffsetDateTime::parse(&text, &parse_borrowed::<3>(format)?)?)
             };
 
-            // Like the chrono and jiff conversions, also accept a date without seconds or
-            // without a time of day.
+            // A date without the UT offset is GMT, like a date without a time of day.
+            let parse_utc = |format: &str| -> Result<OffsetDateTime, Self::Error> {
+                Ok(PrimitiveDateTime::parse(&text, &parse_borrowed::<3>(format)?)?.assume_utc())
+            };
+
+            // Like the chrono and jiff conversions, also accept a date without seconds, without
+            // the UT offset or without a time of day.
             parse("[year][month][day][hour][minute][second][offset_hour sign:mandatory][offset_minute]")
                 .or_else(|_| parse("[year][month][day][hour][minute][offset_hour sign:mandatory][offset_minute]"))
+                .or_else(|_| parse_utc("[year][month][day][hour][minute][second]"))
+                .or_else(|_| parse_utc("[year][month][day][hour][minute]"))
                 .or_else(|_| {
                     let date = Date::parse(&text, &parse_borrowed::<3>("[year][month][day]")?)?;
                     Ok(date.midnight().assume_utc())
@@ -426,4 +440,56 @@ fn parse_datetime_time_missing_time() {
     let dt: OffsetDateTime = text.as_datetime().unwrap().try_into().unwrap();
     let date = Date::from_calendar_date(2004, Month::February, 29).unwrap();
     assert_eq!(dt, date.midnight().assume_utc());
+}
+
+/// A date without the UT offset is read as GMT, as a date without a time of day
+/// already is. Producers often leave the offset out.
+#[cfg(feature = "chrono")]
+#[test]
+fn parse_datetime_offset_missing_chrono() {
+    use chrono::prelude::*;
+
+    let expected = Utc.with_ymd_and_hms(2024, 1, 15, 12, 30, 45).unwrap().fixed_offset();
+    let text = Object::string_literal("D:20240115123045");
+    let dt: Option<DateTime<FixedOffset>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert_eq!(dt, Some(expected));
+
+    let expected = Utc.with_ymd_and_hms(2024, 1, 15, 12, 30, 0).unwrap().fixed_offset();
+    let text = Object::string_literal("D:202401151230");
+    let dt: Option<DateTime<FixedOffset>> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    assert_eq!(dt, Some(expected));
+}
+
+#[cfg(feature = "jiff")]
+#[test]
+fn parse_datetime_offset_missing_jiff() {
+    use jiff::{Timestamp, Zoned};
+
+    let text = Object::string_literal("D:20240115123045");
+    let dt: Option<Zoned> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    let expected: Timestamp = "2024-01-15T12:30:45Z".parse().unwrap();
+    assert_eq!(dt.map(|dt| dt.timestamp()), Some(expected));
+
+    let text = Object::string_literal("D:202401151230");
+    let dt: Option<Zoned> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    let expected: Timestamp = "2024-01-15T12:30:00Z".parse().unwrap();
+    assert_eq!(dt.map(|dt| dt.timestamp()), Some(expected));
+}
+
+#[cfg(feature = "time")]
+#[test]
+fn parse_datetime_offset_missing_time() {
+    use time::{Date, Month, OffsetDateTime, Time};
+
+    let date = Date::from_calendar_date(2024, Month::January, 15).unwrap();
+
+    let text = Object::string_literal("D:20240115123045");
+    let dt: Option<OffsetDateTime> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    let expected = date.with_time(Time::from_hms(12, 30, 45).unwrap()).assume_utc();
+    assert_eq!(dt, Some(expected));
+
+    let text = Object::string_literal("D:202401151230");
+    let dt: Option<OffsetDateTime> = text.as_datetime().and_then(|dt| dt.try_into().ok());
+    let expected = date.with_time(Time::from_hms(12, 30, 0).unwrap()).assume_utc();
+    assert_eq!(dt, Some(expected));
 }
