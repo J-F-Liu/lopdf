@@ -103,11 +103,8 @@ impl IncrementalDocument {
                 resources.set("XObject", Dictionary::new());
             }
             let mut xobjects = resources.get_mut(b"XObject")?;
-            if let Object::Reference(xobjects_ref_id) = xobjects {
-                let mut xobjects_id = *xobjects_ref_id;
-                while let Object::Reference(id) = self.new_document.get_object(xobjects_id)? {
-                    xobjects_id = *id;
-                }
+            if let Object::Reference(xobjects_id) = *xobjects {
+                self.opt_clone_object_to_new_document(xobjects_id)?;
                 xobjects = self.new_document.get_object_mut(xobjects_id)?;
             }
             let xobjects = Object::as_dict_mut(xobjects)?;

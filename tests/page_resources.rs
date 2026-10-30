@@ -147,3 +147,49 @@ fn incremental_add_graphics_state_to_referenced_ext_g_state() {
     let prev_states = incremental.get_prev_documents().get_dictionary(states_id).unwrap();
     assert!(!prev_states.has(b"GS1"));
 }
+
+/// A page whose `/Resources` has `/XObject` as a reference to another object holding `X0`.
+/// Returns the document, the page, the `/XObject` dictionary and the `X0` XObject.
+fn page_with_referenced_xobjects() -> (Document, ObjectId, ObjectId, ObjectId) {
+    let mut doc = Document::with_version("1.7");
+    let x0_id = doc.add_object(dictionary! {});
+    let xobjects_id = doc.add_object(dictionary! { "X0" => x0_id });
+    let pages_id = doc.new_object_id();
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Resources" => dictionary! { "XObject" => xobjects_id },
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page_id.into()],
+            "Count" => 1,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    (doc, page_id, xobjects_id, x0_id)
+}
+
+#[test]
+fn incremental_add_xobject_to_referenced_xobjects() {
+    let (mut doc, page_id, xobjects_id, x0_id) = page_with_referenced_xobjects();
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).unwrap();
+    let prev = Document::load_mem(&bytes).unwrap();
+    let mut incremental = IncrementalDocument::create_from(bytes, prev);
+
+    let x1_id = incremental.new_document.add_object(dictionary! {});
+    incremental.add_xobject(page_id, "X1", x1_id).unwrap();
+
+    let resources = page_resources(&incremental.new_document, page_id);
+    assert_eq!(resources.get(b"XObject").unwrap(), &Object::Reference(xobjects_id));
+    // The `/XObject` dictionary is copied into the update, the previous document is unchanged.
+    let xobjects = incremental.new_document.get_dictionary(xobjects_id).unwrap();
+    assert_eq!(xobjects.get(b"X0").unwrap(), &Object::Reference(x0_id));
+    assert_eq!(xobjects.get(b"X1").unwrap(), &Object::Reference(x1_id));
+    let prev_xobjects = incremental.get_prev_documents().get_dictionary(xobjects_id).unwrap();
+    assert!(!prev_xobjects.has(b"X1"));
+}
