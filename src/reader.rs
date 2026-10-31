@@ -349,8 +349,8 @@ pub struct Reader<'a> {
     pub strict: bool,                             // Reject non-conforming PDFs when true
     /// Maximum decompressed size, in bytes, allowed for any single stream
     /// (object streams and cross-reference streams) decoded during loading.
-    /// `None` (the default) applies no limit; set it to guard against
-    /// decompression bombs. See [`crate::LoadOptions`].
+    /// Defaults to [`crate::DEFAULT_MAX_DECOMPRESSED_SIZE`]; `None` applies no
+    /// limit. See [`crate::LoadOptions`].
     pub max_decompressed_size: Option<usize>,
     /// Rebuild the cross-reference table by scanning before reading it as written. See
     /// [`LoadOptions::force_reconstruct`].
@@ -506,7 +506,8 @@ const STANDARD_INFO_KEYS: &[&[u8]] = &[
 ];
 
 impl<'a> Reader<'a> {
-    /// A reader with the default load options: no password, lenient, unlimited.
+    /// A reader with the default load options: no password, lenient, and the
+    /// default decompression bound.
     ///
     /// This deliberately defers to `LoadOptions::default()`, so a field added
     /// there later is picked up here rather than silently reset to a stale

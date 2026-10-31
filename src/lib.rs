@@ -49,7 +49,7 @@ pub use encryption::{EncryptionState, EncryptionVersion, Permissions};
 pub use error::{DecompressError, Error, ParseError, Result};
 pub use incremental_document::IncrementalDocument;
 pub use linearization::Linearization;
-pub use load_options::{FilterFunc, LoadOptions};
+pub use load_options::{DEFAULT_MAX_DECOMPRESSED_SIZE, FilterFunc, LoadOptions};
 pub use object_stream::{ObjectStream, ObjectStreamBuilder, ObjectStreamConfig};
 pub use outlines::Outline;
 pub use reader::{PdfMetadata, Reader};

@@ -10,6 +10,7 @@ mod sync_tests {
         assert!(opts.password.is_none());
         assert!(opts.filter.is_none());
         assert!(!opts.strict);
+        assert_eq!(opts.max_decompressed_size, Some(lopdf::DEFAULT_MAX_DECOMPRESSED_SIZE));
     }
 
     #[test]
@@ -18,6 +19,7 @@ mod sync_tests {
         assert_eq!(opts.password.as_deref(), Some("secret"));
         assert!(opts.filter.is_none());
         assert!(!opts.strict);
+        assert_eq!(opts.max_decompressed_size, Some(lopdf::DEFAULT_MAX_DECOMPRESSED_SIZE));
     }
 
     #[test]
