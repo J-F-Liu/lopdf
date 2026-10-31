@@ -1,4 +1,6 @@
-use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, dictionary};
+use lopdf::content::{Content, Operation};
+use lopdf::{Dictionary, Document, IncrementalDocument, Object, ObjectId, Stream, dictionary};
+use std::collections::BTreeMap;
 
 /// A page with no `/Resources` of its own under a `/Pages` node whose `/Resources`
 /// (an indirect object) holds a font `F1`. Returns the document, the page and the font.
@@ -192,4 +194,60 @@ fn incremental_add_xobject_to_referenced_xobjects() {
     assert_eq!(xobjects.get(b"X1").unwrap(), &Object::Reference(x1_id));
     let prev_xobjects = incremental.get_prev_documents().get_dictionary(xobjects_id).unwrap();
     assert!(!prev_xobjects.has(b"X1"));
+}
+
+/// The page from `page_inheriting_font`, but with the inherited `/Resources` written directly
+/// into the `/Pages` node, and a content stream that shows `Hello` in `F1`.
+fn page_inheriting_font_directly() -> (Document, ObjectId) {
+    let (mut doc, page_id, font_id) = page_inheriting_font();
+    let content = Content {
+        operations: vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Tj", vec![Object::string_literal("Hello")]),
+            Operation::new("ET", vec![]),
+        ],
+    };
+    let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+    let page = doc.get_dictionary_mut(page_id).unwrap();
+    page.set("Contents", content_id);
+    let pages_id = page.get(b"Parent").and_then(Object::as_reference).unwrap();
+    doc.get_dictionary_mut(pages_id)
+        .unwrap()
+        .set("Resources", dictionary! { "Font" => dictionary! { "F1" => font_id } });
+    (doc, page_id)
+}
+
+fn base_font<'a>(fonts: &BTreeMap<Vec<u8>, &'a Dictionary>, name: &[u8]) -> &'a [u8] {
+    fonts[name].get(b"BaseFont").and_then(Object::as_name).unwrap()
+}
+
+#[test]
+fn page_fonts_from_inherited_resources_dictionary() {
+    let (mut doc, page_id) = page_inheriting_font_directly();
+    let fonts = doc.get_page_fonts(page_id).unwrap();
+    assert_eq!(fonts.len(), 1);
+    assert_eq!(base_font(&fonts, b"F1"), b"Helvetica");
+
+    assert_eq!(doc.extract_text(&[1]).unwrap(), "Hello\n");
+    doc.replace_text(1, "Hello", "World", None).unwrap();
+    assert_eq!(doc.extract_text(&[1]).unwrap(), "World\n");
+}
+
+/// The page's own `/Resources` still comes first when the inherited one is written directly.
+#[test]
+fn page_fonts_prefer_own_resources() {
+    let (mut doc, page_id) = page_inheriting_font_directly();
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Courier",
+    });
+    let resources_id = doc.add_object(dictionary! {
+        "Font" => dictionary! { "F1" => font_id },
+    });
+    doc.get_dictionary_mut(page_id).unwrap().set("Resources", resources_id);
+
+    let fonts = doc.get_page_fonts(page_id).unwrap();
+    assert_eq!(base_font(&fonts, b"F1"), b"Courier");
 }
