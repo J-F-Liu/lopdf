@@ -4,6 +4,7 @@ use crate::parser::cmap_parser::parse;
 use log::error;
 use rangemap::RangeInclusiveMap;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use thiserror::Error;
 
 /// Unicode Cmap is implemented by 4 maps.
@@ -15,7 +16,10 @@ use thiserror::Error;
 pub struct ToUnicodeCMap {
     pub bf_ranges: [RangeInclusiveMap<SourceCode, BfRangeTarget>; 4],
     codespace_ranges: Vec<(SourceCode, SourceCode, CodeLen)>,
-    reverse_map: Option<HashMap<Vec<u16>, Vec<ReverseCMapEntry>>>,
+    /// Built lazily by [`Self::get_source_codes_for_unicode`]: decoding (the
+    /// common case, e.g. text extraction) never needs it, and a wide `bfrange`
+    /// would otherwise allocate an entry per source code at parse time.
+    reverse_map: OnceLock<HashMap<Vec<u16>, Vec<ReverseCMapEntry>>>,
 }
 /// Represents the information needed to map a Unicode sequence back to a source code.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -47,7 +51,7 @@ impl ToUnicodeCMap {
         ToUnicodeCMap {
             bf_ranges: [(); 4].map(|_| RangeInclusiveMap::new()),
             codespace_ranges: Vec::new(),
-            reverse_map: None,
+            reverse_map: OnceLock::new(),
         }
     }
 
@@ -89,11 +93,17 @@ impl ToUnicodeCMap {
             }
         }
 
+        Ok(cmap)
+    }
+
+    /// Build the Unicode-to-source-code map from `bf_ranges`. Called at most
+    /// once, on the first reverse lookup; see `reverse_map`.
+    fn build_reverse_map(&self) -> HashMap<Vec<u16>, Vec<ReverseCMapEntry>> {
         let mut rev_map = HashMap::new();
 
-        for code_len_idx in 0..cmap.bf_ranges.len() {
+        for code_len_idx in 0..self.bf_ranges.len() {
             let code_len = (code_len_idx + 1) as u8;
-            for (range, target) in cmap.bf_ranges[code_len_idx].iter() {
+            for (range, target) in self.bf_ranges[code_len_idx].iter() {
                 for src_code in range.clone() {
                     let unicode_sequence: Option<Vec<u16>> = match target {
                         BfRangeTarget::UTF16CodePoint { offset } => {
@@ -142,9 +152,7 @@ impl ToUnicodeCMap {
                 }
             }
         }
-        cmap.reverse_map = Some(rev_map);
-
-        Ok(cmap)
+        rev_map
     }
 
     pub(super) fn get_for_decoding(&self, code: SourceCode, code_len: CodeLen) -> Option<Vec<u16>> {
@@ -205,6 +213,10 @@ impl ToUnicodeCMap {
             error!("Code lenght should be between l and 4 bytes, got {code_len}, ignoring");
             return;
         }
+        // A later mapping must not be hidden by a reverse map built from earlier ones.
+        if self.reverse_map.get().is_some() {
+            self.reverse_map = OnceLock::new();
+        }
         self.bf_ranges[(code_len - 1) as usize].insert(src_code_lo..=src_code_hi, target)
     }
 
@@ -222,12 +234,11 @@ impl ToUnicodeCMap {
     /// Gets the source code(s) for a given Unicode sequence.
     /// Prioritizes shorter byte sequences if multiple mappings exist.
     pub fn get_source_codes_for_unicode(&self, unicode_sequence: &[u16]) -> Option<&[ReverseCMapEntry]> {
-        if let Some(map) = &self.reverse_map {
-            // TODO: Add prioritization logic if needed (e.g., prefer shorter code_len)
-            map.get(unicode_sequence).map(|v| v.as_slice())
-        } else {
-            None
-        }
+        // TODO: Add prioritization logic if needed (e.g., prefer shorter code_len)
+        self.reverse_map
+            .get_or_init(|| self.build_reverse_map())
+            .get(unicode_sequence)
+            .map(|v| v.as_slice())
     }
 }
 
@@ -253,6 +264,26 @@ mod tests {
         cmap.put_char(char_code, 2, char_value.clone());
 
         assert_eq!(cmap.get(char_code, 2), Some(char_value))
+    }
+
+    #[test]
+    fn reverse_map_is_built_lazily_and_invalidated_by_put() {
+        let mut cmap = ToUnicodeCMap::new();
+        cmap.put_char(0x01, 1, vec![0x0041]);
+        // Decoding must not pay for the reverse map.
+        assert!(cmap.reverse_map.get().is_none());
+        assert_eq!(cmap.get(0x01, 1), Some(vec![0x0041]));
+        assert!(cmap.reverse_map.get().is_none());
+
+        let entries = cmap.get_source_codes_for_unicode(&[0x0041]).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].source_code, 0x01);
+        assert!(cmap.reverse_map.get().is_some());
+
+        // A mapping added after the build is visible on the next lookup.
+        cmap.put_char(0x02, 1, vec![0x0042]);
+        let entries = cmap.get_source_codes_for_unicode(&[0x0042]).unwrap();
+        assert_eq!(entries[0].source_code, 0x02);
     }
 
     #[test]
