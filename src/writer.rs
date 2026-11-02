@@ -4,7 +4,7 @@ use std::path::Path;
 use std::vec;
 
 use super::Object::*;
-use super::{Dictionary, Document, Object, Stream, StringFormat};
+use super::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use crate::encryption;
 use crate::{IncrementalDocument, xref::*};
 
@@ -169,7 +169,6 @@ impl Document {
         &mut self, target: &mut W, options: crate::SaveOptions, style: Style,
     ) -> Result<()> {
         use crate::ObjectStream;
-        use std::collections::HashMap;
 
         // Ensure PDF version is at least 1.5 (required for object streams)
         if self.version.as_str() < "1.5" {
@@ -191,10 +190,14 @@ impl Document {
         let mut xref = Xref::new(self.max_id.saturating_add(1), self.reference_table.cross_reference_type);
         self.write_header(&mut target, style)?;
 
-        // Organize objects into streams
-        let mut object_streams: Vec<crate::ObjectStream> = Vec::new();
+        // Organize objects into streams. Only object ids are collected here:
+        // cloning every compressible object into an owning ObjectStream (the
+        // previous approach) duplicated all of them for the duration of the
+        // save. `self.objects` iterates in id order, so each group is already
+        // sorted for the stream's offset table and xref indices.
+        let max_per_stream = options.object_stream_config.max_objects_per_stream.max(1);
+        let mut object_stream_groups: Vec<Vec<ObjectId>> = Vec::new();
         let mut objects_to_write_directly = Vec::new();
-        let mut object_to_stream_map = HashMap::new();
 
         // Categorize objects
         for (&(id, generation), object) in &self.objects {
@@ -208,27 +211,13 @@ impl Document {
             }
 
             if generation == 0 && ObjectStream::can_be_compressed((id, generation), object, self) {
-                // Object can be compressed
-                // Find or create an object stream for it
-                let stream_index = object_streams.len().saturating_sub(1);
-
-                if object_streams.is_empty()
-                    || object_streams[stream_index].object_count()
-                        >= options.object_stream_config.max_objects_per_stream
+                if object_stream_groups
+                    .last()
+                    .is_none_or(|group: &Vec<ObjectId>| group.len() >= max_per_stream)
                 {
-                    // Create new object stream
-                    let new_stream = ObjectStream::builder()
-                        .max_objects(options.object_stream_config.max_objects_per_stream)
-                        .compression_level(options.object_stream_config.compression_level)
-                        .build();
-                    object_streams.push(new_stream);
+                    object_stream_groups.push(Vec::new());
                 }
-
-                let stream_index = object_streams.len() - 1;
-                object_streams[stream_index]
-                    .add_object((id, generation), object.clone())
-                    .ok();
-                object_to_stream_map.insert((id, generation), stream_index);
+                object_stream_groups.last_mut().unwrap().push((id, generation));
             } else {
                 // Object must be written directly
                 objects_to_write_directly.push(((id, generation), object));
@@ -242,15 +231,18 @@ impl Document {
 
         // Write object streams
         let mut last_id = self.max_id;
-        for obj_stream in object_streams.into_iter() {
+        for group in &object_stream_groups {
             let stream_id = Self::next_generated_id(&mut last_id)?;
-            let stream_obj = obj_stream
-                .to_styled_stream_object(style)
-                .map_err(std::io::Error::other)?;
+            let stream_obj = Self::build_object_stream(
+                group,
+                &self.objects,
+                style,
+                options.object_stream_config.compression_level,
+            )?;
 
             // Record compressed objects in xref. The index must match the order
-            // the stream actually stores its members in.
-            for (index_in_stream, obj_id) in obj_stream.sorted_object_ids().iter().enumerate() {
+            // the stream actually stores its members in (id order, as grouped).
+            for (index_in_stream, obj_id) in group.iter().enumerate() {
                 xref.insert(
                     obj_id.0,
                     XrefEntry::Compressed {
@@ -266,6 +258,57 @@ impl Document {
 
         let xref_start = target.bytes_written;
         Self::write_xref_and_trailer(&mut target, &mut xref, xref_start, self.trailer.clone(), last_id, style)
+    }
+
+    /// Build one object stream holding `members` (in id order), borrowing the
+    /// objects from `objects` instead of cloning them into an owning
+    /// `ObjectStream`. Members are serialized twice - once into a reusable
+    /// scratch buffer to measure the offset table, then directly into the
+    /// stream content - so at most one member's serialization is held besides
+    /// the content itself. Output bytes match
+    /// `ObjectStream::to_styled_stream_object` for the same members and style.
+    fn build_object_stream(
+        members: &[ObjectId], objects: &std::collections::BTreeMap<ObjectId, Object>, style: Style,
+        compression_level: u32,
+    ) -> Result<Stream> {
+        // First pass: member offsets, measured with one reusable buffer.
+        let mut offsets = Vec::with_capacity(members.len());
+        let mut scratch = Vec::new();
+        let mut current_offset = 0usize;
+        for id in members {
+            scratch.clear();
+            Writer::write_styled_object(&mut scratch, &objects[id], style)?;
+            offsets.push(current_offset);
+            current_offset += scratch.len() + 1; // +1 for the separator below
+        }
+
+        let mut table = std::string::String::new();
+        for (id, offset) in members.iter().zip(&offsets) {
+            table.push_str(&format!("{} {} ", id.0, offset));
+        }
+        let first_offset = table.len();
+
+        // Second pass: serialize straight into the content buffer.
+        let mut content = Vec::with_capacity(first_offset + current_offset);
+        content.extend_from_slice(table.as_bytes());
+        for id in members {
+            Writer::write_styled_object(&mut content, &objects[id], style)?;
+            content.push(b' ');
+        }
+
+        let dict = dictionary! {
+            "Type" => "ObjStm",
+            "N" => members.len() as i64,
+            "First" => first_offset as i64,
+        };
+        let mut stream = Stream::new(dict, content);
+        if compression_level > 0 {
+            let compressed =
+                crate::object::zlib_compress(&stream.content, compression_level).map_err(std::io::Error::other)?;
+            stream.dict.set("Filter", "FlateDecode");
+            stream.set_content(compressed);
+        }
+        Ok(stream)
     }
 
     /// Write the Cross Reference Stream.
@@ -997,6 +1040,40 @@ fn save_document() {
     assert!(file_path.is_file());
     // Check if the file is above 400 bytes (should be about 610 bytes)
     assert!(file_path.metadata().unwrap().len() > 400);
+}
+
+#[test]
+fn build_object_stream_matches_object_stream_builder_output() {
+    // The borrowing save path must emit exactly what the owning
+    // ObjectStream builder emits for the same members, style, and level.
+    use std::collections::BTreeMap;
+
+    let mut objects = BTreeMap::new();
+    let mut builder = crate::ObjectStream::builder()
+        .max_objects(100)
+        .compression_level(6)
+        .build();
+    for i in 0..5i64 {
+        let object = Object::Dictionary(dictionary! {
+            "Type" => "Annot",
+            "Index" => i,
+            "Rect" => vec![Object::Integer(i), Object::Integer(i + 1)],
+        });
+        let id = ((i + 1) as u32, 0u16);
+        builder.add_object(id, object.clone()).unwrap();
+        objects.insert(id, object);
+    }
+    // Include a nested member so serialization is not trivially flat.
+    let nested_id = (6u32, 0u16);
+    let nested = Object::Array(vec![Object::Dictionary(dictionary! { "K" => "V" }), Object::Integer(7)]);
+    builder.add_object(nested_id, nested.clone()).unwrap();
+    objects.insert(nested_id, nested);
+
+    let members: Vec<ObjectId> = objects.keys().copied().collect();
+    let expected = builder.to_styled_stream_object(Style::default()).unwrap();
+    let actual = Document::build_object_stream(&members, &objects, Style::default(), 6).unwrap();
+    assert_eq!(actual.dict, expected.dict);
+    assert_eq!(actual.content, expected.content);
 }
 
 #[test]

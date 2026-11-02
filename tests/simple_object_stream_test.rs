@@ -92,3 +92,46 @@ fn test_object_stream_parses_objects_after_comments() {
     let page = obj_stream.objects[&(3, 0)].as_dict().unwrap();
     assert_eq!(page.get(b"Type").unwrap().as_name().unwrap(), b"Page");
 }
+
+/// Saving with object streams must round-trip every compressible object,
+/// across several streams (250 objects at the default 100 per stream), with
+/// the same content the owning-`ObjectStream` save path produced.
+#[test]
+fn save_modern_round_trips_many_objects() {
+    use lopdf::Document;
+
+    let mut document = Document::with_version("1.5");
+    let mut ids = Vec::new();
+    for i in 0..250i64 {
+        let id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Index" => i,
+            "Rect" => vec![Object::Integer(i), Object::Integer(i + 1)],
+        });
+        ids.push(id);
+    }
+    let pages_id = document.new_object_id();
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => Vec::<Object>::new(), "Count" => 0 }),
+    );
+    document.trailer.set("Root", catalog_id);
+    let expected = document.objects.clone();
+
+    let mut saved = Vec::new();
+    document.save_modern(&mut saved).unwrap();
+    assert!(
+        saved.windows(6).any(|window| window == b"ObjStm"),
+        "expected an object stream"
+    );
+
+    let reloaded = Document::load_mem(&saved).unwrap();
+    for id in ids {
+        assert_eq!(reloaded.objects.get(&id), expected.get(&id), "object {id:?} changed");
+    }
+    assert_eq!(reloaded.get_pages().len(), 0);
+}
