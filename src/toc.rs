@@ -336,4 +336,53 @@ mod tests {
         let actual: Vec<_> = toc.toc.iter().map(|entry| entry.title.as_str()).collect();
         assert_eq!(actual, ["Good", "Explicit"]);
     }
+
+    #[test]
+    fn follow_referenced_name_tree_arrays() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        // /Kids, /Names and /D written as indirect objects instead of direct arrays.
+        let d = doc.add_object(vec![page_id.into(), "Fit".into()]);
+        let names = doc.add_object(vec![
+            Object::string_literal("intro"),
+            vec![page_id.into(), "Fit".into()].into(),
+            Object::string_literal("outro"),
+            dictionary! { "D" => d }.into(),
+        ]);
+        let leaf = doc.add_object(dictionary! {
+            "Limits" => vec![Object::string_literal("intro"), Object::string_literal("outro")],
+            "Names" => names,
+        });
+        let kids = doc.add_object(vec![leaf.into()]);
+
+        let outlines_id = doc.new_object_id();
+        let outro = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Outro"),
+            "Parent" => outlines_id,
+            "Dest" => Object::string_literal("outro"),
+        });
+        let intro = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Intro"),
+            "Parent" => outlines_id,
+            "Dest" => Object::string_literal("intro"),
+            "Next" => outro,
+        });
+        let outlines = dictionary! { "Type" => "Outlines", "First" => intro };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Outlines" => outlines_id,
+            "Names" => dictionary! { "Dests" => dictionary! { "Kids" => kids } },
+        });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
+        assert_eq!(actual, [("Intro", 1), ("Outro", 1)]);
+    }
 }
