@@ -15,7 +15,11 @@ impl Document {
         let action = match self.get_dict_in_dict(node, b"A") {
             Ok(a) => a,
             Err(_) => {
-                return self.build_outline_result(node.get(b"Dest")?, node.get(b"Title")?, named_destinations);
+                return self.build_outline_result(
+                    node.get(b"Dest")?,
+                    node.get_deref(b"Title", self)?,
+                    named_destinations,
+                );
             }
         };
         let command = action.get(b"S")?.as_name()?;
