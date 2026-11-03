@@ -647,9 +647,8 @@ impl Document {
     /// `max_decompressed_size` bytes (each stream is decoded against the
     /// *remaining* budget, so N streams cannot sum to N times the limit), which
     /// stops a small compressed page stream from inflating without limit when
-    /// processing untrusted PDFs. Use it (and
-    /// [`Document::extract_text_with_limit`]) instead of the unbounded variants
-    /// for input you do not control.
+    /// processing untrusted PDFs. Use it instead of the unbounded
+    /// [`Document::get_page_content`] for input you do not control.
     ///
     /// Returns [`DecompressError::MemoryLimitExceeded`](crate::DecompressError::MemoryLimitExceeded)
     /// if the page content would exceed the limit. Like

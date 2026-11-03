@@ -1,8 +1,7 @@
 use log::warn;
 
-use crate::{Dictionary, Object, ObjectId, Stream, parser};
 use crate::{
-    Error, Result,
+    DEFAULT_MAX_DECOMPRESSED_SIZE, Error, Result,
     content::{Content, Operation},
     document::Document,
     encodings::Encoding,
@@ -10,6 +9,7 @@ use crate::{
     object::Object::Name,
     xref::{Xref, XrefEntry, XrefType},
 };
+use crate::{Dictionary, Object, ObjectId, Stream, parser};
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read},
@@ -56,18 +56,22 @@ impl Document {
         Ok(())
     }
 
+    /// Extract text from the given pages.
+    ///
+    /// The decompressed content of each page is bounded by
+    /// [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::DEFAULT_MAX_DECOMPRESSED_SIZE); a page
+    /// over it fails with
+    /// [`DecompressError::MemoryLimitExceeded`](crate::DecompressError::MemoryLimitExceeded).
+    /// Use [`Document::extract_text_with_limit`] to choose a different bound.
     pub fn extract_text(&self, page_numbers: &[u32]) -> Result<String> {
-        self.extract_text_inner(page_numbers, None)
+        self.extract_text_inner(page_numbers, Some(DEFAULT_MAX_DECOMPRESSED_SIZE))
     }
 
     /// Extract text from the given pages, bounding the total decompressed content
     /// of each page to `max_decompressed_size` bytes.
     ///
-    /// This is the decompression-bomb-safe counterpart to
-    /// [`Document::extract_text`]: page content is decoded via
-    /// [`Document::get_page_content_with_limit`], so a small compressed content
-    /// stream cannot inflate without limit. Prefer it over [`Document::extract_text`]
-    /// for PDFs from an untrusted source. Returns
+    /// Page content is decoded via [`Document::get_page_content_with_limit`], so a
+    /// small compressed content stream cannot inflate without limit. Returns
     /// [`DecompressError::MemoryLimitExceeded`](crate::DecompressError::MemoryLimitExceeded)
     /// if any requested page's content would exceed the limit.
     pub fn extract_text_with_limit(&self, page_numbers: &[u32], max_decompressed_size: usize) -> Result<String> {
@@ -85,11 +89,17 @@ impl Document {
         Ok(text)
     }
 
+    /// Extract text from the given pages as separate chunks.
+    ///
+    /// The decompressed content of each page is bounded by
+    /// [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::DEFAULT_MAX_DECOMPRESSED_SIZE); a page
+    /// over it yields an `Err` chunk. Use [`Document::extract_text_chunks_with_limit`]
+    /// to choose a different bound.
     pub fn extract_text_chunks(&self, page_numbers: &[u32]) -> Vec<Result<String>> {
-        self.extract_text_chunks_inner(page_numbers, None)
+        self.extract_text_chunks_inner(page_numbers, Some(DEFAULT_MAX_DECOMPRESSED_SIZE))
     }
 
-    /// Bomb-safe counterpart to [`Document::extract_text_chunks`], bounding the
+    /// Counterpart to [`Document::extract_text_chunks`] with a caller-chosen bound on the
     /// total decompressed content of each page to `max_decompressed_size` bytes.
     /// A page whose content exceeds the limit yields an `Err` chunk carrying
     /// [`DecompressError::MemoryLimitExceeded`](crate::DecompressError::MemoryLimitExceeded).
@@ -550,15 +560,16 @@ fn encode_with_fallback(encoding: &Encoding, text: &str, default_char: &str) -> 
     encode(encoding, text, default_char)
 }
 
-/// Decode CrossReferenceStream
+/// Decode a cross-reference stream, bounding its decompressed content by
+/// [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::DEFAULT_MAX_DECOMPRESSED_SIZE).
 pub fn decode_xref_stream(stream: Stream) -> Result<(Xref, Dictionary)> {
-    decode_xref_stream_with_limit(stream, None)
+    decode_xref_stream_with_limit(stream, Some(DEFAULT_MAX_DECOMPRESSED_SIZE))
 }
 
 /// Decode a cross-reference stream, rejecting it if its decompressed content
-/// would exceed `max_decompressed_size` bytes. `None` means no limit (the
-/// behavior of [`decode_xref_stream`]). Cross-reference streams are decoded
-/// early during loading, so this bounds the memory a `/XRef` stream can use.
+/// would exceed `max_decompressed_size` bytes. `None` means no limit. Cross-reference
+/// streams are decoded early during loading, so this bounds the memory a `/XRef`
+/// stream can use.
 pub fn decode_xref_stream_with_limit(
     mut stream: Stream, max_decompressed_size: Option<usize>,
 ) -> Result<(Xref, Dictionary)> {
@@ -831,7 +842,7 @@ mod tests {
     use crate::creator::tests::create_document_with_texts;
 
     /// Under a generous limit, `extract_text_with_limit` returns exactly the same
-    /// text as the unbounded `extract_text`.
+    /// text as `extract_text`.
     #[test]
     fn extract_text_with_limit_matches_unbounded_under_limit() {
         use crate::creator::tests::create_document_with_texts;
@@ -894,6 +905,41 @@ mod tests {
             }
             other => panic!("expected MemoryLimitExceeded from ToUnicode font bomb, got {other:?}"),
         }
+    }
+
+    /// `extract_text` bounds page content by `DEFAULT_MAX_DECOMPRESSED_SIZE` without
+    /// the caller opting in, so a bomb just over the default is rejected.
+    #[test]
+    fn extract_text_rejects_page_content_bomb_by_default() {
+        use crate::{DEFAULT_MAX_DECOMPRESSED_SIZE, DecompressError, Error};
+
+        let doc = doc_with_page_content_bomb(DEFAULT_MAX_DECOMPRESSED_SIZE + BOMB_MIB);
+
+        match doc.extract_text(&[1]).map(|s| s.len()) {
+            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+                assert_eq!(limit, DEFAULT_MAX_DECOMPRESSED_SIZE);
+            }
+            other => panic!("expected MemoryLimitExceeded at the default limit, got {other:?}"),
+        }
+    }
+
+    /// `extract_text_chunks` applies the same default bound and reports it as an
+    /// `Err` chunk.
+    #[test]
+    fn extract_text_chunks_rejects_page_content_bomb_by_default() {
+        use crate::{DEFAULT_MAX_DECOMPRESSED_SIZE, DecompressError, Error};
+
+        let doc = doc_with_page_content_bomb(DEFAULT_MAX_DECOMPRESSED_SIZE + BOMB_MIB);
+        let chunks = doc.extract_text_chunks(&[1]);
+
+        assert!(
+            chunks.iter().any(|chunk| matches!(
+                chunk,
+                Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit }))
+                    if *limit == DEFAULT_MAX_DECOMPRESSED_SIZE
+            )),
+            "expected a MemoryLimitExceeded error chunk at the default limit"
+        );
     }
 
     #[test]
