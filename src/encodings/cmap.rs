@@ -89,11 +89,39 @@ impl ToUnicodeCMap {
             }
         }
 
+        cmap.build_reverse_map();
+
+        Ok(cmap)
+    }
+
+    /// The CMap to decode a simple font with. A simple font's character codes are always
+    /// one byte (ISO 32000-1, 9.6.1), but its ToUnicode CMap is often written with a two-byte
+    /// codespace and two-byte keys such as `<0041>`; read as is, two codes would be taken
+    /// for one. Each code 0..=255 is therefore looked up as a one-byte key, then as a two-byte
+    /// key, and a code the CMap does not map is taken from `fallback` (the font's /Encoding),
+    /// since ToUnicode CMaps often cover only some of a font's codes.
+    pub(crate) fn for_simple_font(&self, mut fallback: impl FnMut(u8) -> Option<Vec<u16>>) -> ToUnicodeCMap {
+        let mut cmap = Self::new();
+        for code in 0..=u8::MAX {
+            let unicode = self
+                .get(code as SourceCode, 1)
+                .or_else(|| self.get(code as SourceCode, 2))
+                .or_else(|| fallback(code));
+            if let Some(unicode) = unicode {
+                cmap.put_char(code as SourceCode, 1, unicode);
+            }
+        }
+        cmap.codespace_ranges.push((0x00, 0xFF, 1));
+        cmap.build_reverse_map();
+        cmap
+    }
+
+    fn build_reverse_map(&mut self) {
         let mut rev_map = HashMap::new();
 
-        for code_len_idx in 0..cmap.bf_ranges.len() {
+        for code_len_idx in 0..self.bf_ranges.len() {
             let code_len = (code_len_idx + 1) as u8;
-            for (range, target) in cmap.bf_ranges[code_len_idx].iter() {
+            for (range, target) in self.bf_ranges[code_len_idx].iter() {
                 for src_code in range.clone() {
                     let unicode_sequence: Option<Vec<u16>> = match target {
                         BfRangeTarget::UTF16CodePoint { offset } => {
@@ -142,9 +170,7 @@ impl ToUnicodeCMap {
                 }
             }
         }
-        cmap.reverse_map = Some(rev_map);
-
-        Ok(cmap)
+        self.reverse_map = Some(rev_map);
     }
 
     pub(super) fn get_for_decoding(&self, code: SourceCode, code_len: CodeLen) -> Option<Vec<u16>> {

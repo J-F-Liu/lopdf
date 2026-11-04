@@ -1065,6 +1065,207 @@ mod tests {
             "T* did not insert a line break between Tj strings: between={between:?}"
         );
     }
+
+    /// A ToUnicode CMap with one codespace range and the given `bfchar` lines.
+    fn to_unicode_cmap(codespace: &str, bfchar: &[&str]) -> Vec<u8> {
+        format!(
+            "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+             /CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n\
+             1 begincodespacerange\n{codespace}\nendcodespacerange\n\
+             {} beginbfchar\n{}\nendbfchar\n\
+             endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n",
+            bfchar.len(),
+            bfchar.join("\n")
+        )
+        .into_bytes()
+    }
+
+    /// A one-page document that shows `shown` with a TrueType font whose `/Encoding` is
+    /// `/WinAnsiEncoding` and whose `/ToUnicode` stream (if any) has the given content.
+    fn doc_with_simple_font(shown: &[u8], to_unicode: Option<Vec<u8>>) -> crate::Document {
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+        use crate::{Dictionary, Object, Stream};
+
+        let mut doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new("Tj", vec![Object::string_literal(shown)]),
+            Operation::new("ET", vec![]),
+        ]);
+        let font_id = doc
+            .objects
+            .iter()
+            .find(|(_, obj)| obj.as_dict().map(|d| d.has_type(b"Font")).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .expect("font object exists");
+        let to_unicode_id = to_unicode.map(|content| doc.add_object(Stream::new(Dictionary::new(), content)));
+        let font = doc.get_object_mut(font_id).and_then(Object::as_dict_mut).unwrap();
+        font.set("Subtype", "TrueType");
+        font.set("BaseFont", "Arial");
+        font.set("Encoding", "WinAnsiEncoding");
+        if let Some(id) = to_unicode_id {
+            font.set("ToUnicode", id);
+        }
+        doc
+    }
+
+    /// ISO 32000-1 §9.10.2 — `/ToUnicode` is the first method for mapping a code to
+    /// Unicode, so it wins over `/Encoding`. A code the CMap leaves out still comes
+    /// from `/Encoding`.
+    #[test]
+    fn extract_text_prefers_tounicode_over_encoding() {
+        let cmap = to_unicode_cmap("<00> <FF>", &["<41> <3042>"]);
+        let doc = doc_with_simple_font(b"AB", Some(cmap));
+
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "\u{3042}B");
+    }
+
+    /// A simple font's codes are one byte each, even when its ToUnicode CMap is written
+    /// with a two-byte codespace and two-byte keys, as many producers do.
+    #[test]
+    fn extract_text_reads_simple_font_tounicode_with_two_byte_codespace() {
+        let cmap = to_unicode_cmap("<0000> <FFFF>", &["<0041> <0391>", "<42> <0392>"]);
+        let doc = doc_with_simple_font(b"AB", Some(cmap));
+
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "\u{0391}\u{0392}");
+    }
+
+    /// A ToUnicode CMap that cannot be parsed falls back to `/Encoding`, not to
+    /// StandardEncoding (where 0xE9 would be "Ø").
+    #[test]
+    fn extract_text_falls_back_to_encoding_when_tounicode_is_unparsable() {
+        let broken = b"1 beginbfrange\n<05> <01> <0041>\nendbfrange\n".to_vec();
+        assert!(crate::encodings::cmap::ToUnicodeCMap::parse(broken.clone()).is_err());
+        let doc = doc_with_simple_font(b"caf\xE9", Some(broken));
+
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "caf\u{e9}");
+    }
+
+    /// Text replaced in a simple font that has a ToUnicode CMap is written back as
+    /// one-byte codes, including for characters that only `/Encoding` maps.
+    #[test]
+    fn replace_text_writes_one_byte_codes_for_simple_font_with_tounicode() {
+        let cmap = to_unicode_cmap("<0000> <FFFF>", &["<0041> <3042>"]);
+        let mut doc = doc_with_simple_font(b"AB", Some(cmap));
+
+        doc.replace_text(1, "\u{3042}B", "B\u{3042}", None).unwrap();
+
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "B\u{3042}");
+        let page_id = doc.page_iter().next().unwrap();
+        let content = doc.get_and_decode_page_content(page_id).unwrap();
+        let shown = content.operations.iter().find(|op| op.operator == "Tj").unwrap();
+        assert_eq!(shown.operands[0].as_str().unwrap(), b"BA");
+    }
+
+    /// A decompression bomb in `/ToUnicode` still surfaces when the font also has
+    /// `/Encoding`, now that `/ToUnicode` is read first.
+    #[test]
+    fn extract_text_with_limit_rejects_tounicode_bomb_in_font_with_encoding() {
+        use crate::{DecompressError, Error, Object};
+
+        let mut doc = doc_with_tounicode_font_bomb(32 * BOMB_MIB);
+        let font_id = doc
+            .objects
+            .iter()
+            .find(|(_, obj)| obj.as_dict().map(|d| d.has_type(b"Font")).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .expect("font object exists");
+        let font = doc.get_object_mut(font_id).and_then(Object::as_dict_mut).unwrap();
+        font.set("Encoding", "WinAnsiEncoding");
+
+        match doc.extract_text_with_limit(&[1], 4 * BOMB_MIB).map(|s| s.len()) {
+            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { limit })) => {
+                assert_eq!(limit, 4 * BOMB_MIB);
+            }
+            other => panic!("expected MemoryLimitExceeded from ToUnicode font bomb, got {other:?}"),
+        }
+    }
+
+    /// A one-page document that shows the two-byte codes `<0001><0002>` with a Type 0
+    /// font whose `/Encoding` is made by `encoding` and whose ToUnicode CMap maps codes
+    /// 1, 2 and 3 to "한", "글" and "A".
+    fn doc_with_type0_font(encoding: &dyn Fn(&mut crate::Document) -> crate::Object) -> crate::Document {
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+        use crate::{Dictionary, Object, Stream, StringFormat};
+
+        let mut doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new(
+                "Tj",
+                vec![Object::String(vec![0x00, 0x01, 0x00, 0x02], StringFormat::Hexadecimal)],
+            ),
+            Operation::new("ET", vec![]),
+        ]);
+        let font_id = doc
+            .objects
+            .iter()
+            .find(|(_, obj)| obj.as_dict().map(|d| d.has_type(b"Font")).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .expect("font object exists");
+        let cmap = to_unicode_cmap("<0000> <FFFF>", &["<0001> <D55C>", "<0002> <AE00>", "<0003> <0041>"]);
+        let to_unicode_id = doc.add_object(Stream::new(Dictionary::new(), cmap));
+        let encoding = encoding(&mut doc);
+        let font = doc.get_object_mut(font_id).and_then(Object::as_dict_mut).unwrap();
+        font.set("Subtype", "Type0");
+        font.set("BaseFont", "NotoSansCJK-Regular");
+        font.set("Encoding", encoding);
+        font.set("ToUnicode", to_unicode_id);
+        doc
+    }
+
+    /// The bytes of the first `Tj` string on page 1.
+    fn shown_bytes(doc: &crate::Document) -> Vec<u8> {
+        let page_id = doc.page_iter().next().unwrap();
+        let content = doc.get_and_decode_page_content(page_id).unwrap();
+        let shown = content.operations.iter().find(|op| op.operator == "Tj").unwrap();
+        shown.operands[0].as_str().unwrap().to_vec()
+    }
+
+    /// Text replaced in a Type 0 font is written as the two-byte codes of its ToUnicode
+    /// CMap, without a byte order mark, and reads back as the replacement.
+    fn assert_type0_replacement_uses_tounicode_codes(encoding: &dyn Fn(&mut crate::Document) -> crate::Object) {
+        let mut doc = doc_with_type0_font(encoding);
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "한글");
+
+        doc.replace_text(1, "한글", "글A한", None).unwrap();
+        assert_eq!(shown_bytes(&doc), [0x00, 0x02, 0x00, 0x03, 0x00, 0x01]);
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "글A한");
+
+        let mut doc = doc_with_type0_font(encoding);
+        assert_eq!(doc.replace_partial_text(1, "한", "A글", None).unwrap(), 1);
+        assert_eq!(shown_bytes(&doc), [0x00, 0x03, 0x00, 0x02, 0x00, 0x02]);
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "A글글");
+    }
+
+    #[test]
+    fn replace_text_writes_tounicode_codes_for_type0_font_with_predefined_cmap() {
+        for name in ["UniKS-UCS2-H", "UniGB-UCS2-H"] {
+            assert_type0_replacement_uses_tounicode_codes(&|_| crate::Object::Name(name.into()));
+        }
+    }
+
+    #[test]
+    fn replace_text_writes_tounicode_codes_for_type0_font_with_embedded_cmap() {
+        use crate::{Object, Stream};
+
+        let cmap = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+            /CMapName /Custom-H def\n/CMapType 1 def\n\
+            1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+            1 begincidrange\n<0000> <FFFF> 0\nendcidrange\n\
+            endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+        assert_type0_replacement_uses_tounicode_codes(&|doc| {
+            let stream = Stream::new(
+                dictionary! { "Type" => "CMap", "CMapName" => "Custom-H" },
+                cmap.to_vec(),
+            );
+            Object::Reference(doc.add_object(stream))
+        });
+    }
 }
 
 #[cfg(test)]

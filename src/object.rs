@@ -409,12 +409,22 @@ impl Dictionary {
         // predefined CJK CMAPs other than those in SimpleEncoding; and the fallback
         // font when `BaseEncoding` is undefined (Table 114, 9.6.6.1).
         let result = (|| {
-            if let Ok(object) = self.get(b"Encoding") {
-                return self.get_base_encoding(object, doc, limit);
+            // A ToUnicode CMap is the first method for mapping character codes to Unicode
+            // (ISO 32000-1, 9.10.2), so it wins over /Encoding; /Encoding is used when the
+            // font has no ToUnicode CMap or it cannot be read.
+            if let Ok(stream) = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream) {
+                match self.get_to_unicode_encoding(stream, limit) {
+                    Ok(Encoding::UnicodeMapEncoding(cmap)) if self.is_simple_font() => {
+                        return self.get_simple_font_unicode_encoding(&cmap, doc, limit);
+                    }
+                    Ok(encoding) => return Ok(encoding),
+                    Err(err @ Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => return Err(err),
+                    Err(err) => warn!("Could not parse the ToUnicode CMap, error: {err:#?}. Using /Encoding instead."),
+                }
             }
 
-            if let Ok(stream) = self.get_deref(b"ToUnicode", doc).and_then(Object::as_stream) {
-                return self.get_to_unicode_encoding(stream, limit);
+            if let Ok(object) = self.get(b"Encoding") {
+                return self.get_base_encoding(object, doc, limit);
             }
 
             Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
@@ -432,6 +442,36 @@ impl Dictionary {
                 Ok(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING))
             }
         }
+    }
+
+    /// Whether this is a simple font, whose character codes are one byte (ISO 32000-1, 9.6.1).
+    fn is_simple_font(&self) -> bool {
+        matches!(
+            self.get(b"Subtype").and_then(Object::as_name),
+            Ok(b"Type1" | b"MMType1" | b"TrueType" | b"Type3")
+        )
+    }
+
+    /// The encoding of a simple font that has a ToUnicode CMap. 9.10.2 orders the methods
+    /// per code, so a code the CMap leaves out is mapped through /Encoding, or through
+    /// StandardEncoding when /Encoding cannot be read (as before). A code that /Encoding
+    /// has no character for maps to nothing, as before.
+    fn get_simple_font_unicode_encoding<'a>(
+        &'a self, cmap: &ToUnicodeCMap, doc: &'a Document, limit: Option<usize>,
+    ) -> Result<Encoding<'a>> {
+        let fallback = match self.get(b"Encoding") {
+            Ok(object) => match self.get_base_encoding(object, doc, limit) {
+                Ok(encoding) => Some(encoding),
+                Err(err @ Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => return Err(err),
+                Err(_) => Some(Encoding::OneByteEncoding(&encodings::STANDARD_ENCODING)),
+            },
+            Err(_) => None,
+        };
+        let cmap = cmap.for_simple_font(|code| {
+            let text = fallback.as_ref()?.bytes_to_string(&[code]).ok()?;
+            Some(text.encode_utf16().collect())
+        });
+        Ok(Encoding::UnicodeMapEncoding(cmap))
     }
 
     /// Get a simple encoding from the /Encoding entry of a font dictionary.
