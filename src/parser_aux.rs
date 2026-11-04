@@ -1148,6 +1148,90 @@ mod tests {
             other => panic!("expected MemoryLimitExceeded from ToUnicode font bomb, got {other:?}"),
         }
     }
+
+    /// A one-page document that shows the two-byte codes `<0001><0002>` with a Type 0
+    /// font whose `/Encoding` is made by `encoding` and whose ToUnicode CMap maps codes
+    /// 1, 2 and 3 to "한", "글" and "A".
+    fn doc_with_type0_font(encoding: &dyn Fn(&mut crate::Document) -> crate::Object) -> crate::Document {
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+        use crate::{Dictionary, Object, Stream, StringFormat};
+
+        let mut doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new(
+                "Tj",
+                vec![Object::String(vec![0x00, 0x01, 0x00, 0x02], StringFormat::Hexadecimal)],
+            ),
+            Operation::new("ET", vec![]),
+        ]);
+        let font_id = doc
+            .objects
+            .iter()
+            .find(|(_, obj)| obj.as_dict().map(|d| d.has_type(b"Font")).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .expect("font object exists");
+        let cmap = to_unicode_cmap("<0000> <FFFF>", &["<0001> <D55C>", "<0002> <AE00>", "<0003> <0041>"]);
+        let to_unicode_id = doc.add_object(Stream::new(Dictionary::new(), cmap));
+        let encoding = encoding(&mut doc);
+        let font = doc.get_object_mut(font_id).and_then(Object::as_dict_mut).unwrap();
+        font.set("Subtype", "Type0");
+        font.set("BaseFont", "NotoSansCJK-Regular");
+        font.set("Encoding", encoding);
+        font.set("ToUnicode", to_unicode_id);
+        doc
+    }
+
+    /// The bytes of the first `Tj` string on page 1.
+    fn shown_bytes(doc: &crate::Document) -> Vec<u8> {
+        let page_id = doc.page_iter().next().unwrap();
+        let content = doc.get_and_decode_page_content(page_id).unwrap();
+        let shown = content.operations.iter().find(|op| op.operator == "Tj").unwrap();
+        shown.operands[0].as_str().unwrap().to_vec()
+    }
+
+    /// Text replaced in a Type 0 font is written as the two-byte codes of its ToUnicode
+    /// CMap, without a byte order mark, and reads back as the replacement.
+    fn assert_type0_replacement_uses_tounicode_codes(encoding: &dyn Fn(&mut crate::Document) -> crate::Object) {
+        let mut doc = doc_with_type0_font(encoding);
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "한글");
+
+        doc.replace_text(1, "한글", "글A한", None).unwrap();
+        assert_eq!(shown_bytes(&doc), [0x00, 0x02, 0x00, 0x03, 0x00, 0x01]);
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "글A한");
+
+        let mut doc = doc_with_type0_font(encoding);
+        assert_eq!(doc.replace_partial_text(1, "한", "A글", None).unwrap(), 1);
+        assert_eq!(shown_bytes(&doc), [0x00, 0x03, 0x00, 0x02, 0x00, 0x02]);
+        assert_eq!(doc.extract_text(&[1]).unwrap().trim(), "A글글");
+    }
+
+    #[test]
+    fn replace_text_writes_tounicode_codes_for_type0_font_with_predefined_cmap() {
+        for name in ["UniKS-UCS2-H", "UniGB-UCS2-H"] {
+            assert_type0_replacement_uses_tounicode_codes(&|_| crate::Object::Name(name.into()));
+        }
+    }
+
+    #[test]
+    fn replace_text_writes_tounicode_codes_for_type0_font_with_embedded_cmap() {
+        use crate::{Object, Stream};
+
+        let cmap = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+            /CMapName /Custom-H def\n/CMapType 1 def\n\
+            1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n\
+            1 begincidrange\n<0000> <FFFF> 0\nendcidrange\n\
+            endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+        assert_type0_replacement_uses_tounicode_codes(&|doc| {
+            let stream = Stream::new(
+                dictionary! { "Type" => "CMap", "CMapName" => "Custom-H" },
+                cmap.to_vec(),
+            );
+            Object::Reference(doc.add_object(stream))
+        });
+    }
 }
 
 #[cfg(test)]
