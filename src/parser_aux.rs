@@ -779,6 +779,40 @@ mod tests {
         assert_eq!(extracted_text.unwrap(), format!("{text1}\n{text2}\n"));
     }
 
+    /// ISO 32000-1 §9.7.5.2 — the codes of a Type 0 font whose `/Encoding` is a
+    /// predefined Unicode CMap (here `UniJIS-UCS2-H`) are UCS-2 values, so
+    /// the text can be extracted without a `/ToUnicode` CMap.
+    #[test]
+    fn extract_text_decodes_type0_font_with_predefined_unicode_cmap() {
+        use crate::content::Operation;
+        use crate::creator::tests::create_document_with_operations;
+        use crate::{Object, StringFormat};
+
+        let mut doc = create_document_with_operations(vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec!["F1".into(), 12.into()]),
+            Operation::new("Td", vec![100.into(), 700.into()]),
+            Operation::new(
+                "Tj",
+                vec![Object::String(vec![0x65, 0xE5, 0x67, 0x2C], StringFormat::Hexadecimal)],
+            ),
+            Operation::new("ET", vec![]),
+        ]);
+        let font_id = doc
+            .objects
+            .iter()
+            .find(|(_, obj)| obj.as_dict().map(|d| d.has_type(b"Font")).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .expect("font object exists");
+        let font = doc.get_object_mut(font_id).and_then(Object::as_dict_mut).unwrap();
+        font.set("Subtype", "Type0");
+        font.set("BaseFont", "KozMinPr6N-Regular");
+        font.set("Encoding", "UniJIS-UCS2-H");
+
+        let text = doc.extract_text(&[1]).unwrap();
+        assert_eq!(text.trim(), "日本");
+    }
+
     const BOMB_MIB: usize = 1024 * 1024;
 
     /// A FlateDecode-compressed stream that inflates to `target` zero-bytes, built
