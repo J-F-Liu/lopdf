@@ -938,13 +938,16 @@ impl Stream {
                 Some(Object::Dictionary(params)) => Some(params),
                 _ => None,
             };
+            // The abbreviated names are defined for inline images (PDF 32000-2, Table 92),
+            // but some producers also use them in stream dictionaries. pdf.js and MuPDF
+            // accept them there, so do the same.
             output = match filter {
-                b"FlateDecode" => Self::decompress_zlib(input, params, limit)?,
+                b"FlateDecode" | b"Fl" => Self::decompress_zlib(input, params, limit)?,
                 b"BrotliDecode" => Self::decompress_brotli(input, limit)?,
-                b"LZWDecode" => Self::decompress_lzw(input, params, limit)?,
-                b"ASCII85Decode" => Self::decode_ascii85(input, limit)?,
-                b"ASCIIHexDecode" => Self::decode_ascii_hex(input, limit)?,
-                b"RunLengthDecode" => Self::decode_run_length(input, limit)?,
+                b"LZWDecode" | b"LZW" => Self::decompress_lzw(input, params, limit)?,
+                b"ASCII85Decode" | b"A85" => Self::decode_ascii85(input, limit)?,
+                b"ASCIIHexDecode" | b"AHx" => Self::decode_ascii_hex(input, limit)?,
+                b"RunLengthDecode" | b"RL" => Self::decode_run_length(input, limit)?,
                 _ => return Err(Error::Unimplemented("decompression algorithms")),
             };
             reject_over_limit(output.len(), limit)?;
