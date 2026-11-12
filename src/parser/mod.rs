@@ -645,7 +645,7 @@ fn xref(input: ParserInput, strict: bool) -> NomResult<Xref> {
     );
 
     let xref_section = pair(
-        separated_pair(unsigned_int::<usize>, tag(&b" "[..]), unsigned_int::<u32>),
+        separated_pair(unsigned_int::<u64>, tag(&b" "[..]), unsigned_int::<u32>),
         preceded(pair(opt(tag(&b" "[..])), eol), many0(xref_entry)),
     );
 
@@ -668,7 +668,7 @@ fn xref(input: ParserInput, strict: bool) -> NomResult<Xref> {
                     };
                     // `start` is untrusted: `start + index` can overflow, and a `start`
                     // above u32::MAX would truncate into a valid-looking object number.
-                    match start.checked_add(index).and_then(|id| u32::try_from(id).ok()) {
+                    match start.checked_add(index as u64).and_then(|id| u32::try_from(id).ok()) {
                         Some(id) => xref.insert(id, entry),
                         None => skipped += 1,
                     }
