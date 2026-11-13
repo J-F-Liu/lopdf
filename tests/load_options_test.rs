@@ -123,6 +123,59 @@ mod sync_tests {
         }
     }
 
+    /// `assets/encrypted.pdf` opens with an empty user password. Its embedded files are top-level
+    /// streams and its fonts sit in object streams, so the filter has to run on both.
+    #[test]
+    fn load_with_options_filter_on_encrypted_pdf() {
+        fn has_type(obj: &Object, name: &[u8]) -> bool {
+            let dict = match obj {
+                Object::Dictionary(dict) => dict,
+                Object::Stream(stream) => &stream.dict,
+                _ => return false,
+            };
+            dict.has_type(name)
+        }
+
+        fn drop_fonts_and_embedded_files(id: (u32, u16), obj: &mut Object) -> Option<((u32, u16), Object)> {
+            if has_type(obj, b"Font") || has_type(obj, b"EmbeddedFile") {
+                None
+            } else {
+                Some((id, obj.clone()))
+            }
+        }
+
+        let count = |doc: &Document, name: &[u8]| doc.objects.values().filter(|o| has_type(o, name)).count();
+
+        let full = Document::load("assets/encrypted.pdf").unwrap();
+        assert!(count(&full, b"Font") > 0, "encrypted.pdf should have fonts");
+        assert!(
+            count(&full, b"EmbeddedFile") > 0,
+            "encrypted.pdf should have embedded files"
+        );
+
+        let filtered = Document::load_with_options(
+            "assets/encrypted.pdf",
+            LoadOptions::with_filter(drop_fonts_and_embedded_files),
+        )
+        .unwrap();
+        assert!(filtered.encryption_state.is_some());
+        assert_eq!(
+            count(&filtered, b"Font"),
+            0,
+            "filter should drop fonts in object streams"
+        );
+        assert_eq!(
+            count(&filtered, b"EmbeddedFile"),
+            0,
+            "filter should drop top-level streams"
+        );
+        assert_eq!(
+            filtered.get_pages().len(),
+            1,
+            "objects the filter keeps should still load"
+        );
+    }
+
     #[test]
     fn load_with_options_strict_true_loads_valid_pdf() {
         // strict=true should still load a valid, conforming PDF
