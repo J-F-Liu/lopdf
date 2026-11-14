@@ -1,46 +1,32 @@
+//! Inline Images Parser
+//!
+//! The essential part here covers the detection of the image data, since in ISO 32000-1 8.9.7
+//! "Inline Images" no length entry is provided. This module handles the inline image operations
+//! BI, ID and EI as one BI operator together with the dictionary and un-decoded stream.
 use super::{
-    _direct_object, content_space, eol, is_whitespace, name, space, Dictionary, NomError, NomResult, Object,
-    ParserInput, Stream,
+    content_space, eol, inner_dictionary, is_whitespace, Dictionary, NomError, NomResult, Object, ParserInput, Stream,
 };
-use crate::Error;
+use crate::{Error, Result};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take, take_while_m_n};
 use nom::combinator::cut;
 use nom::combinator::{map, opt};
 use nom::error::{ErrorKind, ParseError};
-use nom::multi::fold_many0;
-use nom::sequence::{pair, preceded, terminated};
+use nom::sequence::{pair, preceded};
 use nom::Parser;
 
-fn inner_dictionary(depth: usize) -> impl Fn(ParserInput) -> NomResult<Dictionary> {
-    move |input| {
-        fold_many0(
-            pair(terminated(name, space), _direct_object(depth)),
-            Dictionary::new,
-            |mut dict, (key, value)| {
-                dict.set(key, value);
-                dict
-            },
-        )
-        .parse(input)
-    }
+pub(crate) fn inline_image_parser(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    preceded(pair(tag(&b"BI"[..]), content_space), cut(inline_image)).parse(input)
 }
 
-pub(crate) fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
-    preceded(pair(tag(&b"BI"[..]), content_space), cut(inline_image_impl)).parse(input)
+fn dict_get_with_abbr<'a>(dict: &'a Dictionary, key_abbr: &[u8], key: &[u8]) -> Option<&'a Object> {
+    dict.get(key_abbr).or_else(|_| dict.get(key)).ok()
 }
 
-/// The single white-space character between `ID` and the image data (ISO 32000-2, 8.9.7),
-/// with a CR LF pair read as one end-of-line. White space after it is image data: a gray
-/// level of 32 is a space byte.
-fn inline_image_data_separator(input: ParserInput) -> NomResult<()> {
-    map(opt(alt((eol, take_while_m_n(1, 1, is_whitespace)))), |_| ()).parse(input)
-}
-
-fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
-    let (input, stream_dict) = inner_dictionary(crate::reader::MAX_NESTING_DEPTH).parse(input)?;
+fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    let (input, dict) = inner_dictionary(crate::reader::MAX_NESTING_DEPTH).parse(input)?;
     let (input, _) = pair(tag(&b"ID"[..]), inline_image_data_separator).parse(input)?;
-    match image_data_stream(input, stream_dict) {
+    match data_stream(input, dict) {
         Ok((input, stream)) => {
             let (input, _) = (content_space, tag(&b"EI"[..]), content_space).parse(input)?;
             Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
@@ -72,30 +58,95 @@ fn inline_image_impl(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     }
 }
 
-fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Result<(ParserInput, Stream)> {
-    let get_abbr = |key_abbr: &[u8], key: &[u8]| stream_dict.get(key_abbr).or_else(|_| stream_dict.get(key));
-    let invalid_size = || Error::InvalidInlineImage(String::from("image size out of range"));
-    let get_size = |key_abbr: &[u8], key: &[u8]| -> crate::Result<usize> {
-        usize::try_from(get_abbr(key_abbr, key)?.as_i64()?).map_err(|_| invalid_size())
+// Resolves the data stream between ID and EI.
+fn data_stream(input: ParserInput, dict: Dictionary) -> Result<(ParserInput, Stream)> {
+    let filter = match dict_get_with_abbr(&dict, b"F", b"Filter") {
+        None => None,
+        Some(Object::Name(filter)) => Some(filter.as_slice()),
+        Some(Object::Array(filters)) => match filters.first() {
+            // An empty array applies no filters (ISO 32000-1, Table 5).
+            None => None,
+            Some(filter) => Some(filter.as_name()?),
+        },
+        Some(obj) => {
+            log::warn!("Filter must be either a Name or an Array.");
+            return Err(Error::ObjectType {
+                expected: "Name or Array",
+                found: obj.enum_variant(),
+            });
+        }
     };
-    let width = get_size(b"W", b"Width")?;
-    let height = get_size(b"H", b"Height")?;
-    let im = get_abbr(b"IM", b"ImageMask").and_then(|x| x.as_bool());
-    let bpc = match get_size(b"BPC", b"BitsPerComponent") {
-        // An image mask has one bit per sample, so BitsPerComponent is optional for it.
-        Err(Error::DictKey(_)) if matches!(im, Ok(true)) => 1,
-        bpc => bpc?,
+
+    let length = match filter {
+        // No filter provided
+        None => unfiltered_length(&dict),
+        Some(_) => {
+            log::warn!("Filters for inline images are not yet implemented");
+            return Err(Error::Unimplemented("filters for inline images"));
+        }
+    }?;
+
+    let (input, content) = take(length)
+        .parse(input)
+        .map_err(|_: nom::Err<()>| crate::error::ParseError::EndOfInput)?;
+    Ok((input, Stream::new(dict, content.to_vec())))
+}
+
+/// The single white-space character between `ID` and the image data (ISO 32000-2, 8.9.7),
+/// with a CR LF pair read as one end-of-line. White space after it is image data: a gray
+/// level of 32 is a space byte.
+fn inline_image_data_separator(input: ParserInput) -> NomResult<()> {
+    map(opt(alt((eol, take_while_m_n(1, 1, is_whitespace)))), |_| ()).parse(input)
+}
+
+fn unfiltered_length(dict: &Dictionary) -> Result<usize> {
+    let dict_get_size = |abbr: &[u8], key: &[u8]| -> Result<usize> {
+        usize::try_from(
+            dict_get_with_abbr(dict, abbr, key)
+                .ok_or_else(|| Error::InvalidInlineImage(String::from("dimension entry missing in inline image")))?
+                .as_i64()?,
+        )
+        .map_err(|_| Error::InvalidInlineImage(String::from("dimension is negative in inline image")))
     };
-    let num_colors = match im {
-        // If we have an image mask then we don't have a colorspace
-        Ok(true) => 1,
-        _ => match get_abbr(b"CS", b"ColorSpace")? {
-            // An Indexed colour space is an array, and each sample is an index into its table.
-            Object::Array(array) if matches!(array.first().map(Object::as_name), Some(Ok(b"Indexed" | b"I"))) => 1,
-            colorspace => match colorspace.as_name()? {
-                b"DeviceGray" | b"G" | b"Gray" => 1,
+
+    // See ISO 32000-1 Table 89 for key value definitions of image dictionary entries.
+    // Width and height are required
+    let width = dict_get_size(b"W", b"Width")?;
+    let height = dict_get_size(b"H", b"Height")?;
+
+    // Optional boolean with default value false.
+    let is_mask = match dict_get_with_abbr(dict, b"IM", b"ImageMask") {
+        None => false,
+        Some(Object::Boolean(is_mask)) => *is_mask,
+        Some(_) => {
+            return Err(Error::InvalidInlineImage(String::from(
+                "Image mask of an inline image must be a boolean",
+            )));
+        }
+    };
+
+    let bits_per_component = match dict_get_with_abbr(dict, b"BPC", b"BitsPerComponent") {
+        None if is_mask => 1,
+        Some(obj) => usize::try_from(obj.as_i64()?)?,
+        _ => {
+            log::warn!("Bits per component is not provided in inline image.");
+            return Err(Error::InvalidInlineImage(String::from(
+                "Bits per component is not provided in inline image",
+            )));
+        }
+    };
+
+    let components = if is_mask {
+        1
+    } else {
+        match dict_get_with_abbr(dict, b"CS", b"ColorSpace") {
+            Some(Object::Array(array)) if matches!(array.first().map(Object::as_name), Some(Ok(b"Indexed" | b"I"))) => {
+                // No hard error if base colorspace, hival or lookup type is not ISO spec conform.
+                1
+            }
+            Some(Object::Name(name)) => match name.as_slice() {
+                b"DeviceGray" | b"G" => 1,
                 b"DeviceRGB" | b"RGB" => 3,
-                b"DeviceRGBA" | b"RGBA" => 4,
                 b"DeviceCMYK" | b"CMYK" => 4,
                 b"Pattern" => {
                     log::warn!("Pattern colorspace is not allowed in inline images");
@@ -103,44 +154,28 @@ fn image_data_stream(input: ParserInput, stream_dict: Dictionary) -> crate::Resu
                         "Pattern colorspace is not allowed in inline images",
                     )));
                 }
-                _ => {
-                    log::warn!("Colorspace of inline image not recognized / not yet implemented");
-                    return Err(Error::Unimplemented("inline image colorspaces"));
+                _name => {
+                    log::warn!(
+                        "Colorspace name lookup in resource dictionary for inline images is not yet implemented"
+                    );
+                    return Err(Error::Unimplemented(
+                        "Colorspace name lookup in resource dictionary for inline images is not yet implemented",
+                    ));
                 }
             },
-        },
-    };
-
-    let length = bpc
-        .checked_mul(num_colors)
-        .and_then(|bits_per_pixel| width.checked_mul(bits_per_pixel))
-        .and_then(|row_bits| row_bits.div_ceil(8).checked_mul(height))
-        .ok_or_else(invalid_size)?;
-
-    let (input, content) = match get_abbr(b"F", b"Filter") {
-        Err(_) => {
-            // no decompression needed as no filter was applied
-            take(length)
-                .parse(input)
-                .map_err(|_: nom::Err<()>| crate::error::ParseError::EndOfInput)?
-        }
-        Ok(Object::Name(_filter)) => {
-            log::warn!("Filters for inline images are not yet implemented");
-            return Err(Error::Unimplemented("filters for inline images"));
-        }
-        Ok(Object::Array(_filters)) => {
-            log::warn!("Filters for inline images are not yet implemented");
-            return Err(Error::Unimplemented("filters for inline images"));
-        }
-        Ok(obj) => {
-            log::warn!("Filter must be either a Name or and Array.");
-            return Err(Error::ObjectType {
-                expected: "Name or Array",
-                found: obj.enum_variant(),
-            });
+            _ => {
+                return Err(Error::InvalidInlineImage(String::from(
+                    "Missing colorspace in inline image",
+                )))
+            }
         }
     };
-    Ok((input, Stream::new(stream_dict, content.to_vec())))
+
+    bits_per_component
+        .checked_mul(components)
+        .and_then(|bits_per_pixel| bits_per_pixel.checked_mul(width))
+        .and_then(|bits_per_row| bits_per_row.div_ceil(8).checked_mul(height))
+        .ok_or_else(|| Error::InvalidInlineImage(String::from("image size out of range")))
 }
 
 #[cfg(test)]
@@ -212,7 +247,7 @@ EI
 ID
 00000z0z00zzz00z0zzz0zzzEI aazazaazzzaazazzzazzz
 EI";
-        let out = super::inline_image(test_span(input)).unwrap().1;
+        let out = super::inline_image_parser(test_span(input)).unwrap().1;
         assert_eq!(&out.1, "BI");
         assert_eq!(
             &out.0[0].as_stream().unwrap().content,
@@ -273,7 +308,7 @@ EI";
     fn inline_image_data_after_crlf() {
         // A CR LF after ID is one end-of-line, so the data starts after the LF.
         let input = b"BI /CS /DeviceGray /W 2 /H 1 /BPC 8 ID\r\n\n\x80\nEI";
-        let out = super::inline_image(test_span(input)).unwrap().1;
+        let out = super::inline_image_parser(test_span(input)).unwrap().1;
         assert_eq!(&out.0[0].as_stream().unwrap().content, b"\n\x80");
     }
 }

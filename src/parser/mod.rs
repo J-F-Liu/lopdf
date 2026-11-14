@@ -780,7 +780,10 @@ fn operation(input: ParserInput) -> NomResult<Operation> {
             // A comment consumes its end-of-line marker, so also skip any
             // white space that follows it (e.g. an indented next line).
             many0(terminated(comment, content_space)),
-            alt((inline_image_parser::inline_image, terminated(pair(many0(operand), operator), content_space))),
+            alt((
+                inline_image_parser::inline_image_parser,
+                terminated(pair(many0(operand), operator), content_space),
+            )),
         ),
         |(operands, operator)| Operation { operator, operands },
     )
