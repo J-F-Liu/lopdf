@@ -88,10 +88,16 @@ fn data_stream(input: ParserInput, dict: Dictionary) -> Result<(ParserInput, Str
     let length = match filter {
         // No filter provided
         None => unfiltered_length(&dict),
-        Some(_) => {
-            log::warn!("Filters for inline images are not yet implemented");
-            return Err(Error::Unimplemented("filters for inline images"));
-        }
+        Some(filter) => match filter {
+            b"ASCIIHexDecode" | b"AHx" => ascii_hex_length(input),
+            b"ASCII85Decode" | b"A85" => ascii85_length(input),
+            _ => {
+                log::warn!("No all filters for inline images are implemented");
+                return Err(Error::Unimplemented(
+                    "now all filters for inline images are implemented",
+                ));
+            }
+        },
     }?;
 
     let (input, content) = take(length)
@@ -186,6 +192,25 @@ fn unfiltered_length(dict: &Dictionary) -> Result<usize> {
         .ok_or_else(|| Error::InvalidInlineImage(String::from("image size out of range")))
 }
 
+// ASCII Hex Decode Filter ISO 32000-1 7.4.2 with EOD '>'
+fn ascii_hex_length(input: &[u8]) -> Result<usize> {
+    input
+        .iter()
+        .position(|&c| c == b'>')
+        .map(|i| i + 1)
+        .ok_or_else(|| Error::InvalidInlineImage(String::from("ASCIIHex inline image data has no end-of-data marker")))
+}
+
+// ASCII85 Decode Filter ISO 32000-1, 7.4.3 with EOD '~>'. White-space characters are ignored.
+fn ascii85_length(input: &[u8]) -> Result<usize> {
+    let err = || Error::InvalidInlineImage(String::from("ASCII85 inline image data has no end-of-data marker"));
+    let tilde = input.iter().position(|&c| c == b'~').ok_or_else(err)?;
+    let tilde_rest = tilde + 1 + input[tilde + 1..].iter().take_while(|&&c| is_whitespace(c)).count();
+    (input.get(tilde_rest) == Some(&b'>'))
+        .then_some(tilde_rest + 1)
+        .ok_or_else(err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{content, content_strict};
@@ -240,7 +265,7 @@ EI
             (b"\x0cEI\x00Q", &["q", "BI", "Q"]),
             (b" EI", &["q", "BI"]),
         ] {
-            let mut input = b"q BI /W 1 /H 1 /BPC 8 /CS /G /F /AHx ID 00>".to_vec();
+            let mut input = b"q BI /W 1 /H 1 /BPC 8 /CS /G /F /CCF ID 00>".to_vec();
             input.extend_from_slice(end);
             let out = content_strict(test_span(&input)).unwrap();
             let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
@@ -337,5 +362,31 @@ EI";
     fn inline_image_without_ei_fails() {
         let input = b"q BI /W 2 /H 1 /BPC 8 /CS /G ID \x00\xff\x7f Q";
         assert!(content_strict(test_span(input)).is_err());
+    }
+
+    #[test]
+    fn ascii_hex_and_ascii85_length() {
+        assert_eq!(
+            ascii_hex_length(&[104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 62]).unwrap(),
+            12
+        );
+        assert!(ascii_hex_length(b"01234").is_err());
+        assert_eq!(ascii85_length(b"Ci=9'Aftf/+CQC&Df9G7@rc\"\"AH~>").unwrap(), 29);
+        assert_eq!(ascii85_length(b"abc~ \n>").unwrap(), 7);
+        // No non whitespace between ~ and > allowed.
+        assert!(ascii85_length(b"z!!~x >").is_err());
+        assert!(ascii85_length(b"z!!~     x >").is_err());
+    }
+
+    #[test]
+    fn ascii_hex_inline_image() {
+        let input = b"q BI /W 1 /H 1 /BPC 1 /CS /G /F /AHx ID 31> EI Q";
+        assert!(content_strict(test_span(input)).is_ok());
+    }
+
+    #[test]
+    fn ascii_85_inline_image() {
+        let input = b"q BI /W 1 /H 1 /BPC 1 /CS /G /F /A85 ID 0`~> EI Q";
+        assert!(content_strict(test_span(input)).is_ok());
     }
 }
