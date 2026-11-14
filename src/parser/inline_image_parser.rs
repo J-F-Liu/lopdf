@@ -85,12 +85,19 @@ fn data_stream(input: ParserInput, dict: Dictionary) -> Result<(ParserInput, Str
         }
     };
 
+    let decode_parms = |index: usize| match dict_get_with_abbr(&dict, b"DP", b"DecodeParms") {
+        Some(Object::Dictionary(parms)) if index == 0 => Some(parms),
+        Some(Object::Array(parms)) => parms.get(index).and_then(|p| p.as_dict().ok()),
+        _ => None,
+    };
+
     let length = match filter {
         // No filter provided
         None => unfiltered_length(&dict),
         Some(filter) => match filter {
             b"ASCIIHexDecode" | b"AHx" => ascii_hex_length(input),
             b"ASCII85Decode" | b"A85" => ascii85_length(input),
+            b"LZWDecode" | b"LZW" => lzw_length(input, decode_parms(0)),
             _ => {
                 log::warn!("No all filters for inline images are implemented");
                 return Err(Error::Unimplemented(
@@ -209,6 +216,54 @@ fn ascii85_length(input: &[u8]) -> Result<usize> {
     (input.get(tilde_rest) == Some(&b'>'))
         .then_some(tilde_rest + 1)
         .ok_or_else(err)
+}
+
+/// LZW Decode Filter ISO 32000-1 7.4.4 with EOD 257.
+fn lzw_length(data: &[u8], decode_parms: Option<&Dictionary>) -> Result<usize> {
+    use weezl::{decode::Decoder, BitOrder, LzwStatus};
+
+    let err = Error::InvalidInlineImage(String::from("LZW inline image data length could not be evaluated"));
+
+    let early_change = decode_parms
+        .and_then(|p| p.get(b"EarlyChange").ok())
+        .and_then(|p| p.as_i64().ok())
+        .is_none_or(|v| v != 0);
+
+    let mut decoder = if early_change {
+        Decoder::with_tiff_size_switch(BitOrder::Msb, 8)
+    } else {
+        Decoder::new(BitOrder::Msb, 8)
+    };
+
+    let mut sink = [0u8; 8192];
+    let mut produced = 0u64;
+    for i in 0..data.len() {
+        let mut input = &data[i..=i];
+        loop {
+            let result = decoder.decode_bytes(input, &mut sink);
+
+            input = &input[result.consumed_in..];
+            produced += result.consumed_out as u64;
+
+            // In inline images section in ISO 32000-1 it stands, that inline images should be < 4KB.
+            // So this limit is far away from that.
+            if produced > crate::DEFAULT_MAX_DECOMPRESSED_SIZE as u64 {
+                return Err(err);
+            }
+
+            match result
+                .status
+                .map_err(|_| Error::InvalidInlineImage(String::from("Lzw status in inline image has an error")))?
+            {
+                LzwStatus::Done => return Ok(i + 1),
+                LzwStatus::Ok if result.consumed_out == sink.len() => continue,
+                _ if input.is_empty() => break,
+                LzwStatus::NoProgress => return Err(err),
+                LzwStatus::Ok => {}
+            }
+        }
+    }
+    Err(err)
 }
 
 #[cfg(test)]
@@ -388,5 +443,17 @@ EI";
     fn ascii_85_inline_image() {
         let input = b"q BI /W 1 /H 1 /BPC 1 /CS /G /F /A85 ID 0`~> EI Q";
         assert!(content_strict(test_span(input)).is_ok());
+    }
+
+    #[test]
+    fn inline_image_lzw() {
+        // "hello world" as an 11x1 gray image, LZW-encoded, followed by a space, EI and Q.
+        let mut input = b"q BI /W 11 /H 1 /BPC 8 /CS /G /F /LZW ID ".to_vec();
+        let data = b"\x80\x1a\x0c\xa6\xc3\x61\xbc\x40\x77\x37\x9c\x8d\x86\x48\x08";
+        input.extend_from_slice(data);
+        input.extend_from_slice(b" EI Q");
+        let out = content_strict(test_span(&input)).unwrap();
+        let image = out.operations[1].operands[0].as_stream().unwrap();
+        assert_eq!(image.content, data);
     }
 }
