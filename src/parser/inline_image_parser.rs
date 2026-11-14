@@ -98,6 +98,7 @@ fn data_stream(input: ParserInput, dict: Dictionary) -> Result<(ParserInput, Str
             b"ASCIIHexDecode" | b"AHx" => ascii_hex_length(input),
             b"ASCII85Decode" | b"A85" => ascii85_length(input),
             b"LZWDecode" | b"LZW" => lzw_length(input, decode_parms(0)),
+            b"FlateDecode" | b"Fl" => flate_length(input),
             _ => {
                 log::warn!("No all filters for inline images are implemented");
                 return Err(Error::Unimplemented(
@@ -266,6 +267,48 @@ fn lzw_length(data: &[u8], decode_parms: Option<&Dictionary>) -> Result<usize> {
     Err(err)
 }
 
+/// Flate Decode Filter ISO 32000-1 7.4.4
+fn flate_length(data: &[u8]) -> Result<usize> {
+    use flate2::{Decompress, FlushDecompress, Status};
+
+    let mut decompress = Decompress::new(true);
+    let mut sink = [0u8; 8192];
+
+    loop {
+        let consumed = usize::try_from(decompress.total_in())
+            .map_err(|_| Error::InvalidInlineImage(String::from("Flate decode decompress total in is negative")))?;
+        let produced = decompress.total_out();
+
+        let status = decompress
+            .decompress(
+                data.get(consumed..).ok_or_else(|| {
+                    Error::InvalidInlineImage(String::from("Flate decode data could not be consumed"))
+                })?,
+                &mut sink,
+                FlushDecompress::None,
+            )
+            .map_err(|_| Error::InvalidInlineImage(String::from("Flate decode image data can not be parsed.")))?;
+
+        match status {
+            Status::StreamEnd => {
+                return usize::try_from(decompress.total_in())
+                    .map_err(|_| Error::InvalidInlineImage(String::from("Flate decode decompress")))
+            }
+            _ if decompress.total_out() > crate::DEFAULT_MAX_DECOMPRESSED_SIZE as u64 => {
+                return Err(Error::InvalidInlineImage(String::from(
+                    "Flate decode image data length could not be resolved.",
+                )))
+            }
+            _ if decompress.total_in() as usize == consumed && decompress.total_out() == produced => {
+                return Err(Error::InvalidInlineImage(String::from(
+                    "Flate decode image data length could not be resolved.",
+                )))
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{content, content_strict};
@@ -273,6 +316,20 @@ mod tests {
 
     fn test_span(s: &'_ [u8]) -> ParserInput<'_> {
         s
+    }
+
+    fn zlib(data: &[u8], level: flate2::Compression) -> Vec<u8> {
+        use std::io::Write;
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), level);
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn inline_image_content(dict: &str, data: &[u8], after: &[u8]) -> Vec<u8> {
+        let mut input = format!("q BI {dict} ID ").into_bytes();
+        input.extend_from_slice(data);
+        input.extend_from_slice(after);
+        input
     }
 
     #[test]
@@ -455,5 +512,34 @@ EI";
         let out = content_strict(test_span(&input)).unwrap();
         let image = out.operations[1].operands[0].as_stream().unwrap();
         assert_eq!(image.content, data);
+    }
+
+    #[test]
+    fn inline_image_flate_data_containing_ei() {
+        let pixels = b"\x80 EI Q\n".repeat(10);
+        let data = zlib(&pixels, flate2::Compression::none());
+        for dict in [
+            "/W 10 /H 7 /BPC 8 /CS /G /F /Fl",
+            "/W 10 /H 7 /BPC 8 /CS /G /Filter /FlateDecode",
+        ] {
+            let input = inline_image_content(dict, &data, b"\nEI Q");
+            let out = content_strict(test_span(&input)).unwrap();
+            let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+            assert_eq!(ops, vec!["q", "BI", "Q"], "{dict}");
+            assert_eq!(
+                out.operations[1].operands[0].as_stream().unwrap().content,
+                data,
+                "{dict}"
+            );
+        }
+    }
+
+    #[test]
+    fn inline_image_flate_with_predictor() {
+        let data = zlib(&[0; 110], flate2::Compression::default());
+        let dict = "/W 10 /H 10 /BPC 8 /CS /G /F /Fl /DP << /Predictor 15 /Columns 10 >>";
+        let input = inline_image_content(dict, &data, b" EI Q");
+        let out = content_strict(test_span(&input)).unwrap();
+        assert_eq!(out.operations[1].operands[0].as_stream().unwrap().content, data);
     }
 }
