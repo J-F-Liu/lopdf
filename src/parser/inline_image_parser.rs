@@ -3,9 +3,7 @@
 //! The essential part here covers the detection of the image data, since in ISO 32000-1 8.9.7
 //! "Inline Images" no length entry is provided. This module handles the inline image operations
 //! BI, ID and EI as one BI operator together with the dictionary and un-decoded stream.
-use super::{
-    content_space, eol, inner_dictionary, is_whitespace, Dictionary, NomError, NomResult, Object, ParserInput, Stream,
-};
+use super::{content_space, eol, inner_dictionary, is_whitespace, Dictionary, NomResult, Object, ParserInput, Stream};
 use crate::{Error, Result};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take, take_while_m_n};
@@ -27,35 +25,45 @@ fn inline_image(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     let (input, dict) = inner_dictionary(crate::reader::MAX_NESTING_DEPTH).parse(input)?;
     let (input, _) = pair(tag(&b"ID"[..]), inline_image_data_separator).parse(input)?;
     match data_stream(input, dict) {
-        Ok((input, stream)) => {
-            let (input, _) = (content_space, tag(&b"EI"[..]), content_space).parse(input)?;
-            Ok((input, (vec![Object::Stream(stream)], String::from("BI"))))
+        Ok((after_input, mut stream)) => {
+            if let Some(rest) = (content_space, tag(&b"EI"[..]), content_space)
+                .parse(after_input)
+                .ok()
+                .map(|(rest, _)| rest)
+            {
+                return Ok((rest, (vec![Object::Stream(stream)], String::from("BI"))));
+            }
+            // If EI does not follow the data, this searches the end of the inline image.
+            if let Some((missing_rest, rest)) = search_end_of_inline_image(after_input) {
+                log::warn!("Inline image data longer than computed withelp of the dict, adding the missing rest.");
+                let mut content = std::mem::take(&mut stream.content);
+                content.extend_from_slice(&after_input[..missing_rest]);
+                stream.set_content(content);
+                return Ok((rest, (vec![Object::Stream(stream)], String::from("BI"))));
+            }
+            log::warn!("Inline image data shorter than resolved by its dictionary");
+            skip_stream(input)
         }
         Err(e) => {
-            // Skip to EI marker so the rest of the content stream can still be parsed.
-            log::warn!("Skipping unparseable inline image: {e}");
-            let bytes = input;
-            // EI must appear after whitespace to distinguish from data bytes, and be followed
-            // by whitespace or the end of the stream.
-            let ei_pos = bytes
-                .windows(3)
-                .enumerate()
-                .find(|&(i, w)| {
-                    is_whitespace(w[0]) && w[1..] == *b"EI" && bytes.get(i + 3).is_none_or(|&c| is_whitespace(c))
-                })
-                .map(|(i, _)| i)
-                .ok_or_else(|| {
-                    let err: NomError = nom::error::Error::from_error_kind(input, ErrorKind::Fail);
-                    nom::Err::Failure(err)
-                })?;
-            let (input, _) = take(ei_pos + 3).parse(input).map_err(|_: nom::Err<()>| {
-                let err: NomError = nom::error::Error::from_error_kind(input, ErrorKind::Fail);
-                nom::Err::Failure(err)
-            })?;
-            let (input, _) = content_space(input)?;
-            Ok((input, (vec![], String::from("BI"))))
+            log::warn!("Skip inline image: {e}");
+            skip_stream(input)
         }
     }
+}
+
+fn skip_stream(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
+    let (_, rest) = search_end_of_inline_image(input)
+        .ok_or_else(|| nom::Err::Failure(nom::error::Error::from_error_kind(input, ErrorKind::Fail)))?;
+    Ok((rest, (vec![], String::from("BI"))))
+}
+
+// EI surrounded by whitespace
+fn search_end_of_inline_image(input: ParserInput) -> Option<(usize, ParserInput)> {
+    let i = input.windows(3).enumerate().position(|(i, w)| {
+        is_whitespace(w[0]) && w[1..] == *b"EI" && input.get(i + 3).is_none_or(|&c| is_whitespace(c))
+    })?;
+    let (rest, _) = content_space(&input[i + 3..]).ok()?;
+    Some((i, rest))
 }
 
 // Resolves the data stream between ID and EI.
@@ -64,7 +72,7 @@ fn data_stream(input: ParserInput, dict: Dictionary) -> Result<(ParserInput, Str
         None => None,
         Some(Object::Name(filter)) => Some(filter.as_slice()),
         Some(Object::Array(filters)) => match filters.first() {
-            // An empty array applies no filters (ISO 32000-1, Table 5).
+            // An empty array applies no filters.
             None => None,
             Some(filter) => Some(filter.as_name()?),
         },
@@ -310,5 +318,24 @@ EI";
         let input = b"BI /CS /DeviceGray /W 2 /H 1 /BPC 8 ID\r\n\n\x80\nEI";
         let out = super::inline_image_parser(test_span(input)).unwrap().1;
         assert_eq!(&out.0[0].as_stream().unwrap().content, b"\n\x80");
+    }
+
+    #[test]
+    fn all_inline_image_bytes_before_ei_kept_as_data() {
+        // A 2x1 gray image with one byte more than the data length resolvers calculates.
+        // It should not fail, instead it should return the data.
+        let input = b"q BI /W 2 /H 1 /BPC 8 /CS /G ID \x00\xff\x7f EI Q";
+        let out = content_strict(test_span(input)).unwrap();
+        let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+        assert_eq!(ops, vec!["q", "BI", "Q"]);
+        let image = out.operations[1].operands[0].as_stream().unwrap();
+        assert_eq!(image.content, b"\x00\xff\x7f");
+        assert_eq!(image.dict.get(b"Length").unwrap().as_i64().unwrap(), 3);
+    }
+
+    #[test]
+    fn inline_image_without_ei_fails() {
+        let input = b"q BI /W 2 /H 1 /BPC 8 /CS /G ID \x00\xff\x7f Q";
+        assert!(content_strict(test_span(input)).is_err());
     }
 }
