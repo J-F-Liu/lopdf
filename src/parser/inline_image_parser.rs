@@ -3,15 +3,15 @@
 //! The essential part here covers the detection of the image data, since in ISO 32000-1 8.9.7
 //! "Inline Images" no length entry is provided. This module handles the inline image operations
 //! BI, ID and EI as one BI operator together with the dictionary and un-decoded stream.
-use super::{content_space, eol, inner_dictionary, is_whitespace, Dictionary, NomResult, Object, ParserInput, Stream};
+use super::{Dictionary, NomResult, Object, ParserInput, Stream, content_space, eol, inner_dictionary, is_whitespace};
 use crate::{Error, Result};
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take, take_while_m_n};
 use nom::combinator::cut;
 use nom::combinator::{map, opt};
 use nom::error::{ErrorKind, ParseError};
 use nom::sequence::{pair, preceded};
-use nom::Parser;
 
 pub(crate) fn inline_image_parser(input: ParserInput) -> NomResult<(Vec<Object>, String)> {
     preceded(pair(tag(&b"BI"[..]), content_space), cut(inline_image)).parse(input)
@@ -100,11 +100,15 @@ fn data_stream(input: ParserInput, dict: Dictionary) -> Result<(ParserInput, Str
             b"LZWDecode" | b"LZW" => lzw_length(input, decode_parms(0)),
             b"FlateDecode" | b"Fl" => flate_length(input),
             b"RunLengthDecode" | b"RL" => run_length_decode_length(input),
-            _ => {
-                log::warn!("No all filters for inline images are implemented");
+            b"DCTDecode" | b"DCT" => dct_length(input),
+            b"CCITTFaxDecode" | b"CCF" => {
                 return Err(Error::Unimplemented(
-                    "now all filters for inline images are implemented",
+                    "CCITTFax filter on inline image data is unsupported",
                 ));
+            }
+            _ => {
+                log::warn!("Unknown filter for inline images");
+                return Err(Error::InvalidInlineImage(String::from("Unknown inline image filter")));
             }
         },
     }?;
@@ -189,7 +193,7 @@ fn unfiltered_length(dict: &Dictionary) -> Result<usize> {
             _ => {
                 return Err(Error::InvalidInlineImage(String::from(
                     "Missing colorspace in inline image",
-                )))
+                )));
             }
         }
     };
@@ -222,7 +226,7 @@ fn ascii85_length(input: &[u8]) -> Result<usize> {
 
 /// LZW Decode Filter ISO 32000-1 7.4.4 with EOD 257.
 fn lzw_length(data: &[u8], decode_parms: Option<&Dictionary>) -> Result<usize> {
-    use weezl::{decode::Decoder, BitOrder, LzwStatus};
+    use weezl::{BitOrder, LzwStatus, decode::Decoder};
 
     let err = Error::InvalidInlineImage(String::from("LZW inline image data length could not be evaluated"));
 
@@ -293,17 +297,17 @@ fn flate_length(data: &[u8]) -> Result<usize> {
         match status {
             Status::StreamEnd => {
                 return usize::try_from(decompress.total_in())
-                    .map_err(|_| Error::InvalidInlineImage(String::from("Flate decode decompress")))
+                    .map_err(|_| Error::InvalidInlineImage(String::from("Flate decode decompress")));
             }
             _ if decompress.total_out() > crate::DEFAULT_MAX_DECOMPRESSED_SIZE as u64 => {
                 return Err(Error::InvalidInlineImage(String::from(
                     "Flate decode image data length could not be resolved.",
-                )))
+                )));
             }
             _ if decompress.total_in() as usize == consumed && decompress.total_out() == produced => {
                 return Err(Error::InvalidInlineImage(String::from(
                     "Flate decode image data length could not be resolved.",
-                )))
+                )));
             }
             _ => {}
         }
@@ -335,6 +339,57 @@ fn run_length_decode_length(input: &[u8]) -> Result<usize> {
             return Err(Error::InvalidInlineImage(String::from(
                 "Run length decode inline image data could not be resolved",
             )));
+        }
+    }
+}
+
+/// DCTDecode Filter ISO 32000-1 7.4.8
+fn dct_length(data: &[u8]) -> Result<usize> {
+    let err = || Error::InvalidInlineImage(String::from("DCT inline image length could not be calculated"));
+
+    if !data.starts_with(&[0xFF, 0xD8]) {
+        return Err(err());
+    }
+    let mut i = 2usize;
+    loop {
+        if *data.get(i).ok_or_else(err)? != 0xFF {
+            return Err(err());
+        }
+        while *data.get(i).ok_or_else(err)? == 0xFF {
+            i += 1;
+        }
+        let marker = data[i];
+        i += 1;
+        match marker {
+            // EOI
+            0xD9 => return Ok(i),
+            0x01 | 0xD0..=0xD7 => {}
+            0x00 | 0xD8 => return Err(err()),
+            _ => {
+                let length = usize::from(u16::from_be_bytes([
+                    *data.get(i).ok_or_else(err)?,
+                    *data.get(i + 1).ok_or_else(err)?,
+                ]));
+                if length < 2 {
+                    return Err(err());
+                }
+                i = i.checked_add(length).ok_or_else(err)?;
+                if marker == 0xDA {
+                    loop {
+                        i += data
+                            .get(i..)
+                            .ok_or_else(err)?
+                            .iter()
+                            .position(|&c| c == 0xFF)
+                            .ok_or_else(err)?;
+                        match *data.get(i + 1).ok_or_else(err)? {
+                            0x00 | 0xD0..=0xD7 => i += 2,
+                            0xFF => i += 1,
+                            _ => break,
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -579,5 +634,24 @@ EI";
         let input = inline_image_content("/W 8 /H 1 /BPC 8 /CS /G /F /RL", data, b" EI Q");
         let out = content_strict(test_span(&input)).unwrap();
         assert_eq!(out.operations[1].operands[0].as_stream().unwrap().content, data);
+    }
+
+    #[test]
+    fn inline_image_dct() {
+        let data = include_bytes!("../../assets/pdf_icon.jpg");
+        for dict in [
+            "/W 800 /H 450 /BPC 8 /CS /RGB /F /DCT",
+            "/W 800 /H 450 /BPC 8 /CS /DeviceRGB /Filter [/DCTDecode]",
+        ] {
+            let input = inline_image_content(dict, data, b"\nEI Q");
+            let out = content_strict(test_span(&input)).unwrap();
+            let ops: Vec<&str> = out.operations.iter().map(|o| o.operator.as_str()).collect();
+            assert_eq!(ops, vec!["q", "BI", "Q"], "{dict}");
+            assert_eq!(
+                out.operations[1].operands[0].as_stream().unwrap().content,
+                data,
+                "{dict}"
+            );
+        }
     }
 }
