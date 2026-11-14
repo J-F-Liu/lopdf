@@ -99,6 +99,7 @@ fn data_stream(input: ParserInput, dict: Dictionary) -> Result<(ParserInput, Str
             b"ASCII85Decode" | b"A85" => ascii85_length(input),
             b"LZWDecode" | b"LZW" => lzw_length(input, decode_parms(0)),
             b"FlateDecode" | b"Fl" => flate_length(input),
+            b"RunLengthDecode" | b"RL" => run_length_decode_length(input),
             _ => {
                 log::warn!("No all filters for inline images are implemented");
                 return Err(Error::Unimplemented(
@@ -305,6 +306,35 @@ fn flate_length(data: &[u8]) -> Result<usize> {
                 )))
             }
             _ => {}
+        }
+    }
+}
+
+/// RunLengthDecode Filter ISO 32000-1 7.4.5
+fn run_length_decode_length(input: &[u8]) -> Result<usize> {
+    let mut i = 0usize;
+    loop {
+        let length = *input.get(i).ok_or_else(|| {
+            Error::InvalidInlineImage(String::from(
+                "Run length decode input entry not found in inline image data",
+            ))
+        })?;
+        i += 1;
+        match length {
+            0..=127 => {
+                i = i.checked_add(usize::from(length) + 1).ok_or_else(|| {
+                    Error::InvalidInlineImage(String::from(
+                        "Run length decode inline image data could not be resolved",
+                    ))
+                })?
+            }
+            128 => return Ok(i),
+            _ => i += 1,
+        }
+        if i > input.len() {
+            return Err(Error::InvalidInlineImage(String::from(
+                "Run length decode inline image data could not be resolved",
+            )));
         }
     }
 }
@@ -539,6 +569,14 @@ EI";
         let data = zlib(&[0; 110], flate2::Compression::default());
         let dict = "/W 10 /H 10 /BPC 8 /CS /G /F /Fl /DP << /Predictor 15 /Columns 10 >>";
         let input = inline_image_content(dict, &data, b" EI Q");
+        let out = content_strict(test_span(&input)).unwrap();
+        assert_eq!(out.operations[1].operands[0].as_stream().unwrap().content, data);
+    }
+
+    #[test]
+    fn inline_image_run_length() {
+        let data = b"\x04\x80 EI \xfe\x41\x80";
+        let input = inline_image_content("/W 8 /H 1 /BPC 8 /CS /G /F /RL", data, b" EI Q");
         let out = content_strict(test_span(&input)).unwrap();
         assert_eq!(out.operations[1].operands[0].as_stream().unwrap().content, data);
     }
