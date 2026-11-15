@@ -882,7 +882,7 @@ impl<'a> Reader<'a> {
         matches!(kids, Some(Object::Array(_)))
     }
 
-    fn load_encrypted_document(&mut self, _filter_func: Option<FilterFunc>) -> Result<()> {
+    fn load_encrypted_document(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
         // First, extract all raw object bytes without parsing
         let entries: Vec<_> = self
             .document
@@ -925,17 +925,28 @@ impl<'a> Reader<'a> {
                 .ok()
                 .and_then(|o| o.as_reference().ok());
 
-            for (obj_id, raw_bytes) in &self.raw_objects {
+            // Each raw copy is parsed once, so release it as soon as it has been parsed instead of
+            // holding a second copy of every object until loading ends.
+            let raw_objects = std::mem::take(&mut self.raw_objects);
+            for (obj_id, raw_bytes) in raw_objects {
                 if let Some(enc_ref) = encrypt_ref
-                    && *obj_id == enc_ref
+                    && obj_id == enc_ref
                 {
                     continue;
                 }
 
-                if let Ok((id, mut obj)) = self.parse_raw_object(raw_bytes) {
+                if let Ok((id, mut obj)) = self.parse_raw_object(&raw_bytes) {
+                    drop(raw_bytes);
                     // Keep the partial object, but do not drop the error silently.
-                    if let Err(error) = encryption::decrypt_object(state, *obj_id, &mut obj) {
+                    if let Err(error) = encryption::decrypt_object(state, obj_id, &mut obj) {
                         log::warn!("object {obj_id:?} could not be fully decrypted: {error}");
+                    }
+
+                    // Apply the load filter to the decrypted object, as `load_objects_raw` does.
+                    if let Some(filter_func) = filter_func
+                        && filter_func(id, &mut obj).is_none()
+                    {
+                        continue;
                     }
 
                     self.document.objects.insert(id, obj);
@@ -960,7 +971,16 @@ impl<'a> Reader<'a> {
                             for (obj_num, _index) in objects_in_stream {
                                 let obj_id = (obj_num, 0);
                                 if let Some(obj) = object_stream.objects.get(&obj_id) {
-                                    self.document.objects.insert(obj_id, obj.clone());
+                                    let mut obj = obj.clone();
+                                    if let Some(filter_func) = filter_func {
+                                        // Object-stream members keep what the filter returns, as
+                                        // in `load_objects_raw`.
+                                        if let Some((id, obj)) = filter_func(obj_id, &mut obj) {
+                                            self.document.objects.insert(id, obj);
+                                        }
+                                    } else {
+                                        self.document.objects.insert(obj_id, obj);
+                                    }
                                 }
                             }
                         }
