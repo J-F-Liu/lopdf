@@ -30,9 +30,9 @@ pub fn form(boundingbox: Vec<f32>, matrix: Vec<f32>, content: Vec<u8>) -> Stream
     dict.set("Subtype", Object::Name(b"Form".to_vec()));
     dict.set(
         "BBox",
-        Object::Array(boundingbox.into_iter().map(Object::Real).collect()),
+        Object::Array(boundingbox.into_iter().map(Object::from).collect()),
     );
-    dict.set("Matrix", Object::Array(matrix.into_iter().map(Object::Real).collect()));
+    dict.set("Matrix", Object::Array(matrix.into_iter().map(Object::from).collect()));
     let mut xobject = Stream::new(dict, content);
     // Ignore any compression error.
     let _ = xobject.compress();

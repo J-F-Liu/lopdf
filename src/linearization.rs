@@ -39,7 +39,7 @@ impl Linearization {
     pub fn from_dictionary(id: ObjectId, dict: &Dictionary) -> Option<Self> {
         let version = match dict.get(b"Linearized").ok()? {
             Object::Integer(version) => *version as f32,
-            Object::Real(version) => *version,
+            Object::Real(version) => *version as f32,
             _ => return None,
         };
         let unsigned = |key: &[u8]| -> Option<u64> {

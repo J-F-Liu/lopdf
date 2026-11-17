@@ -125,7 +125,7 @@ fn integer(input: ParserInput) -> NomResult<i64> {
     convert_result(value.ok_or(()), i, ErrorKind::Digit)
 }
 
-fn real(input: ParserInput) -> NomResult<f32> {
+fn real(input: ParserInput) -> NomResult<f64> {
     let (i, _) = pair(
         sign,
         alt((
@@ -143,9 +143,9 @@ fn real(input: ParserInput) -> NomResult<f32> {
         let (sign, rest) = float_input.split_at(1);
         let mut digits = sign.to_vec();
         digits.extend(rest.iter().filter(|&&c| c != b'-'));
-        f32::from_str(str::from_utf8(&digits).unwrap())
+        f64::from_str(str::from_utf8(&digits).unwrap())
     } else {
-        f32::from_str(str::from_utf8(float_input).unwrap())
+        f64::from_str(str::from_utf8(float_input).unwrap())
     };
     convert_result(value, i, ErrorKind::Digit)
 }

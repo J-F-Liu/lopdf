@@ -1215,8 +1215,8 @@ impl<'a> Reader<'a> {
                 Ok(length) => Ok(length),
                 // s7.3.8.2 requires an integer /Length, but some producers write a real ("42.");
                 // accept one whose value is integral and in range.
-                Err(err) => match obj.as_f32() {
-                    Ok(value) if value.fract() == 0.0 && value >= -(2f32.powi(63)) && value < 2f32.powi(63) => {
+                Err(err) => match obj.as_f64() {
+                    Ok(value) if value.fract() == 0.0 && value >= -(2f64.powi(63)) && value < 2f64.powi(63) => {
                         Ok(value as i64)
                     }
                     _ => Err(err),

@@ -80,7 +80,10 @@ pub enum Object {
     Null,
     Boolean(bool),
     Integer(i64),
-    Real(f32),
+    /// A real number, held as `f64` so a value read from a file keeps every digit it was
+    /// written with: an `f32` holds about seven significant digits, and font widths such as
+    /// `666.99219` lost their last ones on load.
+    Real(f64),
     Name(Vec<u8>),
     String(Vec<u8>, StringFormat),
     Array(Vec<Object>),
@@ -147,13 +150,15 @@ impl<'a> From<&'a str> for Object {
 
 impl From<f64> for Object {
     fn from(number: f64) -> Self {
-        Object::Real(number as f32)
+        Object::Real(number)
     }
 }
 
+/// Widens through the shortest decimal that reads back as the same `f32`, so `0.1f32` becomes
+/// the real `0.1` and is written as `0.1`, not as `0.10000000149011612`, which `as f64` gives.
 impl From<f32> for Object {
     fn from(number: f32) -> Self {
-        Object::Real(number)
+        Object::Real(number.to_string().parse().unwrap_or(number as f64))
     }
 }
 
@@ -209,18 +214,33 @@ impl Object {
 
     /// Get the object value as a float.
     /// Unlike [`Object::as_f32`] this will also cast an Integer to a Real.
+    /// The value is rounded to `f32`; [`Object::as_float_f64`] keeps every digit.
     pub fn as_float(&self) -> Result<f32> {
         match self {
             Object::Integer(value) => Ok(*value as f32),
+            Object::Real(value) => Ok(*value as f32),
+            _ => Err(self.type_error("Integer or Real")),
+        }
+    }
+
+    /// Get the object value as an `f64`, casting an Integer to a Real.
+    pub fn as_float_f64(&self) -> Result<f64> {
+        match self {
+            Object::Integer(value) => Ok(*value as f64),
             Object::Real(value) => Ok(*value),
             _ => Err(self.type_error("Integer or Real")),
         }
     }
 
+    /// Get a Real rounded to `f32`; [`Object::as_f64`] keeps every digit.
+    pub fn as_f32(&self) -> Result<f32> {
+        self.as_f64().map(|value| value as f32)
+    }
+
     object_copy_getters! {
         as_bool: Boolean => bool = "Boolean", value;
         as_i64: Integer => i64 = "Integer", value;
-        as_f32: Real => f32 = "Real", value;
+        as_f64: Real => f64 = "Real", value;
         as_reference: Reference => ObjectId = "Reference", value;
     }
 
