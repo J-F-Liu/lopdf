@@ -243,6 +243,19 @@ fn extract_text_preserves_characters_after_unmapped_codes() {
 }
 
 #[test]
+fn identity_font_codes_are_two_bytes_whatever_the_tounicode_codespace_says() {
+    // ISO 32000-1, 9.10.3: a composite font's ToUnicode codespace shall match the font's CMap, and
+    // Identity-H codes are two bytes. Some producers write a range that does not, such as
+    // <0000> <4C4F>, whose bounds the second byte of glyph 0x2A61 (U+4E2D) falls outside.
+    let cmap = tounicode_with_codespaces("<0000> <4C4F>", "<2A61> <4E2D>\n<0041> <0041>");
+    let mut doc = build_doc_with_tounicode(&cmap, vec![0x2A, 0x61, 0x00, 0x41]);
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).unwrap();
+    let loaded = Document::load_mem(&bytes).unwrap();
+    assert_eq!(loaded.extract_text(&[1]).unwrap(), "\u{4e2d}A\n");
+}
+
+#[test]
 fn decode_text_preserves_mixed_length_codes_after_unmapped_codes() {
     let cmap = tounicode_with_codespaces(
         "<00> <7F>\n<8140> <82FE>\n<820000> <8200FF>\n<83000000> <83FFFFFF>",

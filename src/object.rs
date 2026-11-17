@@ -437,6 +437,9 @@ impl Dictionary {
                     Ok(Encoding::UnicodeMapEncoding(cmap)) if self.is_simple_font() => {
                         return self.get_simple_font_unicode_encoding(&cmap, doc, limit);
                     }
+                    Ok(Encoding::UnicodeMapEncoding(cmap)) if self.has_identity_encoding() => {
+                        return Ok(Encoding::UnicodeMapEncoding(cmap.with_two_byte_codespace()));
+                    }
                     Ok(encoding) => return Ok(encoding),
                     Err(err @ Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => return Err(err),
                     Err(err) => warn!("Could not parse the ToUnicode CMap, error: {err:#?}. Using /Encoding instead."),
@@ -470,6 +473,16 @@ impl Dictionary {
             self.get(b"Subtype").and_then(Object::as_name),
             Ok(b"Type1" | b"MMType1" | b"TrueType" | b"Type3")
         )
+    }
+
+    /// Whether this is a composite font encoded `Identity-H` or `Identity-V`, whose character codes
+    /// are two bytes (ISO 32000-1, 9.7.5.2).
+    fn has_identity_encoding(&self) -> bool {
+        self.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Type0".as_slice())
+            && matches!(
+                self.get(b"Encoding").and_then(Object::as_name),
+                Ok(b"Identity-H" | b"Identity-V")
+            )
     }
 
     /// The encoding of a simple font that has a ToUnicode CMap. 9.10.2 orders the methods
