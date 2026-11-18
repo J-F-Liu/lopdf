@@ -61,19 +61,24 @@ impl Destination {
 type OutlinePageIds = Vec<(Vec<u8>, ObjectId, usize)>;
 
 fn setup_outline_page_ids<'a>(
-    outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, level: usize,
+    outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, errors: &mut Vec<String>, level: usize,
 ) -> Result<&'a Vec<Outline>> {
     for outline in outlines.iter() {
         match outline {
             Outline::Destination(destination) => {
-                result.push((
-                    destination.title()?.as_str()?.to_vec(),
-                    destination.page()?.as_reference()?,
-                    level,
-                ));
+                // A GoToR action points to a page of another file by its number, which has
+                // no page in this document, so the item is skipped with a warning.
+                let Ok(page_id) = destination.page()?.as_reference() else {
+                    let title = decode_text_string(destination.title()?).unwrap_or_default();
+                    errors.push(format!(
+                        "Outline item {title:?} doesn't point to a page of this document, skipped"
+                    ));
+                    continue;
+                };
+                result.push((destination.title()?.as_str()?.to_vec(), page_id, level));
             }
             Outline::SubOutlines(sub_outlines) => {
-                setup_outline_page_ids(sub_outlines, result, level + 1)?;
+                setup_outline_page_ids(sub_outlines, result, errors, level + 1)?;
             }
         }
     }
@@ -101,7 +106,7 @@ impl Document {
         };
 
         let mut outline_page_ids = Vec::new();
-        setup_outline_page_ids(&outlines, &mut outline_page_ids, 1)?;
+        setup_outline_page_ids(&outlines, &mut outline_page_ids, &mut toc.errors, 1)?;
         let page_id_to_page_numbers = self.setup_page_id_to_num();
         for (title, page_id, level) in outline_page_ids {
             if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
@@ -426,5 +431,51 @@ mod tests {
         let toc = doc.get_toc().unwrap();
         let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
         assert_eq!(actual, [("Explicit", 1), ("Named", 1)]);
+    }
+
+    #[test]
+    fn skip_destinations_without_page_reference() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        // A GoToR action gives the page in the other file as a page number, not a reference.
+        let outlines_id = doc.new_object_id();
+        let after = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("After"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+        });
+        let remote = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Remote"),
+            "Parent" => outlines_id,
+            "A" => dictionary! {
+                "S" => "GoToR",
+                "F" => Object::string_literal("other.pdf"),
+                "D" => vec![0.into(), "Fit".into()],
+            },
+            "Next" => after,
+        });
+        let before = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Before"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+            "Next" => remote,
+        });
+        let outlines = dictionary! { "Type" => "Outlines", "First" => before };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id =
+            doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id, "Outlines" => outlines_id });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
+        assert_eq!(actual, [("Before", 1), ("After", 1)]);
+        assert_eq!(
+            toc.errors,
+            ["Outline item \"Remote\" doesn't point to a page of this document, skipped"]
+        );
     }
 }
