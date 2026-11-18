@@ -128,6 +128,15 @@ impl ToUnicodeCMap {
         cmap
     }
 
+    /// This CMap read with the codespace of a composite font whose codes are two bytes, as the
+    /// `Identity-H` and `Identity-V` CMaps give them. ISO 32000-1, 9.10.3, requires a ToUnicode
+    /// CMap's codespace to match the font's CMap, but some producers write ranges that do not, such
+    /// as `<0000> <4C4F>` for a font whose codes run past `4F` in their second byte.
+    pub(crate) fn with_two_byte_codespace(mut self) -> ToUnicodeCMap {
+        self.codespace_ranges = vec![(0x0000, 0xFFFF, 2)];
+        self
+    }
+
     fn build_reverse_map(&mut self) {
         let mut rev_map = HashMap::new();
         let mut entries = 0usize;
