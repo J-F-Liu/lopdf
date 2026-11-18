@@ -66,6 +66,11 @@ fn setup_outline_page_ids<'a>(
     for outline in outlines.iter() {
         match outline {
             Outline::Destination(destination) => {
+                let Ok(title) = destination.title()?.as_str() else {
+                    let title = destination.title()?;
+                    errors.push(format!("Outline item title {title:?} isn't a string, skipped"));
+                    continue;
+                };
                 // A GoToR action points to a page of another file by its number, which has
                 // no page in this document, so the item is skipped with a warning.
                 let Ok(page_id) = destination.page()?.as_reference() else {
@@ -75,7 +80,7 @@ fn setup_outline_page_ids<'a>(
                     ));
                     continue;
                 };
-                result.push((destination.title()?.as_str()?.to_vec(), page_id, level));
+                result.push((title.to_vec(), page_id, level));
             }
             Outline::SubOutlines(sub_outlines) => {
                 setup_outline_page_ids(sub_outlines, result, errors, level + 1)?;
@@ -476,6 +481,59 @@ mod tests {
         assert_eq!(
             toc.errors,
             ["Outline item \"Remote\" doesn't point to a page of this document, skipped"]
+        );
+    }
+
+    #[test]
+    fn skip_titles_that_are_not_strings() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        // A /Title written as a name, and one that refers to a number.
+        let number_title = doc.add_object(42);
+
+        let outlines_id = doc.new_object_id();
+        let after = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("After"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+        });
+        let number = doc.add_object(dictionary! {
+            "Title" => number_title,
+            "Parent" => outlines_id,
+            "A" => dictionary! { "S" => "GoTo", "D" => vec![page_id.into(), "Fit".into()] },
+            "Next" => after,
+        });
+        let name = doc.add_object(dictionary! {
+            "Title" => "Chapter",
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+            "Next" => number,
+        });
+        let before = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Before"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+            "Next" => name,
+        });
+        let outlines = dictionary! { "Type" => "Outlines", "First" => before };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id =
+            doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id, "Outlines" => outlines_id });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
+        assert_eq!(actual, [("Before", 1), ("After", 1)]);
+        assert_eq!(
+            toc.errors,
+            [
+                "Outline item title /Chapter isn't a string, skipped",
+                "Outline item title 42 isn't a string, skipped",
+            ]
         );
     }
 }
