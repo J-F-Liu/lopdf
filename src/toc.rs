@@ -61,20 +61,24 @@ impl Destination {
 type OutlinePageIds = Vec<(Vec<u8>, ObjectId, usize)>;
 
 fn setup_outline_page_ids<'a>(
-    outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, level: usize,
+    outlines: &'a Vec<Outline>, result: &mut OutlinePageIds, errors: &mut Vec<String>, level: usize,
 ) -> Result<&'a Vec<Outline>> {
     for outline in outlines.iter() {
         match outline {
             Outline::Destination(destination) => {
                 // A GoToR action points to a page of another file by its number, which has
-                // no page in this document, so it is skipped like an unknown page reference.
+                // no page in this document, so the item is skipped with a warning.
                 let Ok(page_id) = destination.page()?.as_reference() else {
+                    let title = decode_text_string(destination.title()?).unwrap_or_default();
+                    errors.push(format!(
+                        "Outline item {title:?} doesn't point to a page of this document, skipped"
+                    ));
                     continue;
                 };
                 result.push((destination.title()?.as_str()?.to_vec(), page_id, level));
             }
             Outline::SubOutlines(sub_outlines) => {
-                setup_outline_page_ids(sub_outlines, result, level + 1)?;
+                setup_outline_page_ids(sub_outlines, result, errors, level + 1)?;
             }
         }
     }
@@ -102,7 +106,7 @@ impl Document {
         };
 
         let mut outline_page_ids = Vec::new();
-        setup_outline_page_ids(&outlines, &mut outline_page_ids, 1)?;
+        setup_outline_page_ids(&outlines, &mut outline_page_ids, &mut toc.errors, 1)?;
         let page_id_to_page_numbers = self.setup_page_id_to_num();
         for (title, page_id, level) in outline_page_ids {
             if let Some(page_num) = page_id_to_page_numbers.get(&page_id) {
@@ -469,5 +473,9 @@ mod tests {
         let toc = doc.get_toc().unwrap();
         let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
         assert_eq!(actual, [("Before", 1), ("After", 1)]);
+        assert_eq!(
+            toc.errors,
+            ["Outline item \"Remote\" doesn't point to a page of this document, skipped"]
+        );
     }
 }
