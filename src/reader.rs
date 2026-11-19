@@ -1059,8 +1059,29 @@ impl<'a> Reader<'a> {
             .collect();
         let normal_offsets = &self.normal_offsets;
 
-        let entries_filter_map = |(_, entry): (&_, &_)| -> Result<Option<(ObjectId, Object)>> {
+        // A malformed xref can mark many entries in use at one offset: one PDF had 1.9M entries
+        // pointing at the same object stream, and reading it once per entry exhausted memory.
+        // Every read of an offset yields the same object, so an offset is loaded only at its
+        // first entry, which keeps object-stream contents in their original order, and at its
+        // last entry, which alone returns the object so `objects` keeps its original winner.
+        // The entries between would only repeat identical work.
+        let mut offset_entries: HashMap<u32, (u32, u32)> = HashMap::new();
+        for (&id, entry) in &self.document.reference_table.entries {
             if let XrefEntry::Normal { offset, .. } = *entry {
+                offset_entries
+                    .entry(offset)
+                    .and_modify(|(_, last)| *last = id)
+                    .or_insert((id, id));
+            }
+        }
+
+        let entries_filter_map = |(&id, entry): (&u32, &XrefEntry)| -> Result<Option<(ObjectId, Object)>> {
+            if let XrefEntry::Normal { offset, .. } = *entry {
+                let (first_id, last_id) = offset_entries.get(&offset).copied().unwrap_or((id, id));
+                let (is_first, is_last) = (id == first_id, id == last_id);
+                if !is_first && !is_last {
+                    return Ok(None);
+                }
                 // read_object now handles decryption internally
                 let offset = offset as usize;
                 let next_index = normal_offsets.partition_point(|&next| next <= offset);
@@ -1127,7 +1148,7 @@ impl<'a> Reader<'a> {
                     }
                 }
 
-                Ok(Some((object_id, object)))
+                Ok(is_last.then_some((object_id, object)))
             } else {
                 Ok(None)
             }
