@@ -55,27 +55,40 @@ impl Document {
                 let Ok(name) = key.as_str() else {
                     continue;
                 };
-                let val = match val {
-                    Object::Reference(id) => match self.get_object(*id) {
-                        Ok(val) => val,
-                        Err(_) => continue,
-                    },
-                    val => val,
-                };
-                let array = match val {
-                    Object::Array(array) => array,
-                    Object::Dictionary(dict) => match dict.get_deref(b"D", self).and_then(Object::as_array) {
-                        Ok(array) => array,
-                        Err(_) => continue,
-                    },
-                    _ => continue,
-                };
-                if let [page, typ, ..] = array.as_slice() {
-                    let dest = Destination::new(key.clone(), page.clone(), typ.clone());
+                if let Some(dest) = self.named_destination(key, val) {
                     named_destinations.insert(name.to_vec(), dest);
                 }
             }
         }
         Ok(())
+    }
+
+    /// Reads the destinations of a PDF 1.1 `/Dests` dictionary in the catalog, keyed by names.
+    pub(crate) fn get_dests_dictionary(
+        &self, dests: &Dictionary, named_destinations: &mut IndexMap<Vec<u8>, Destination>,
+    ) {
+        for (name, val) in dests.iter() {
+            if let Some(dest) = self.named_destination(&Object::Name(name.clone()), val) {
+                named_destinations.insert(name.clone(), dest);
+            }
+        }
+    }
+
+    /// Builds the destination of a named destination entry, which is either an array or a
+    /// dictionary with the array in /D. Entries without a usable array are skipped.
+    fn named_destination(&self, key: &Object, val: &Object) -> Option<Destination> {
+        let val = match val {
+            Object::Reference(id) => self.get_object(*id).ok()?,
+            val => val,
+        };
+        let array = match val {
+            Object::Array(array) => array,
+            Object::Dictionary(dict) => dict.get_deref(b"D", self).and_then(Object::as_array).ok()?,
+            _ => return None,
+        };
+        match array.as_slice() {
+            [page, typ, ..] => Some(Destination::new(key.clone(), page.clone(), typ.clone())),
+            _ => None,
+        }
     }
 }

@@ -59,17 +59,15 @@ impl Document {
             if let Ok(first) = first {
                 dict_node = first;
             }
-            let mut tree = self.get_dict_in_dict(catalog, b"Dests");
-            if tree.is_err() {
-                let names = self.get_dict_in_dict(catalog, b"Names");
-                if let Ok(names) = names {
-                    let dests = self.get_dict_in_dict(names, b"Dests");
-                    if dests.is_ok() {
-                        tree = dests;
-                    }
-                }
+            // Destinations can be named in the PDF 1.1 /Dests dictionary of the catalog, with
+            // names as keys, and in the /Dests name tree of the /Names dictionary.
+            if let Ok(dests) = self.get_dict_in_dict(catalog, b"Dests") {
+                self.get_dests_dictionary(dests, named_destinations);
             }
-            if let Ok(tree) = tree {
+            if let Ok(tree) = self
+                .get_dict_in_dict(catalog, b"Names")
+                .and_then(|names| self.get_dict_in_dict(names, b"Dests"))
+            {
                 self.get_named_destinations(tree, named_destinations)?;
             }
             node = Some(Object::Dictionary(dict_node.clone()));
@@ -132,7 +130,7 @@ impl Document {
                 [page, typ, ..] => Outline::Destination(Destination::new(title.to_owned(), page.clone(), typ.clone())),
                 _ => return Err(Error::InvalidOutline(format!("Destination array too short: {dest:?}"))),
             },
-            Object::String(key, _fmt) => {
+            Object::Name(key) | Object::String(key, _) => {
                 if let Some(destination) = named_destinations.get_mut(key) {
                     destination.set(b"Title", title.to_owned());
                     Outline::Destination(destination.clone())

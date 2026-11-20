@@ -439,6 +439,60 @@ mod tests {
     }
 
     #[test]
+    fn resolve_names_from_dests_dictionary() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page1 = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let page2 = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page1.into(), page2.into()], "Count" => 2 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        // A PDF 1.1 /Dests dictionary in the catalog, keyed by names, next to a /Dests name tree.
+        let outro = doc.add_object(dictionary! { "D" => vec![page2.into(), "Fit".into()] });
+        let dests = doc.add_object(dictionary! {
+            "intro" => vec![page1.into(), "Fit".into()],
+            "outro" => outro,
+        });
+        let name_tree = dictionary! {
+            "Names" => vec![Object::string_literal("summary"), vec![page2.into(), "Fit".into()].into()],
+        };
+
+        let outlines_id = doc.new_object_id();
+        let summary = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Summary"),
+            "Parent" => outlines_id,
+            "Dest" => Object::string_literal("summary"),
+        });
+        let outro = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Outro"),
+            "Parent" => outlines_id,
+            "A" => dictionary! { "S" => "GoTo", "D" => "outro" },
+            "Next" => summary,
+        });
+        let intro = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Intro"),
+            "Parent" => outlines_id,
+            "Dest" => "intro",
+            "Next" => outro,
+        });
+        let outlines = dictionary! { "Type" => "Outlines", "First" => intro };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Outlines" => outlines_id,
+            "Dests" => dests,
+            "Names" => dictionary! { "Dests" => name_tree },
+        });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
+        assert_eq!(actual, [("Intro", 1), ("Outro", 2), ("Summary", 2)]);
+        assert!(toc.errors.is_empty());
+    }
+
+    #[test]
     fn skip_destinations_without_page_reference() {
         let mut doc = Document::with_version("1.7");
         let pages_id = doc.new_object_id();
