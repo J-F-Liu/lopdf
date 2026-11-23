@@ -4,7 +4,7 @@ use std::path::Path;
 use std::vec;
 
 use super::Object::*;
-use super::{Dictionary, Document, Object, Stream, StringFormat};
+use super::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use crate::encryption;
 use crate::{IncrementalDocument, xref::*};
 
@@ -169,7 +169,6 @@ impl Document {
         &mut self, target: &mut W, options: crate::SaveOptions, style: Style,
     ) -> Result<()> {
         use crate::ObjectStream;
-        use std::collections::HashMap;
 
         // Ensure PDF version is at least 1.5 (required for object streams)
         if self.version.as_str() < "1.5" {
@@ -191,10 +190,15 @@ impl Document {
         let mut xref = Xref::new(self.max_id.saturating_add(1), self.reference_table.cross_reference_type);
         self.write_header(&mut target, style)?;
 
-        // Organize objects into streams
-        let mut object_streams: Vec<crate::ObjectStream> = Vec::new();
+        // Group the objects that go into object streams, borrowed: a stream is serialized from the
+        // objects where they are, so saving does not hold a second copy of them.
+        // The builder of `SaveOptions` reads 0 as the default; so does a config filled in by hand.
+        let max_objects = match options.object_stream_config.max_objects_per_stream {
+            0 => crate::ObjectStreamConfig::default().max_objects_per_stream,
+            max_objects => max_objects,
+        };
+        let mut object_streams: Vec<Vec<(ObjectId, &Object)>> = Vec::new();
         let mut objects_to_write_directly = Vec::new();
-        let mut object_to_stream_map = HashMap::new();
 
         // Categorize objects
         for (&(id, generation), object) in &self.objects {
@@ -208,27 +212,14 @@ impl Document {
             }
 
             if generation == 0 && ObjectStream::can_be_compressed((id, generation), object, self) {
-                // Object can be compressed
-                // Find or create an object stream for it
-                let stream_index = object_streams.len().saturating_sub(1);
-
-                if object_streams.is_empty()
-                    || object_streams[stream_index].object_count()
-                        >= options.object_stream_config.max_objects_per_stream
-                {
-                    // Create new object stream
-                    let new_stream = ObjectStream::builder()
-                        .max_objects(options.object_stream_config.max_objects_per_stream)
-                        .compression_level(options.object_stream_config.compression_level)
-                        .build();
-                    object_streams.push(new_stream);
+                match object_streams.last_mut() {
+                    Some(members) if members.len() < max_objects => members.push(((id, generation), object)),
+                    _ => {
+                        let mut members = Vec::with_capacity(max_objects.min(1024));
+                        members.push(((id, generation), object));
+                        object_streams.push(members);
+                    }
                 }
-
-                let stream_index = object_streams.len() - 1;
-                object_streams[stream_index]
-                    .add_object((id, generation), object.clone())
-                    .ok();
-                object_to_stream_map.insert((id, generation), stream_index);
             } else {
                 // Object must be written directly
                 objects_to_write_directly.push(((id, generation), object));
@@ -242,15 +233,14 @@ impl Document {
 
         // Write object streams
         let mut last_id = self.max_id;
-        for obj_stream in object_streams.into_iter() {
+        for members in object_streams {
             let stream_id = Self::next_generated_id(&mut last_id)?;
-            let stream_obj = obj_stream
-                .to_styled_stream_object(style)
-                .map_err(std::io::Error::other)?;
+            // The members are in id order, which is the order the stream stores them in.
+            let stream_obj =
+                ObjectStream::styled_stream_of(&members, options.object_stream_config.compression_level, style)
+                    .map_err(std::io::Error::other)?;
 
-            // Record compressed objects in xref. The index must match the order
-            // the stream actually stores its members in.
-            for (index_in_stream, obj_id) in obj_stream.sorted_object_ids().iter().enumerate() {
+            for (index_in_stream, (obj_id, _)) in members.iter().enumerate() {
                 xref.insert(
                     obj_id.0,
                     XrefEntry::Compressed {
