@@ -141,9 +141,9 @@ impl ToUnicodeCMap {
         let mut rev_map = HashMap::new();
         let mut entries = 0usize;
 
-        'ranges: for code_len_idx in 0..self.bf_ranges.len() {
+        'ranges: for (code_len_idx, ranges) in self.bf_ranges.iter().enumerate() {
             let code_len = (code_len_idx + 1) as u8;
-            for (range, target) in self.bf_ranges[code_len_idx].iter() {
+            for (range, target) in ranges.iter() {
                 for src_code in range.clone() {
                     let unicode_sequence: Option<Vec<u16>> = match target {
                         BfRangeTarget::UTF16CodePoint { offset } => {
