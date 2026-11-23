@@ -160,6 +160,11 @@ impl Document {
                     title: s,
                     page: *page_num as usize,
                 });
+            } else {
+                let title = decode_text_string(&Object::string_literal(title)).unwrap_or_default();
+                toc.errors.push(format!(
+                    "Outline item {title:?} doesn't point to a page of this document, skipped"
+                ));
             }
         }
         Ok(toc)
@@ -587,6 +592,60 @@ mod tests {
             [
                 "Outline item title /Chapter isn't a string, skipped",
                 "Outline item title 42 isn't a string, skipped",
+            ]
+        );
+    }
+
+    #[test]
+    fn report_destinations_to_missing_pages() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        // A page that was removed from the page tree, and a reference to an object that isn't there.
+        let removed_page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let missing = doc.new_object_id();
+
+        let outlines_id = doc.new_object_id();
+        let after = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("After"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+        });
+        let dangling = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Dangling"),
+            "Parent" => outlines_id,
+            "A" => dictionary! { "S" => "GoTo", "D" => vec![missing.into(), "Fit".into()] },
+            "Next" => after,
+        });
+        let removed = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Removed"),
+            "Parent" => outlines_id,
+            "Dest" => vec![removed_page.into(), "Fit".into()],
+            "Next" => dangling,
+        });
+        let before = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Before"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+            "Next" => removed,
+        });
+        let outlines = dictionary! { "Type" => "Outlines", "First" => before };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id =
+            doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id, "Outlines" => outlines_id });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
+        assert_eq!(actual, [("Before", 1), ("After", 1)]);
+        assert_eq!(
+            toc.errors,
+            [
+                "Outline item \"Removed\" doesn't point to a page of this document, skipped",
+                "Outline item \"Dangling\" doesn't point to a page of this document, skipped",
             ]
         );
     }
