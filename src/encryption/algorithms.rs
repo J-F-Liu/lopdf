@@ -5,7 +5,6 @@ use crate::encryption::Permissions;
 use crate::{Document, Error, Object};
 use aes::cipher::{BlockModeDecrypt as _, BlockModeEncrypt as _, KeyInit as _, KeyIvInit as _};
 use md5::{Digest as _, Md5};
-use rand::RngExt as _;
 use sha2::{Sha256, Sha384, Sha512};
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
@@ -676,8 +675,7 @@ impl PasswordAlgorithm {
         // Pad the final RC4 output to 32 bytes; that is /U.
         result.resize(32, 0);
 
-        let mut rng = rand::rng();
-        rng.fill(&mut result[16..]);
+        getrandom::fill(&mut result[16..]).expect("OS random number generator failed");
 
         Ok(result)
     }
@@ -820,7 +818,7 @@ impl PasswordAlgorithm {
         &self, file_encryption_key: &[u8], password: &[u8], user_key: Option<&[u8]>,
     ) -> Result<(Vec<u8>, Vec<u8>), DecryptionError> {
         let mut value = [0u8; 48];
-        rand::rng().fill(&mut value[32..]);
+        getrandom::fill(&mut value[32..]).expect("OS random number generator failed");
 
         let validation_salt = &value[32..][..8];
         let hashed = self.compute_hash(password, validation_salt, user_key)?;
@@ -857,8 +855,7 @@ impl PasswordAlgorithm {
         bytes[9..][..3].copy_from_slice(b"adb");
 
         // Set bytes 12-15 to 4 bytes of random data, which will be ignored.
-        let mut rng = rand::rng();
-        rng.fill(&mut bytes[12..][..4]);
+        getrandom::fill(&mut bytes[12..][..4]).expect("OS random number generator failed");
 
         // Encrypt the 16-byte block using AES-256 in ECB mode with an initialization vector of
         // zero, using the file encryption key as the key.

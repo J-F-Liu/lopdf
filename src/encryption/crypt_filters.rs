@@ -4,7 +4,6 @@ use super::rc4::Rc4;
 use crate::ObjectId;
 use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use md5::{Digest as _, Md5};
-use rand::RngExt as _;
 
 type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
@@ -108,10 +107,10 @@ macro_rules! aes_cbc_crypt_filter {
                 // combined.
                 let mut ciphertext = Vec::with_capacity(16 + ciphertext_len);
 
-                // Generate random numbers to populate the initialization vector.
-                let mut rng = rand::rng();
+                // Populate the initialization vector from the operating system's RNG rather than a
+                // userspace generator, which would repeat its output in a forked child process.
                 let mut iv = [0u8; 16];
-                rng.fill(&mut iv);
+                getrandom::fill(&mut iv).expect("OS random number generator failed");
 
                 // Combine the IV and the plaintext.
                 ciphertext.extend_from_slice(&iv);
