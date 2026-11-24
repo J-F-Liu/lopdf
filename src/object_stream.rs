@@ -171,11 +171,21 @@ impl ObjectStream {
     /// them in that order. The order comes from [`Self::sorted_object_ids`], so
     /// the body and the cross-reference indices cannot drift apart.
     fn sorted_serializations(&self, style: Style) -> Result<Vec<(ObjectId, Vec<u8>)>> {
-        self.sorted_object_ids()
+        let members: Vec<(ObjectId, &Object)> = self
+            .sorted_object_ids()
             .into_iter()
-            .map(|id| {
+            .map(|id| (id, &self.objects[&id]))
+            .collect();
+        Self::serializations(&members, style)
+    }
+
+    /// `members`, in the order given, each paired with its serialization.
+    fn serializations(members: &[(ObjectId, &Object)], style: Style) -> Result<Vec<(ObjectId, Vec<u8>)>> {
+        members
+            .iter()
+            .map(|&(id, object)| {
                 let mut bytes = Vec::new();
-                Writer::write_styled_object(&mut bytes, &self.objects[&id], style)?;
+                Writer::write_styled_object(&mut bytes, object, style)?;
                 Ok((id, bytes))
             })
             .collect()
@@ -221,8 +231,11 @@ impl ObjectStream {
         if self.objects.is_empty() {
             return Ok((Vec::new(), 0));
         }
+        Self::body_of(self.sorted_serializations(style)?)
+    }
 
-        let members = self.sorted_serializations(style)?;
+    /// The body and `/First` offset of an object stream holding `members` in this order.
+    fn body_of(members: Vec<(ObjectId, Vec<u8>)>) -> Result<(Vec<u8>, usize)> {
         let table = Self::offset_table(&members);
         let first_offset = table.len();
 
@@ -247,18 +260,34 @@ impl ObjectStream {
     /// writes them.
     pub(crate) fn to_styled_stream_object(&self, style: Style) -> Result<Stream> {
         let (content, first_offset) = self.build_body(style)?;
+        Self::stream_of(content, first_offset, self.objects.len(), self.compression_level)
+    }
 
+    /// The object stream holding `members` (in this order, which must be the id order) as
+    /// [`Self::to_styled_stream_object`] builds it, serialized from the objects where they are
+    /// instead of from copies held by an [`ObjectStream`].
+    pub(crate) fn styled_stream_of(
+        members: &[(ObjectId, &Object)], compression_level: u32, style: Style,
+    ) -> Result<Stream> {
+        if members.is_empty() {
+            return Self::stream_of(Vec::new(), 0, 0, compression_level);
+        }
+        let (content, first_offset) = Self::body_of(Self::serializations(members, style)?)?;
+        Self::stream_of(content, first_offset, members.len(), compression_level)
+    }
+
+    fn stream_of(content: Vec<u8>, first_offset: usize, count: usize, compression_level: u32) -> Result<Stream> {
         let dict = dictionary! {
             "Type" => "ObjStm",
-            "N" => self.objects.len() as i64,
+            "N" => count as i64,
             "First" => first_offset as i64,
         };
 
         let mut stream = Stream::new(dict, content);
 
         // Apply compression - object streams should always be compressed
-        if self.compression_level > 0 {
-            let compressed = crate::object::zlib_compress(&stream.content, self.compression_level)?;
+        if compression_level > 0 {
+            let compressed = crate::object::zlib_compress(&stream.content, compression_level)?;
             stream.dict.set("Filter", "FlateDecode");
             stream.set_content(compressed);
         }
