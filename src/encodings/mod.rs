@@ -8,7 +8,6 @@ pub use self::glyphnames::Glyph;
 pub use self::mappings::*;
 use crate::Error;
 use crate::Result;
-use crate::parser_aux::substr;
 use cmap::ToUnicodeCMap;
 use encoding_rs::UTF_16BE;
 use log::debug;
@@ -164,9 +163,8 @@ impl Encoding<'_> {
             }
             Self::SimpleEncoding(b"WinAnsiEncoding") => write_to_bytes(&WIN_ANSI_ENCODING, text, out),
             Self::UnicodeMapEncoding(unicode_map) => {
-                let mut i = 0;
-                while i < text.chars().count() {
-                    let current_unicode_seq: Vec<u16> = substr(text, i, 1).encode_utf16().collect();
+                for c in text.chars() {
+                    let current_unicode_seq: Vec<u16> = c.encode_utf16(&mut [0u16; 2]).to_vec();
 
                     if let Some(entries) = unicode_map.get_source_codes_for_unicode(&current_unicode_seq) {
                         if let Some(entry) = entries.first() {
@@ -197,7 +195,6 @@ impl Encoding<'_> {
                             "Unicode sequence {current_unicode_seq:04X?} not found in ToUnicode CMap, skipping."
                         );
                     }
-                    i += 1;
                 }
             }
             Self::SimpleEncoding(_) => {
