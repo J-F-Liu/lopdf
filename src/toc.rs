@@ -597,6 +597,57 @@ mod tests {
     }
 
     #[test]
+    fn report_action_titles_that_are_not_strings() {
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id });
+        let pages = dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 };
+        doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+        // Items that use /A with a /Title written directly as a name and as a number.
+        let outlines_id = doc.new_object_id();
+        let after = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("After"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+        });
+        let number = doc.add_object(dictionary! {
+            "Title" => 7,
+            "Parent" => outlines_id,
+            "A" => dictionary! { "S" => "GoTo", "D" => vec![page_id.into(), "Fit".into()] },
+            "Next" => after,
+        });
+        let name = doc.add_object(dictionary! {
+            "Title" => "Chapter",
+            "Parent" => outlines_id,
+            "A" => dictionary! { "S" => "GoTo", "D" => vec![page_id.into(), "Fit".into()] },
+            "Next" => number,
+        });
+        let before = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Before"),
+            "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), "Fit".into()],
+            "Next" => name,
+        });
+        let outlines = dictionary! { "Type" => "Outlines", "First" => before };
+        doc.objects.insert(outlines_id, Object::Dictionary(outlines));
+        let catalog_id =
+            doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id, "Outlines" => outlines_id });
+        doc.trailer.set("Root", catalog_id);
+
+        let toc = doc.get_toc().unwrap();
+        let actual: Vec<_> = toc.toc.iter().map(|entry| (entry.title.as_str(), entry.page)).collect();
+        assert_eq!(actual, [("Before", 1), ("After", 1)]);
+        assert_eq!(
+            toc.errors,
+            [
+                "Outline item title /Chapter isn't a string, skipped",
+                "Outline item title 7 isn't a string, skipped",
+            ]
+        );
+    }
+
+    #[test]
     fn report_destinations_to_missing_pages() {
         let mut doc = Document::with_version("1.7");
         let pages_id = doc.new_object_id();

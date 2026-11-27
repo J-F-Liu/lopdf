@@ -26,15 +26,7 @@ impl Document {
         if command != b"GoTo" && command != b"GoToR" {
             return Err(Error::InvalidOutline("Expected GoTo or GoToR".to_string()));
         }
-        let title_obj = node.get(b"Title")?;
-        let title_ref = match title_obj.as_reference() {
-            Ok(o) => o,
-            Err(_) => match title_obj.as_str() {
-                Ok(_) => return self.build_outline_result(action.get(b"D")?, title_obj, named_destinations),
-                Err(err) => return Err(err),
-            },
-        };
-        self.build_outline_result(action.get(b"D")?, self.get_object(title_ref)?, named_destinations)
+        self.build_outline_result(action.get(b"D")?, node.get_deref(b"Title", self)?, named_destinations)
     }
 
     pub fn get_outlines(
